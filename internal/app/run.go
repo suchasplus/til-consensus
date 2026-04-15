@@ -89,7 +89,7 @@ func runCommand(ctx context.Context, cmd *cli.Command) error {
 			observer.NewJSONL(plan.EventsPath),
 			output.EventObserver(),
 		),
-		Ledger:       observer.NewLedger(plan.LedgerPath),
+		Ledger:       observer.NewLedger(plan.LedgerPath, plan.ManifestPath),
 		SessionStore: memorystore.New(),
 		ArtifactDir:  plan.ArtifactsDir,
 	})

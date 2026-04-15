@@ -15,6 +15,7 @@ type ResolvedRunPlan struct {
 	Task         string
 	Roles        consensus.RoleAssignments
 	LedgerPath   string
+	ManifestPath string
 	EventsPath   string
 	ResultPath   string
 	SummaryPath  string
@@ -77,6 +78,7 @@ func ResolveRunPlan(loaded LoadedConfig, input RunInput, overrides RunOverrides,
 	}
 	baseDir = resolveOutputPath(baseDir, loaded.ConfigDir, requestID)
 	ledgerPath := resolveOutputPath(fallbackPath(cfg.Output.LedgerPath, filepath.Join(baseDir, "ledger.jsonl")), loaded.ConfigDir, requestID)
+	manifestPath := resolveOutputPath(filepath.Join(artifactsDirPlaceholder(cfg.Output.ArtifactsDir, baseDir), "manifest.jsonl"), loaded.ConfigDir, requestID)
 	eventsPath := resolveOutputPath(fallbackPath(cfg.Output.EventsPath, filepath.Join(baseDir, "events.jsonl")), loaded.ConfigDir, requestID)
 	resultPath := resolveOutputPath(fallbackPath(cfg.Output.ResultPath, filepath.Join(baseDir, "result.json")), loaded.ConfigDir, requestID)
 	summaryPath := resolveOutputPath(fallbackPath(cfg.Output.SummaryPath, filepath.Join(baseDir, "summary.md")), loaded.ConfigDir, requestID)
@@ -114,6 +116,7 @@ func ResolveRunPlan(loaded LoadedConfig, input RunInput, overrides RunOverrides,
 		Task:         task,
 		Roles:        roles,
 		LedgerPath:   ledgerPath,
+		ManifestPath: manifestPath,
 		EventsPath:   eventsPath,
 		ResultPath:   resultPath,
 		SummaryPath:  summaryPath,
@@ -267,6 +270,13 @@ func pickStrings(values ...[]string) []string {
 func fallbackPath(value, fallback string) string {
 	if strings.TrimSpace(value) == "" {
 		return fallback
+	}
+	return value
+}
+
+func artifactsDirPlaceholder(value string, baseDir string) string {
+	if strings.TrimSpace(value) == "" {
+		return filepath.Join(baseDir, "artifacts")
 	}
 	return value
 }

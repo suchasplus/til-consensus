@@ -1,0 +1,3 @@
+goal: 判断这个架构结论是否有足够证据支持
+undetermined
+semantic

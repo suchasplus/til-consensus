@@ -1,0 +1,3 @@
+goal: 判断 benchmark 结果是否满足 p95 latency 小于 50ms
+benchmark
+task verdict:

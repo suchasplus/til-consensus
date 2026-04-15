@@ -65,12 +65,17 @@ type ProposalPolicy struct {
 }
 
 type VerificationCheck struct {
-	Name    string            `json:"name" yaml:"name"`
-	Kind    string            `json:"kind" yaml:"kind"`
-	Command string            `json:"command,omitempty" yaml:"command,omitempty"`
-	Args    []string          `json:"args,omitempty" yaml:"args,omitempty"`
-	Workdir string            `json:"workdir,omitempty" yaml:"workdir,omitempty"`
-	Env     map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
+	Name          string            `json:"name" yaml:"name"`
+	Kind          string            `json:"kind" yaml:"kind"`
+	Command       string            `json:"command,omitempty" yaml:"command,omitempty"`
+	Args          []string          `json:"args,omitempty" yaml:"args,omitempty"`
+	Workdir       string            `json:"workdir,omitempty" yaml:"workdir,omitempty"`
+	Env           map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
+	BaseRevision  string            `json:"baseRevision,omitempty" yaml:"base_revision,omitempty"`
+	Pattern       string            `json:"pattern,omitempty" yaml:"pattern,omitempty"`
+	Threshold     float64           `json:"threshold,omitempty" yaml:"threshold,omitempty"`
+	ThresholdMode string            `json:"thresholdMode,omitempty" yaml:"threshold_mode,omitempty"`
+	Paths         []string          `json:"paths,omitempty" yaml:"paths,omitempty"`
 }
 
 type VerificationPolicy struct {
@@ -154,8 +159,15 @@ func NormalizeStartRequest(in StartRequest) (StartRequest, error) {
 		out.VerificationPolicy.RequiredChecks[idx].Kind = strings.TrimSpace(out.VerificationPolicy.RequiredChecks[idx].Kind)
 		out.VerificationPolicy.RequiredChecks[idx].Command = strings.TrimSpace(out.VerificationPolicy.RequiredChecks[idx].Command)
 		out.VerificationPolicy.RequiredChecks[idx].Workdir = strings.TrimSpace(out.VerificationPolicy.RequiredChecks[idx].Workdir)
+		out.VerificationPolicy.RequiredChecks[idx].BaseRevision = strings.TrimSpace(out.VerificationPolicy.RequiredChecks[idx].BaseRevision)
+		out.VerificationPolicy.RequiredChecks[idx].Pattern = strings.TrimSpace(out.VerificationPolicy.RequiredChecks[idx].Pattern)
+		out.VerificationPolicy.RequiredChecks[idx].ThresholdMode = strings.TrimSpace(out.VerificationPolicy.RequiredChecks[idx].ThresholdMode)
 		out.VerificationPolicy.RequiredChecks[idx].Args = slices.Clone(out.VerificationPolicy.RequiredChecks[idx].Args)
 		out.VerificationPolicy.RequiredChecks[idx].Env = cloneStringMap(out.VerificationPolicy.RequiredChecks[idx].Env)
+		out.VerificationPolicy.RequiredChecks[idx].Paths = dedupeStrings(out.VerificationPolicy.RequiredChecks[idx].Paths)
+		if out.VerificationPolicy.RequiredChecks[idx].ThresholdMode == "" && out.VerificationPolicy.RequiredChecks[idx].Kind == "benchmark_threshold" {
+			out.VerificationPolicy.RequiredChecks[idx].ThresholdMode = "max"
+		}
 	}
 	if out.VerificationPolicy.MaxParallelChecks == 0 {
 		out.VerificationPolicy.MaxParallelChecks = DefaultMaxParallelChecks
@@ -216,12 +228,23 @@ func ValidateStartRequest(in StartRequest) error {
 			return fmt.Errorf("verification check name is required")
 		}
 		switch check.Kind {
-		case "command", "workspace_snapshot", "allowed_paths":
+		case "command", "workspace_snapshot", "allowed_paths", "git_diff_paths", "benchmark_threshold":
 		default:
 			return fmt.Errorf("unsupported verification check kind: %s", check.Kind)
 		}
 		if check.Kind == "command" && strings.TrimSpace(check.Command) == "" {
 			return fmt.Errorf("verification check %s: command is required", check.Name)
+		}
+		if check.Kind == "benchmark_threshold" {
+			if strings.TrimSpace(check.Command) == "" {
+				return fmt.Errorf("verification check %s: command is required", check.Name)
+			}
+			if check.Threshold == 0 {
+				return fmt.Errorf("verification check %s: threshold is required", check.Name)
+			}
+			if check.ThresholdMode != "" && check.ThresholdMode != "max" && check.ThresholdMode != "min" {
+				return fmt.Errorf("verification check %s: threshold_mode must be max or min", check.Name)
+			}
 		}
 	}
 	if in.WaitingPolicy.PerTaskTimeout <= 0 {

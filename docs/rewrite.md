@@ -62,6 +62,9 @@
   - 原始 worker 输出
   - verifier 命令日志
   - parse 错误文本
+- `artifacts/manifest.jsonl`
+  - artifact 反向索引
+  - 每条记录都指回对应的 ledger `entryId`
 
 ## Claim 裁决语义
 
@@ -198,6 +201,8 @@ roles:
   - `workspace_snapshot`
   - `allowed_paths`
   - `command`
+  - `git_diff_paths`
+  - `benchmark_threshold`
 - semantic verifier
   - 通过独立 agent 对 claim 做语义验证
   - 输出仍然落到 ledger
@@ -208,6 +213,27 @@ roles:
 - `TIL_CONSENSUS_SESSION_ID`
 - `TIL_CONSENSUS_CLAIM_ID`
 - `TIL_CONSENSUS_WORKSPACE_ROOT`
+
+`benchmark_threshold` 支持：
+
+- `pattern`
+  - 从 stdout/stderr artifact 中提取数值
+- `threshold`
+- `threshold_mode`
+  - `max`
+  - `min`
+
+`git_diff_paths` 会用 `base_revision` 或 `workspace_snapshot.revision` 作为基线，对当前工作区执行 `git diff --name-only`，并按允许路径做裁决。
+
+## 样例
+
+仓库内置了可直接复用的样例输入，位于：
+
+- [patch-fix](/Users/suchasplus/agentic/til-consensus/testdata/scenarios/patch-fix/run.yaml)
+- [benchmark-claim](/Users/suchasplus/agentic/til-consensus/testdata/scenarios/benchmark-claim/run.yaml)
+- [architecture-claim](/Users/suchasplus/agentic/til-consensus/testdata/scenarios/architecture-claim/run.yaml)
+
+这些样例会被单元测试直接加载，用来约束新 schema 和计划解析逻辑。
 
 ## 当前边界
 

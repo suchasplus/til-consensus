@@ -1,0 +1,29 @@
+task_spec:
+  goal: 判断 benchmark 结果是否满足 p95 latency 小于 50ms
+  success_criteria:
+    - benchmark 数据必须可重复验证
+  allowed_tools:
+    - benchmarks
+    - shell
+  constraints:
+    allowed_paths:
+      - benchmarks
+    notes:
+      - 使用 benchmark_threshold 检查
+  workspace_snapshot:
+    root: .
+
+roles:
+  proposers: [proposer-a]
+  challengers: [challenger-a]
+  arbiter: arbiter-a
+
+verification_policy:
+  required_checks:
+    - name: p95-latency
+      kind: benchmark_threshold
+      command: sh
+      args: ["-c", "printf 'p95_ms=42.5\n'"]
+      pattern: "p95_ms=([0-9.]+)"
+      threshold: 50
+      threshold_mode: max

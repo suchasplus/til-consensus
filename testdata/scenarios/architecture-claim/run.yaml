@@ -1,0 +1,31 @@
+task_spec:
+  goal: 判断这个架构结论是否有足够证据支持
+  success_criteria:
+    - 没有足够证据时必须给出 undetermined
+  allowed_tools:
+    - docs
+    - semantic-verifier
+  materials:
+    - id: proposal
+      kind: markdown
+      title: architecture proposal
+      path: ./proposal.md
+    - id: metrics
+      kind: markdown
+      title: production metrics
+      path: ./metrics.md
+
+roles:
+  proposers: [proposer-a]
+  challengers: [challenger-a]
+  arbiter: arbiter-a
+  semantic_verifier: verifier-a
+  reporter: reporter-a
+
+verification_policy:
+  allow_semantic_verifier: true
+  required_checks:
+    - name: cited-evidence
+      kind: command
+      command: sh
+      args: ["-c", "printf 'citations=2\n'"]

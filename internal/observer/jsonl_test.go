@@ -43,7 +43,8 @@ func TestJSONLObserverWritesRunEvents(t *testing.T) {
 
 func TestLedgerWriterAppendsMonotonicSeq(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "ledger.jsonl")
-	writer := NewLedger(path)
+	manifestPath := filepath.Join(t.TempDir(), "artifacts", "manifest.jsonl")
+	writer := NewLedger(path, manifestPath)
 	for idx := 0; idx < 2; idx++ {
 		if _, err := writer.Append(context.Background(), consensus.EvidenceRecord{
 			SchemaVersion: 1,
@@ -76,5 +77,47 @@ func TestLedgerWriterAppendsMonotonicSeq(t *testing.T) {
 	}
 	if first.Seq != 0 || second.Seq != 1 {
 		t.Fatalf("unexpected seq values: %d %d", first.Seq, second.Seq)
+	}
+}
+
+func TestLedgerWriterWritesArtifactManifest(t *testing.T) {
+	tmp := t.TempDir()
+	ledgerPath := filepath.Join(tmp, "ledger.jsonl")
+	manifestPath := filepath.Join(tmp, "artifacts", "manifest.jsonl")
+	writer := NewLedger(ledgerPath, manifestPath)
+	_, err := writer.Append(context.Background(), consensus.EvidenceRecord{
+		SchemaVersion: 1,
+		EntryID:       "entry-1",
+		RequestID:     "req-1",
+		SessionID:     "session-1",
+		ClaimID:       "claim-1",
+		Kind:          consensus.EvidenceKindDeterministicCheck,
+		Source:        consensus.EvidenceSourceVerifier,
+		ProducerRole:  "verifier",
+		Summary:       "check result",
+		Artifact: &consensus.ArtifactRef{
+			Path:      "/tmp/output.log",
+			Hash:      "abc123",
+			MediaType: "text/plain",
+		},
+		CreatedAt: time.Unix(1, 0).UTC().Format(time.RFC3339Nano),
+	})
+	if err != nil {
+		t.Fatalf("append failed: %v", err)
+	}
+	body, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(body)), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("expected one manifest line, got %d", len(lines))
+	}
+	var entry consensus.ArtifactManifestEntry
+	if err := json.Unmarshal([]byte(lines[0]), &entry); err != nil {
+		t.Fatalf("decode manifest entry: %v", err)
+	}
+	if entry.EntryID != "entry-1" || entry.Artifact.Hash != "abc123" {
+		t.Fatalf("unexpected manifest entry: %#v", entry)
 	}
 }

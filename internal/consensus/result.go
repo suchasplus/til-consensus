@@ -33,6 +33,21 @@ type ArtifactRef struct {
 	MediaType string `json:"mediaType,omitempty"`
 }
 
+type ArtifactManifestEntry struct {
+	SchemaVersion  int          `json:"schemaVersion"`
+	Seq            int          `json:"seq"`
+	EntryID        string       `json:"entryId"`
+	RequestID      string       `json:"requestId"`
+	SessionID      string       `json:"sessionId"`
+	ClaimID        string       `json:"claimId,omitempty"`
+	ChallengeID    string       `json:"challengeId,omitempty"`
+	VerificationID string       `json:"verificationId,omitempty"`
+	Kind           EvidenceKind `json:"kind"`
+	ProducerRole   string       `json:"producerRole,omitempty"`
+	Artifact       ArtifactRef  `json:"artifact"`
+	LoggedAt       string       `json:"loggedAt"`
+}
+
 type ClaimNode struct {
 	ClaimID          string         `json:"claimId"`
 	Title            string         `json:"title,omitempty"`
@@ -129,6 +144,7 @@ type VerificationResult struct {
 	ChallengeID       string             `json:"challengeId,omitempty"`
 	Kind              string             `json:"kind"`
 	Status            VerificationStatus `json:"status"`
+	FailureCode       string             `json:"failureCode,omitempty"`
 	Summary           string             `json:"summary"`
 	EvidenceRef       string             `json:"evidenceRef,omitempty"`
 	Artifact          *ArtifactRef       `json:"artifact,omitempty"`

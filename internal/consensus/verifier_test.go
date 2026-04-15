@@ -3,6 +3,7 @@ package consensus
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -75,6 +76,9 @@ func TestAllowedPathsCheckRejectsOutOfScopePath(t *testing.T) {
 	if result.Status != VerificationStatusFailed {
 		t.Fatalf("expected failed allowed paths check, got %#v", result)
 	}
+	if result.FailureCode != "path_out_of_scope" {
+		t.Fatalf("unexpected failure code: %#v", result)
+	}
 }
 
 func TestCommandCheckWritesArtifactAndInjectsContextEnv(t *testing.T) {
@@ -115,5 +119,114 @@ func TestCommandCheckWritesArtifactAndInjectsContextEnv(t *testing.T) {
 	}
 	if !strings.Contains(string(body), "req-123|session-456|claim-789") {
 		t.Fatalf("artifact missing injected env values: %s", string(body))
+	}
+}
+
+func TestGitDiffPathsCheckRejectsChangedFileOutsideScope(t *testing.T) {
+	root := t.TempDir()
+	runGit(t, root, "init")
+	runGit(t, root, "config", "user.email", "test@example.com")
+	runGit(t, root, "config", "user.name", "Test User")
+	mkdirAll(t, filepath.Join(root, "allowed"))
+	mkdirAll(t, filepath.Join(root, "blocked"))
+	writeFile(t, filepath.Join(root, "allowed", "a.txt"), "a")
+	writeFile(t, filepath.Join(root, "blocked", "b.txt"), "b")
+	runGit(t, root, "add", ".")
+	runGit(t, root, "commit", "-m", "init")
+	baseRevision := strings.TrimSpace(string(runGit(t, root, "rev-parse", "HEAD")))
+	writeFile(t, filepath.Join(root, "blocked", "b.txt"), "changed")
+
+	verifier := NewCompositeVerifier(CompositeVerifierDeps{IDFactory: &deterministicIDs{}})
+	req := VerificationRequest{
+		Request: StartRequest{
+			RequestID: "req-1",
+			TaskSpec: TaskSpec{
+				Goal: "verify",
+				WorkspaceSnapshot: &WorkspaceSnapshot{
+					Root: root,
+				},
+				Constraints: TaskConstraints{
+					AllowedPaths: []string{"allowed"},
+				},
+			},
+		},
+		SessionID: "session-1",
+		Claim:     ClaimNode{ClaimID: "claim-1"},
+	}
+	result := verifier.runGitDiffPathsCheck(context.Background(), req, VerificationCheck{
+		Name:         "git-diff",
+		Kind:         "git_diff_paths",
+		BaseRevision: baseRevision,
+	})
+	if result.Status != VerificationStatusFailed || result.FailureCode != "git_diff_path_out_of_scope" {
+		t.Fatalf("expected git diff out-of-scope failure, got %#v", result)
+	}
+}
+
+func TestBenchmarkThresholdCheckPassesAndFails(t *testing.T) {
+	root := t.TempDir()
+	verifier := NewCompositeVerifier(CompositeVerifierDeps{
+		IDFactory:   &deterministicIDs{},
+		ArtifactDir: filepath.Join(root, "artifacts"),
+	})
+	req := VerificationRequest{
+		Request: StartRequest{
+			RequestID: "req-1",
+			TaskSpec: TaskSpec{
+				Goal: "benchmark",
+			},
+		},
+		SessionID: "session-1",
+		Claim:     ClaimNode{ClaimID: "claim-1"},
+	}
+	pass := verifier.runBenchmarkThresholdCheck(context.Background(), req, VerificationCheck{
+		Name:          "bench",
+		Kind:          "benchmark_threshold",
+		Command:       "sh",
+		Args:          []string{"-c", `printf 'p95_ms=42.5\n'`},
+		Pattern:       `p95_ms=([0-9.]+)`,
+		Threshold:     50,
+		ThresholdMode: "max",
+		Workdir:       root,
+	})
+	if pass.Status != VerificationStatusPassed {
+		t.Fatalf("expected passing benchmark, got %#v", pass)
+	}
+	fail := verifier.runBenchmarkThresholdCheck(context.Background(), req, VerificationCheck{
+		Name:          "bench",
+		Kind:          "benchmark_threshold",
+		Command:       "sh",
+		Args:          []string{"-c", `printf 'p95_ms=71.2\n'`},
+		Pattern:       `p95_ms=([0-9.]+)`,
+		Threshold:     50,
+		ThresholdMode: "max",
+		Workdir:       root,
+	})
+	if fail.Status != VerificationStatusFailed || fail.FailureCode != "benchmark_threshold_exceeded" {
+		t.Fatalf("expected failed benchmark threshold, got %#v", fail)
+	}
+}
+
+func runGit(t *testing.T, dir string, args ...string) []byte {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v failed: %v\n%s", args, err, string(output))
+	}
+	return output
+}
+
+func mkdirAll(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeFile(t *testing.T, path string, body string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }

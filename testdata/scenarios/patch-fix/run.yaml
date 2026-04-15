@@ -1,0 +1,37 @@
+task_spec:
+  goal: 判断这个 patch 是否真的修复了 race condition
+  success_criteria:
+    - 只按 claim 粒度裁决
+    - 证据不足时输出 undetermined
+  allowed_tools:
+    - repo
+    - tests
+  workspace_snapshot:
+    root: .
+  constraints:
+    allowed_paths:
+      - internal/consensus
+    required_commands:
+      - go test ./...
+  materials:
+    - id: patch
+      kind: diff
+      title: patch diff
+      path: ./patch.diff
+
+roles:
+  proposers: [proposer-a]
+  challengers: [challenger-a]
+  arbiter: arbiter-a
+  reporter: reporter-a
+
+verification_policy:
+  required_checks:
+    - name: workspace
+      kind: workspace_snapshot
+    - name: changed-paths
+      kind: git_diff_paths
+    - name: unit-tests
+      kind: command
+      command: go
+      args: ["test", "./..."]

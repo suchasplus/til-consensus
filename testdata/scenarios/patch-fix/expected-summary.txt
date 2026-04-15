@@ -1,0 +1,4 @@
+goal: 判断这个 patch 是否真的修复了 race condition
+task verdict:
+claims:
+verifications run:

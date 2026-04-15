@@ -1,0 +1,7 @@
+diff --git a/internal/consensus/engine.go b/internal/consensus/engine.go
+index 1111111..2222222 100644
+--- a/internal/consensus/engine.go
++++ b/internal/consensus/engine.go
+@@
+-// old implementation
++// new implementation

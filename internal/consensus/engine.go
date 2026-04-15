@@ -326,6 +326,16 @@ func (e *Engine) Start(ctx context.Context, input StartRequest) (_ *Adjudication
 			if finding.Kind == "semantic" {
 				kind = EvidenceKindSemanticVerification
 			}
+			metadata := map[string]any{
+				"kind":              finding.Kind,
+				"status":            finding.Status,
+				"failureCode":       finding.FailureCode,
+				"verdictSuggestion": finding.VerdictSuggestion,
+				"confidence":        finding.Confidence,
+			}
+			for key, value := range finding.Metadata {
+				metadata[key] = value
+			}
 			entry, err := e.appendEvidence(ctx, request, sessionID, &ledgerEntries, &ledgerCursor, EvidenceRecord{
 				ClaimID:        claim.ClaimID,
 				ChallengeID:    finding.ChallengeID,
@@ -335,12 +345,7 @@ func (e *Engine) Start(ctx context.Context, input StartRequest) (_ *Adjudication
 				ProducerRole:   "verifier",
 				Summary:        finding.Summary,
 				Artifact:       finding.Artifact,
-				Metadata: map[string]any{
-					"kind":              finding.Kind,
-					"status":            finding.Status,
-					"verdictSuggestion": finding.VerdictSuggestion,
-					"confidence":        finding.Confidence,
-				},
+				Metadata:       metadata,
 			})
 			if err != nil {
 				return nil, err
