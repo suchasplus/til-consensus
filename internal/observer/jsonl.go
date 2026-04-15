@@ -22,7 +22,7 @@ func NewJSONL(path string) *JSONLObserver {
 	return &JSONLObserver{path: path}
 }
 
-func (o *JSONLObserver) OnEvent(_ context.Context, event consensus.ConsensusEvent) error {
+func (o *JSONLObserver) OnEvent(_ context.Context, event consensus.RunEvent) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
@@ -37,12 +37,12 @@ func (o *JSONLObserver) OnEvent(_ context.Context, event consensus.ConsensusEven
 		_ = file.Close()
 	}()
 
-	record := consensus.ConsensusEventRecord{
-		Version:  1,
-		Kind:     "til-consensus.event",
-		Seq:      o.seq,
-		LoggedAt: time.Now().UTC().Format(time.RFC3339Nano),
-		Event:    event,
+	record := consensus.RunEventRecord{
+		SchemaVersion: 1,
+		Kind:          "til-consensus.event",
+		Seq:           o.seq,
+		LoggedAt:      time.Now().UTC().Format(time.RFC3339Nano),
+		Event:         event,
 	}
 	o.seq++
 	payload, err := json.Marshal(record)

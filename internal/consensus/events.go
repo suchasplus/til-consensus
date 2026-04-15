@@ -1,38 +1,31 @@
 package consensus
 
-type EventType string
+type RunEventType string
 
 const (
-	EventSessionStarted        EventType = "SessionStarted"
-	EventRoundDispatched       EventType = "RoundDispatched"
-	EventParticipantResponded  EventType = "ParticipantResponded"
-	EventParticipantEliminated EventType = "ParticipantEliminated"
-	EventClaimsMerged          EventType = "ClaimsMerged"
-	EventRoundCompleted        EventType = "RoundCompleted"
-	EventEarlyStopTriggered    EventType = "EarlyStopTriggered"
-	EventGlobalDeadlineHit     EventType = "GlobalDeadlineHit"
-	EventConsensusDrafted      EventType = "ConsensusDrafted"
-	EventReportDispatched      EventType = "ReportDispatched"
-	EventReportCompleted       EventType = "ReportCompleted"
-	EventActionDispatched      EventType = "ActionDispatched"
-	EventActionCompleted       EventType = "ActionCompleted"
-	EventActionFailed          EventType = "ActionFailed"
-	EventFinalized             EventType = "Finalized"
-	EventFailed                EventType = "Failed"
+	RunEventSessionStarted   RunEventType = "session_started"
+	RunEventPhaseChanged     RunEventType = "phase_changed"
+	RunEventTaskDispatched   RunEventType = "task_dispatched"
+	RunEventTaskCompleted    RunEventType = "task_completed"
+	RunEventTaskFailed       RunEventType = "task_failed"
+	RunEventLedgerAppended   RunEventType = "ledger_appended"
+	RunEventSessionFinalized RunEventType = "session_finalized"
+	RunEventSessionFailed    RunEventType = "session_failed"
 )
 
-type ConsensusEvent struct {
+type RunEvent struct {
 	SessionID string         `json:"sessionId"`
 	RequestID string         `json:"requestId"`
-	Type      EventType      `json:"type"`
+	Type      RunEventType   `json:"type"`
+	Phase     SessionPhase   `json:"phase,omitempty"`
 	At        string         `json:"at"`
 	Payload   map[string]any `json:"payload,omitempty"`
 }
 
-type ConsensusEventRecord struct {
-	Version  int            `json:"v"`
-	Kind     string         `json:"kind"`
-	Seq      int            `json:"seq"`
-	LoggedAt string         `json:"loggedAt"`
-	Event    ConsensusEvent `json:"event"`
+type RunEventRecord struct {
+	SchemaVersion int      `json:"schemaVersion"`
+	Kind          string   `json:"kind"`
+	Seq           int      `json:"seq"`
+	LoggedAt      string   `json:"loggedAt"`
+	Event         RunEvent `json:"event"`
 }

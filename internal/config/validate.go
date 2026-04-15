@@ -17,49 +17,103 @@ func Validate(cfg Config) error {
 	}
 	for name, provider := range cfg.Providers {
 		switch provider.Type {
-		case "mock":
-			if provider.Behavior == "" {
-				cfg.Providers[name] = provider
+		case ProviderTypeMock:
+		case ProviderTypeAPI:
+			if provider.Protocol != APIProtocolOpenAICompatible && provider.Protocol != APIProtocolAnthropicCompatible {
+				return fmt.Errorf("provider %s: unsupported protocol %q", name, provider.Protocol)
 			}
-		case "openai":
-			if provider.APIKeyEnv == "" {
-				return fmt.Errorf("provider %s: api_key_env is required", name)
+			if len(provider.Models) == 0 {
+				return fmt.Errorf("provider %s: models must not be empty", name)
 			}
-		case "command":
-			if strings.TrimSpace(provider.Command) == "" {
-				return fmt.Errorf("provider %s: command is required", name)
+		case ProviderTypeCLI:
+			if strings.TrimSpace(provider.CLIType) == "" {
+				return fmt.Errorf("provider %s: cli_type is required", name)
+			}
+			if len(provider.Models) == 0 {
+				return fmt.Errorf("provider %s: models must not be empty", name)
+			}
+			if provider.CLIType == CLITypeGeneric && strings.TrimSpace(provider.Command) == "" {
+				return fmt.Errorf("provider %s: command is required for generic cli provider", name)
+			}
+		case ProviderTypeSDK:
+			if strings.TrimSpace(provider.Adapter) == "" {
+				return fmt.Errorf("provider %s: adapter is required", name)
+			}
+			if len(provider.Models) == 0 {
+				return fmt.Errorf("provider %s: models must not be empty", name)
 			}
 		default:
 			return fmt.Errorf("provider %s: unsupported type %q", name, provider.Type)
 		}
+		for modelID, model := range provider.Models {
+			if strings.TrimSpace(modelID) == "" {
+				return fmt.Errorf("provider %s: model id must not be empty", name)
+			}
+			if model.MaxOutputTokens < 0 {
+				return fmt.Errorf("provider %s model %s: max_output_tokens must be >= 0", name, modelID)
+			}
+			if model.Temperature != nil && (*model.Temperature < 0 || *model.Temperature > 2) {
+				return fmt.Errorf("provider %s model %s: temperature must be in [0,2]", name, modelID)
+			}
+		}
 	}
-	seen := map[string]struct{}{}
+	knownAgents := map[string]struct{}{}
 	for _, agent := range cfg.Agents {
 		if strings.TrimSpace(agent.ID) == "" {
 			return fmt.Errorf("agent id is required")
 		}
-		if _, ok := seen[agent.ID]; ok {
+		if _, ok := knownAgents[agent.ID]; ok {
 			return fmt.Errorf("duplicate agent id: %s", agent.ID)
 		}
-		seen[agent.ID] = struct{}{}
+		knownAgents[agent.ID] = struct{}{}
+		if agent.Temperature != nil && (*agent.Temperature < 0 || *agent.Temperature > 2) {
+			return fmt.Errorf("agent %s: temperature must be in [0,2]", agent.ID)
+		}
 		provider, ok := cfg.Providers[agent.Provider]
 		if !ok {
 			return fmt.Errorf("agent %s: unknown provider %s", agent.ID, agent.Provider)
 		}
-		if provider.Type == "openai" && strings.TrimSpace(agent.Model) == "" && strings.TrimSpace(provider.Model) == "" {
-			return fmt.Errorf("agent %s: openai model must be set on agent or provider", agent.ID)
+		if len(provider.Models) > 0 {
+			if strings.TrimSpace(agent.Model) == "" {
+				return fmt.Errorf("agent %s: model is required", agent.ID)
+			}
+			if _, ok := provider.Models[agent.Model]; !ok {
+				return fmt.Errorf("agent %s: unknown model %s for provider %s", agent.ID, agent.Model, agent.Provider)
+			}
 		}
 	}
-	for _, id := range cfg.Defaults.DefaultAgents {
-		if _, ok := seen[id]; !ok {
-			return fmt.Errorf("default_agents references unknown agent %s", id)
+	for _, id := range cfg.Roles.Proposers {
+		if _, ok := knownAgents[id]; !ok {
+			return fmt.Errorf("roles.proposers references unknown agent %s", id)
 		}
 	}
-	if cfg.Defaults.MaxRounds > 0 && cfg.Defaults.MinRounds > cfg.Defaults.MaxRounds {
-		return fmt.Errorf("defaults.max_rounds must be >= defaults.min_rounds")
+	for _, id := range cfg.Roles.Challengers {
+		if _, ok := knownAgents[id]; !ok {
+			return fmt.Errorf("roles.challengers references unknown agent %s", id)
+		}
 	}
-	if cfg.Defaults.Threshold < 0 || cfg.Defaults.Threshold > 1 {
-		return fmt.Errorf("defaults.threshold must be in [0,1]")
+	for _, id := range []string{cfg.Roles.Arbiter, cfg.Roles.SemanticVerifier, cfg.Roles.Reporter, cfg.Roles.Actor} {
+		if id == "" {
+			continue
+		}
+		if _, ok := knownAgents[id]; !ok {
+			return fmt.Errorf("roles references unknown agent %s", id)
+		}
+	}
+	if len(cfg.Roles.Proposers) == 0 {
+		return fmt.Errorf("roles.proposers must not be empty")
+	}
+	if len(cfg.Roles.Challengers) == 0 {
+		return fmt.Errorf("roles.challengers must not be empty")
+	}
+	if cfg.Defaults.ProposalPolicy.MaxPasses < 0 {
+		return fmt.Errorf("defaults.proposal_policy.max_passes must be >= 0")
+	}
+	if cfg.Defaults.ProposalPolicy.MaxClaimsPerWorker < 0 {
+		return fmt.Errorf("defaults.proposal_policy.max_claims_per_worker must be >= 0")
+	}
+	if cfg.Defaults.VerificationPolicy.MaxParallelChecks < 0 {
+		return fmt.Errorf("defaults.verification_policy.max_parallel_checks must be >= 0")
 	}
 	return nil
 }

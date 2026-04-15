@@ -1,169 +1,160 @@
 package consensus
 
-type ClaimCategory string
-
-const (
-	ClaimCategoryPro      ClaimCategory = "pro"
-	ClaimCategoryCon      ClaimCategory = "con"
-	ClaimCategoryRisk     ClaimCategory = "risk"
-	ClaimCategoryTradeoff ClaimCategory = "tradeoff"
-	ClaimCategoryTodo     ClaimCategory = "todo"
-)
-
 type ClaimStatus string
 
 const (
-	ClaimStatusActive    ClaimStatus = "active"
-	ClaimStatusMerged    ClaimStatus = "merged"
-	ClaimStatusWithdrawn ClaimStatus = "withdrawn"
+	ClaimStatusProposed    ClaimStatus = "proposed"
+	ClaimStatusChallenged  ClaimStatus = "challenged"
+	ClaimStatusVerified    ClaimStatus = "verified"
+	ClaimStatusAdjudicated ClaimStatus = "adjudicated"
 )
 
-type Claim struct {
-	ClaimID    string        `json:"claimId"`
-	Title      string        `json:"title"`
-	Statement  string        `json:"statement"`
-	Category   ClaimCategory `json:"category,omitempty"`
-	ProposedBy []string      `json:"proposedBy"`
-	Status     ClaimStatus   `json:"status"`
-	MergedInto string        `json:"mergedInto,omitempty"`
-}
-
-type ClaimStance string
+type ClaimVerdict string
 
 const (
-	ClaimStanceAgree    ClaimStance = "agree"
-	ClaimStanceDisagree ClaimStance = "disagree"
-	ClaimStanceRevise   ClaimStance = "revise"
+	ClaimVerdictSupported            ClaimVerdict = "supported"
+	ClaimVerdictRefuted              ClaimVerdict = "refuted"
+	ClaimVerdictInsufficientEvidence ClaimVerdict = "insufficient_evidence"
+	ClaimVerdictUndetermined         ClaimVerdict = "undetermined"
 )
 
-type ClaimJudgement struct {
-	ClaimID          string      `json:"claimId"`
-	Stance           ClaimStance `json:"stance"`
-	Confidence       float64     `json:"confidence"`
-	Rationale        string      `json:"rationale"`
-	RevisedStatement string      `json:"revisedStatement,omitempty"`
-	MergesWith       string      `json:"mergesWith,omitempty"`
-}
-
-type ClaimVoteInput struct {
-	ClaimID string `json:"claimId"`
-	Vote    string `json:"vote"`
-	Reason  string `json:"reason,omitempty"`
-}
-
-type ClaimVote struct {
-	ParticipantID string `json:"participantId"`
-	ClaimID       string `json:"claimId"`
-	Vote          string `json:"vote"`
-	Reason        string `json:"reason,omitempty"`
-}
-
-type Phase string
+type TaskVerdict string
 
 const (
-	PhaseInitial   Phase = "initial"
-	PhaseDebate    Phase = "debate"
-	PhaseFinalVote Phase = "final_vote"
+	TaskVerdictSupported          TaskVerdict = "supported"
+	TaskVerdictPartiallySupported TaskVerdict = "partially_supported"
+	TaskVerdictUndetermined       TaskVerdict = "undetermined"
+	TaskVerdictFailed             TaskVerdict = "failed"
 )
 
-type ExtractedClaim struct {
-	ClaimID   string        `json:"claimId,omitempty"`
-	Title     string        `json:"title"`
-	Statement string        `json:"statement"`
-	Category  ClaimCategory `json:"category,omitempty"`
+type ArtifactRef struct {
+	Path      string `json:"path,omitempty"`
+	Hash      string `json:"hash,omitempty"`
+	MediaType string `json:"mediaType,omitempty"`
 }
 
-type ParticipantRoundOutput struct {
-	ParticipantID   string           `json:"participantId"`
-	Phase           Phase            `json:"phase"`
-	Round           int              `json:"round"`
-	FullResponse    string           `json:"fullResponse"`
-	ExtractedClaims []ExtractedClaim `json:"extractedClaims,omitempty"`
-	Judgements      []ClaimJudgement `json:"judgements"`
-	SelfScore       float64          `json:"selfScore,omitempty"`
-	Summary         string           `json:"summary"`
-	TaskTitle       string           `json:"taskTitle,omitempty"`
-	ClaimVotes      []ClaimVoteInput `json:"claimVotes,omitempty"`
-	RespondedAt     string           `json:"respondedAt,omitempty"`
+type ClaimNode struct {
+	ClaimID          string         `json:"claimId"`
+	Title            string         `json:"title,omitempty"`
+	Statement        string         `json:"statement"`
+	Scope            string         `json:"scope,omitempty"`
+	Dependencies     []string       `json:"dependencies,omitempty"`
+	Applicability    string         `json:"applicability,omitempty"`
+	Status           ClaimStatus    `json:"status"`
+	ProposedBy       []string       `json:"proposedBy"`
+	EvidenceRefs     []string       `json:"evidenceRefs,omitempty"`
+	ChallengeRefs    []string       `json:"challengeRefs,omitempty"`
+	VerificationRefs []string       `json:"verificationRefs,omitempty"`
+	Verdict          ClaimVerdict   `json:"verdict,omitempty"`
+	Confidence       float64        `json:"confidence,omitempty"`
+	Rationale        string         `json:"rationale,omitempty"`
+	Metadata         map[string]any `json:"metadata,omitempty"`
 }
 
-type ParticipantScoreBreakdown struct {
-	Correctness   float64 `json:"correctness,omitempty"`
-	Completeness  float64 `json:"completeness,omitempty"`
-	Actionability float64 `json:"actionability,omitempty"`
-	Consistency   float64 `json:"consistency,omitempty"`
-}
-
-type ParticipantRoundScore struct {
-	Round int     `json:"round"`
-	Score float64 `json:"score"`
-}
-
-type ParticipantScore struct {
-	ParticipantID string                     `json:"participantId"`
-	Total         float64                    `json:"total"`
-	ByRound       []ParticipantRoundScore    `json:"byRound"`
-	Breakdown     *ParticipantScoreBreakdown `json:"breakdown,omitempty"`
-}
-
-type OpinionShift struct {
-	ClaimID       string      `json:"claimId"`
-	ParticipantID string      `json:"participantId"`
-	From          string      `json:"from"`
-	To            ClaimStance `json:"to"`
-	Round         int         `json:"round"`
-	Reason        string      `json:"reason,omitempty"`
-}
-
-type ClaimResolutionStatus string
+type ChallengeStatus string
 
 const (
-	ClaimResolutionResolved   ClaimResolutionStatus = "resolved"
-	ClaimResolutionUnresolved ClaimResolutionStatus = "unresolved"
+	ChallengeStatusOpen   ChallengeStatus = "open"
+	ChallengeStatusClosed ChallengeStatus = "closed"
 )
 
-type ClaimResolution struct {
-	ClaimID     string                `json:"claimId"`
-	Status      ClaimResolutionStatus `json:"status"`
-	AcceptCount int                   `json:"acceptCount"`
-	RejectCount int                   `json:"rejectCount"`
-	TotalVoters int                   `json:"totalVoters"`
-	Votes       []ClaimVote           `json:"votes"`
+type ChallengeTicket struct {
+	TicketID          string          `json:"ticketId"`
+	ClaimID           string          `json:"claimId"`
+	Kind              string          `json:"kind"`
+	OpenedBy          string          `json:"openedBy"`
+	Statement         string          `json:"statement"`
+	Status            ChallengeStatus `json:"status"`
+	EvidenceRefs      []string        `json:"evidenceRefs,omitempty"`
+	VerificationRefs  []string        `json:"verificationRefs,omitempty"`
+	RequestedChecks   []string        `json:"requestedChecks,omitempty"`
+	ResolutionSummary string          `json:"resolutionSummary,omitempty"`
 }
 
-type FinalReport struct {
-	Mode                 string           `json:"mode"`
-	TraceIncluded        bool             `json:"traceIncluded"`
-	TraceLevel           TraceLevel       `json:"traceLevel"`
-	FinalSummary         string           `json:"finalSummary"`
-	RepresentativeSpeech string           `json:"representativeSpeech"`
-	OpinionShiftTimeline []OpinionShift   `json:"opinionShiftTimeline,omitempty"`
-	RoundHighlights      []RoundHighlight `json:"roundHighlights,omitempty"`
+type EvidenceSource string
+
+const (
+	EvidenceSourceCoordinator EvidenceSource = "coordinator"
+	EvidenceSourceWorker      EvidenceSource = "worker"
+	EvidenceSourceVerifier    EvidenceSource = "verifier"
+	EvidenceSourceArbiter     EvidenceSource = "arbiter"
+	EvidenceSourceReporter    EvidenceSource = "reporter"
+	EvidenceSourceActor       EvidenceSource = "actor"
+)
+
+type EvidenceKind string
+
+const (
+	EvidenceKindTaskIngested         EvidenceKind = "task_ingested"
+	EvidenceKindWorkerOutput         EvidenceKind = "worker_output"
+	EvidenceKindClaimProposed        EvidenceKind = "claim_proposed"
+	EvidenceKindChallengeOpened      EvidenceKind = "challenge_opened"
+	EvidenceKindDeterministicCheck   EvidenceKind = "deterministic_check"
+	EvidenceKindSemanticVerification EvidenceKind = "semantic_verification"
+	EvidenceKindArbiterDecision      EvidenceKind = "arbiter_decision"
+	EvidenceKindReportGenerated      EvidenceKind = "report_generated"
+	EvidenceKindActionGenerated      EvidenceKind = "action_generated"
+)
+
+type EvidenceRecord struct {
+	SchemaVersion  int            `json:"schemaVersion"`
+	Seq            int            `json:"seq"`
+	EntryID        string         `json:"entryId"`
+	RequestID      string         `json:"requestId"`
+	SessionID      string         `json:"sessionId"`
+	ClaimID        string         `json:"claimId,omitempty"`
+	ChallengeID    string         `json:"challengeId,omitempty"`
+	VerificationID string         `json:"verificationId,omitempty"`
+	Kind           EvidenceKind   `json:"kind"`
+	Source         EvidenceSource `json:"source"`
+	ProducerID     string         `json:"producerId,omitempty"`
+	ProducerRole   string         `json:"producerRole,omitempty"`
+	Summary        string         `json:"summary"`
+	Artifact       *ArtifactRef   `json:"artifact,omitempty"`
+	Metadata       map[string]any `json:"metadata,omitempty"`
+	CreatedAt      string         `json:"createdAt"`
 }
 
-type RoundHighlight struct {
-	Round         int    `json:"round"`
-	ParticipantID string `json:"participantId"`
-	Summary       string `json:"summary"`
+type VerificationStatus string
+
+const (
+	VerificationStatusPassed       VerificationStatus = "passed"
+	VerificationStatusFailed       VerificationStatus = "failed"
+	VerificationStatusInconclusive VerificationStatus = "inconclusive"
+)
+
+type VerificationResult struct {
+	VerificationID    string             `json:"verificationId"`
+	ClaimID           string             `json:"claimId"`
+	ChallengeID       string             `json:"challengeId,omitempty"`
+	Kind              string             `json:"kind"`
+	Status            VerificationStatus `json:"status"`
+	Summary           string             `json:"summary"`
+	EvidenceRef       string             `json:"evidenceRef,omitempty"`
+	Artifact          *ArtifactRef       `json:"artifact,omitempty"`
+	VerdictSuggestion ClaimVerdict       `json:"verdictSuggestion,omitempty"`
+	Confidence        float64            `json:"confidence,omitempty"`
+	Metadata          map[string]any     `json:"metadata,omitempty"`
 }
 
-type EliminationRecord struct {
-	ParticipantID string `json:"participantId"`
-	Round         int    `json:"round"`
-	Reason        string `json:"reason"`
-	At            string `json:"at"`
+type ArbiterDecision struct {
+	ClaimID      string       `json:"claimId"`
+	Verdict      ClaimVerdict `json:"verdict"`
+	Confidence   float64      `json:"confidence,omitempty"`
+	Rationale    string       `json:"rationale,omitempty"`
+	EvidenceRefs []string     `json:"evidenceRefs,omitempty"`
 }
 
-type RoundAppliedMerge struct {
-	SourceClaimID  string   `json:"sourceClaimId"`
-	TargetClaimID  string   `json:"targetClaimId"`
-	ParticipantIDs []string `json:"participantIds"`
+type ArbiterReport struct {
+	TaskVerdict TaskVerdict       `json:"taskVerdict"`
+	Summary     string            `json:"summary"`
+	Decisions   []ArbiterDecision `json:"decisions"`
 }
 
-type RoundRecord struct {
-	Round         int                      `json:"round"`
-	Outputs       []ParticipantRoundOutput `json:"outputs"`
-	AppliedMerges []RoundAppliedMerge      `json:"appliedMerges,omitempty"`
+type AdjudicationReport struct {
+	Summary     string   `json:"summary"`
+	Highlights  []string `json:"highlights,omitempty"`
+	NextActions []string `json:"nextActions,omitempty"`
 }
 
 type ActionExecution struct {
@@ -179,49 +170,14 @@ type ActionOutput struct {
 	Error        string `json:"error,omitempty"`
 }
 
-type ConsensusTask struct {
-	Prompt string `json:"prompt"`
-	Title  string `json:"title"`
-}
-
-type ConsensusStatus string
-
-const (
-	ConsensusStatusConsensus        ConsensusStatus = "consensus"
-	ConsensusStatusPartialConsensus ConsensusStatus = "partial_consensus"
-	ConsensusStatusUnresolved       ConsensusStatus = "unresolved"
-	ConsensusStatusFailed           ConsensusStatus = "failed"
-)
-
-type RepresentativeReason string
-
-const (
-	RepresentativeReasonTopScore       RepresentativeReason = "top-score"
-	RepresentativeReasonTieBreaker     RepresentativeReason = "tie-breaker"
-	RepresentativeReasonHostDesignated RepresentativeReason = "host-designated"
-)
-
-type Representative struct {
-	ParticipantID string               `json:"participantId"`
-	Reason        RepresentativeReason `json:"reason"`
-	Score         float64              `json:"score"`
-	Speech        string               `json:"speech"`
-}
-
-type Disagreement struct {
-	ClaimID       string `json:"claimId"`
-	ParticipantID string `json:"participantId"`
-	Reason        string `json:"reason"`
-}
-
 type Metrics struct {
-	ElapsedMs          int64 `json:"elapsedMs"`
-	TotalRounds        int   `json:"totalRounds"`
-	TotalTurns         int   `json:"totalTurns"`
-	Retries            int   `json:"retries"`
-	WaitTimeouts       int   `json:"waitTimeouts"`
-	EarlyStopTriggered bool  `json:"earlyStopTriggered"`
-	GlobalDeadlineHit  bool  `json:"globalDeadlineHit"`
+	ElapsedMs         int64 `json:"elapsedMs"`
+	ClaimsProposed    int   `json:"claimsProposed"`
+	ChallengesOpened  int   `json:"challengesOpened"`
+	VerificationsRun  int   `json:"verificationsRun"`
+	TasksDispatched   int   `json:"tasksDispatched"`
+	WaitTimeouts      int   `json:"waitTimeouts"`
+	GlobalDeadlineHit bool  `json:"globalDeadlineHit"`
 }
 
 type FailureInfo struct {
@@ -229,21 +185,17 @@ type FailureInfo struct {
 	Message string `json:"message"`
 }
 
-type ConsensusResult struct {
-	ResultVersion    int                 `json:"resultVersion"`
-	RequestID        string              `json:"requestId"`
-	SessionID        string              `json:"sessionId"`
-	Task             ConsensusTask       `json:"task"`
-	Status           ConsensusStatus     `json:"status"`
-	FinalClaims      []Claim             `json:"finalClaims"`
-	ClaimResolutions []ClaimResolution   `json:"claimResolutions"`
-	Representative   Representative      `json:"representative"`
-	Scoreboard       []ParticipantScore  `json:"scoreboard"`
-	Eliminations     []EliminationRecord `json:"eliminations"`
-	Report           FinalReport         `json:"report"`
-	Disagreements    []Disagreement      `json:"disagreements,omitempty"`
-	Rounds           []RoundRecord       `json:"rounds"`
-	Metrics          Metrics             `json:"metrics"`
-	Action           *ActionOutput       `json:"action,omitempty"`
-	Error            *FailureInfo        `json:"error,omitempty"`
+type AdjudicationResult struct {
+	SchemaVersion    int                `json:"schemaVersion"`
+	RequestID        string             `json:"requestId"`
+	SessionID        string             `json:"sessionId"`
+	TaskSpec         TaskSpec           `json:"taskSpec"`
+	TaskVerdict      TaskVerdict        `json:"taskVerdict"`
+	ClaimGraph       []ClaimNode        `json:"claimGraph"`
+	ChallengeTickets []ChallengeTicket  `json:"challengeTickets"`
+	ArbiterReport    ArbiterReport      `json:"arbiterReport"`
+	Report           AdjudicationReport `json:"report"`
+	Action           *ActionOutput      `json:"action,omitempty"`
+	Metrics          Metrics            `json:"metrics"`
+	Error            *FailureInfo       `json:"error,omitempty"`
 }

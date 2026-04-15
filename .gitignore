@@ -1,1 +1,27 @@
 references/
+
+# macOS
+.DS_Store
+
+# IDE / Editor
+.idea/
+.vscode/
+
+# Local runtime artifacts
+out/
+tmp/
+.tmp/
+
+# Go build outputs
+bin/
+dist/
+til-consensus
+*.exe
+*.test
+
+# Coverage / profiling
+coverage.out
+coverage.html
+*.coverprofile
+*.pprof
+*.prof

@@ -21,7 +21,7 @@ func NewMulti(observers ...consensus.Observer) *Multi {
 	return &Multi{observers: filtered}
 }
 
-func (m *Multi) OnEvent(ctx context.Context, event consensus.ConsensusEvent) error {
+func (m *Multi) OnEvent(ctx context.Context, event consensus.RunEvent) error {
 	for _, item := range m.observers {
 		if err := item.OnEvent(ctx, event); err != nil {
 			return fmt.Errorf("observer failed: %w", err)

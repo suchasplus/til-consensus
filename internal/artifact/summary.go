@@ -2,89 +2,57 @@ package artifact
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/suchasplus/til-consensus/internal/consensus"
 )
 
-func BuildSummary(result *consensus.ConsensusResult) string {
-	activeClaims := make([]consensus.Claim, 0)
-	for _, claim := range result.FinalClaims {
-		if claim.Status == consensus.ClaimStatusActive {
-			activeClaims = append(activeClaims, claim)
-		}
+func BuildSummary(result *consensus.AdjudicationResult) string {
+	counts := map[consensus.ClaimVerdict]int{}
+	for _, claim := range result.ClaimGraph {
+		counts[claim.Verdict]++
 	}
-	resolved := 0
-	for _, item := range result.ClaimResolutions {
-		if item.Status == consensus.ClaimResolutionResolved {
-			resolved++
-		}
-	}
-
 	lines := []string{
 		"# til-consensus run " + result.RequestID,
 		"",
-		"- task: " + result.Task.Title,
-		"- status: " + string(result.Status),
-		fmt.Sprintf("- representative: %s (%s, score=%.2f)", result.Representative.ParticipantID, result.Representative.Reason, result.Representative.Score),
+		"- goal: " + result.TaskSpec.Goal,
+		"- task verdict: " + string(result.TaskVerdict),
 		"- elapsed: " + FormatDuration(time.Duration(result.Metrics.ElapsedMs)*time.Millisecond),
-		fmt.Sprintf("- rounds: %d", result.Metrics.TotalRounds),
-		fmt.Sprintf("- turns: %d", result.Metrics.TotalTurns),
-		fmt.Sprintf("- claims: %d active / %d total", len(activeClaims), len(result.FinalClaims)),
-		fmt.Sprintf("- resolved: %d/%d", resolved, len(result.ClaimResolutions)),
+		fmt.Sprintf("- claims: %d", len(result.ClaimGraph)),
+		fmt.Sprintf("- supported: %d", counts[consensus.ClaimVerdictSupported]),
+		fmt.Sprintf("- refuted: %d", counts[consensus.ClaimVerdictRefuted]),
+		fmt.Sprintf("- insufficient evidence: %d", counts[consensus.ClaimVerdictInsufficientEvidence]),
+		fmt.Sprintf("- undetermined: %d", counts[consensus.ClaimVerdictUndetermined]),
 		"",
 		"## Task",
 		"",
-		result.Task.Prompt,
+		result.TaskSpec.Goal,
 		"",
 		"## Conclusion",
 		"",
-		result.Report.FinalSummary,
-		"",
-		"## Representative Statement",
-		"",
-		result.Report.RepresentativeSpeech,
+		result.Report.Summary,
 	}
 
-	if len(activeClaims) > 0 {
+	if len(result.ClaimGraph) > 0 {
 		lines = append(lines, "", "## Claims")
-		resolutionMap := map[string]consensus.ClaimResolution{}
-		for _, resolution := range result.ClaimResolutions {
-			resolutionMap[resolution.ClaimID] = resolution
-		}
-		for _, claim := range activeClaims {
-			lines = append(lines, "", "### "+claim.Title, "", claim.Statement)
-			if claim.Category != "" {
-				lines = append(lines, "- category: "+string(claim.Category))
+		for _, claim := range result.ClaimGraph {
+			lines = append(lines, "", "### "+firstNonEmpty(claim.Title, claim.ClaimID), "", claim.Statement)
+			lines = append(lines, "- verdict: "+string(claim.Verdict))
+			lines = append(lines, fmt.Sprintf("- confidence: %.2f", claim.Confidence))
+			if claim.Scope != "" {
+				lines = append(lines, "- scope: "+claim.Scope)
 			}
-			if resolution, ok := resolutionMap[claim.ClaimID]; ok {
-				lines = append(lines, fmt.Sprintf("- accept: %d / reject: %d", resolution.AcceptCount, resolution.RejectCount))
+			if claim.Rationale != "" {
+				lines = append(lines, "- rationale: "+claim.Rationale)
 			}
 		}
 	}
 
-	scoreboard := append([]consensus.ParticipantScore(nil), result.Scoreboard...)
-	sort.SliceStable(scoreboard, func(i, j int) bool {
-		if scoreboard[i].Total != scoreboard[j].Total {
-			return scoreboard[i].Total > scoreboard[j].Total
-		}
-		return scoreboard[i].ParticipantID < scoreboard[j].ParticipantID
-	})
-	if len(scoreboard) > 0 {
-		lines = append(lines, "", "## Scoreboard", "")
-		for _, entry := range scoreboard {
-			line := fmt.Sprintf("- %s | %.2f", entry.ParticipantID, entry.Total)
-			if entry.Breakdown != nil {
-				parts := make([]string, 0, 4)
-				parts = append(parts, fmt.Sprintf("correctness=%.2f", entry.Breakdown.Correctness))
-				parts = append(parts, fmt.Sprintf("completeness=%.2f", entry.Breakdown.Completeness))
-				parts = append(parts, fmt.Sprintf("actionability=%.2f", entry.Breakdown.Actionability))
-				parts = append(parts, fmt.Sprintf("consistency=%.2f", entry.Breakdown.Consistency))
-				line += " (" + strings.Join(parts, ", ") + ")"
-			}
-			lines = append(lines, line)
+	if len(result.ChallengeTickets) > 0 {
+		lines = append(lines, "", "## Challenges", "")
+		for _, ticket := range result.ChallengeTickets {
+			lines = append(lines, fmt.Sprintf("- %s | %s | %s", ticket.ClaimID, ticket.Kind, ticket.Status))
 		}
 	}
 
@@ -93,11 +61,11 @@ func BuildSummary(result *consensus.ConsensusResult) string {
 		"## Metrics",
 		"",
 		"- elapsed: "+FormatDuration(time.Duration(result.Metrics.ElapsedMs)*time.Millisecond),
-		fmt.Sprintf("- rounds: %d", result.Metrics.TotalRounds),
-		fmt.Sprintf("- turns: %d", result.Metrics.TotalTurns),
-		fmt.Sprintf("- retries: %d", result.Metrics.Retries),
+		fmt.Sprintf("- claims proposed: %d", result.Metrics.ClaimsProposed),
+		fmt.Sprintf("- challenges opened: %d", result.Metrics.ChallengesOpened),
+		fmt.Sprintf("- verifications run: %d", result.Metrics.VerificationsRun),
+		fmt.Sprintf("- tasks dispatched: %d", result.Metrics.TasksDispatched),
 		fmt.Sprintf("- timeouts: %d", result.Metrics.WaitTimeouts),
-		fmt.Sprintf("- early stop: %t", result.Metrics.EarlyStopTriggered),
 		fmt.Sprintf("- global deadline: %t", result.Metrics.GlobalDeadlineHit),
 	)
 
@@ -114,4 +82,13 @@ func FormatDuration(value time.Duration) string {
 	minutes := int(value / time.Minute)
 	seconds := int((value % time.Minute) / time.Second)
 	return fmt.Sprintf("%dm%ds", minutes, seconds)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }

@@ -6,45 +6,75 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
+	"time"
 
 	"github.com/suchasplus/til-consensus/internal/consensus"
 )
 
-func TestJSONLObserverPreservesSequence(t *testing.T) {
+func TestJSONLObserverWritesRunEvents(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "events.jsonl")
 	observer := NewJSONL(path)
-	var wg sync.WaitGroup
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			_ = observer.OnEvent(context.Background(), consensus.ConsensusEvent{
-				SessionID: "s",
-				RequestID: "r",
-				Type:      consensus.EventSessionStarted,
-				At:        "now",
-				Payload:   map[string]any{"idx": idx},
-			})
-		}(i)
+	err := observer.OnEvent(context.Background(), consensus.RunEvent{
+		SessionID: "session-1",
+		RequestID: "req-1",
+		Type:      consensus.RunEventSessionStarted,
+		At:        time.Unix(1, 0).UTC().Format(time.RFC3339Nano),
+	})
+	if err != nil {
+		t.Fatalf("OnEvent failed: %v", err)
 	}
-	wg.Wait()
 	body, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("read events file: %v", err)
 	}
 	lines := strings.Split(strings.TrimSpace(string(body)), "\n")
-	if len(lines) != 10 {
-		t.Fatalf("expected 10 lines, got %d", len(lines))
+	if len(lines) != 1 {
+		t.Fatalf("expected one line, got %d", len(lines))
 	}
-	for idx, line := range lines {
-		var record consensus.ConsensusEventRecord
-		if err := json.Unmarshal([]byte(line), &record); err != nil {
-			t.Fatal(err)
+	var record consensus.RunEventRecord
+	if err := json.Unmarshal([]byte(lines[0]), &record); err != nil {
+		t.Fatalf("decode event record: %v", err)
+	}
+	if record.Event.Type != consensus.RunEventSessionStarted {
+		t.Fatalf("unexpected event type: %#v", record)
+	}
+}
+
+func TestLedgerWriterAppendsMonotonicSeq(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ledger.jsonl")
+	writer := NewLedger(path)
+	for idx := 0; idx < 2; idx++ {
+		if _, err := writer.Append(context.Background(), consensus.EvidenceRecord{
+			SchemaVersion: 1,
+			EntryID:       "entry",
+			RequestID:     "req-1",
+			SessionID:     "session-1",
+			Kind:          consensus.EvidenceKindClaimProposed,
+			Source:        consensus.EvidenceSourceCoordinator,
+			Summary:       "summary",
+			CreatedAt:     time.Unix(1, 0).UTC().Format(time.RFC3339Nano),
+		}); err != nil {
+			t.Fatalf("append failed: %v", err)
 		}
-		if record.Seq != idx {
-			t.Fatalf("expected seq %d, got %d", idx, record.Seq)
-		}
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read ledger file: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(body)), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected two lines, got %d", len(lines))
+	}
+	var first consensus.EvidenceRecord
+	var second consensus.EvidenceRecord
+	if err := json.Unmarshal([]byte(lines[0]), &first); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(lines[1]), &second); err != nil {
+		t.Fatal(err)
+	}
+	if first.Seq != 0 || second.Seq != 1 {
+		t.Fatalf("unexpected seq values: %d %d", first.Seq, second.Seq)
 	}
 }

@@ -11,7 +11,22 @@ type ResolvedAgentRuntime struct {
 	config.AgentConfig
 	ProviderName  string
 	Provider      config.ProviderConfig
+	ModelConfig   config.ProviderModelConfig
 	ProviderModel string
+}
+
+func (r ResolvedAgentRuntime) EffectiveTemperature() *float64 {
+	if r.Temperature != nil {
+		return r.Temperature
+	}
+	return r.ModelConfig.Temperature
+}
+
+func (r ResolvedAgentRuntime) EffectiveReasoning() string {
+	if r.Reasoning != "" {
+		return r.Reasoning
+	}
+	return r.ModelConfig.Reasoning
 }
 
 type ProviderTaskRequest struct {

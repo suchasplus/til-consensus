@@ -3,465 +3,220 @@ package consensus
 import (
 	"context"
 	"fmt"
-	"sync"
 	"testing"
 	"time"
 )
 
-type scriptedDelegate struct {
-	mu      sync.Mutex
-	seq     int
-	tasks   map[string]Task
-	handler func(Task) (AwaitedTask, error)
+type fixedClock struct{ now time.Time }
+
+func (c fixedClock) Now() time.Time { return c.now }
+
+type deterministicIDs struct{ n int }
+
+func (i *deterministicIDs) NewSessionID() string { return "session-1" }
+func (i *deterministicIDs) NewEntityID(prefix string) string {
+	i.n++
+	return fmt.Sprintf("%s-%d", prefix, i.n)
 }
 
-func (d *scriptedDelegate) Dispatch(_ context.Context, task Task) (DispatchReceipt, error) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
+type memoryLedger struct {
+	entries []EvidenceRecord
+}
+
+func (l *memoryLedger) Append(_ context.Context, entry EvidenceRecord) (EvidenceRecord, error) {
+	entry.Seq = len(l.entries)
+	l.entries = append(l.entries, entry)
+	return entry, nil
+}
+
+type captureObserver struct {
+	events []RunEventType
+}
+
+func (o *captureObserver) OnEvent(_ context.Context, event RunEvent) error {
+	o.events = append(o.events, event.Type)
+	return nil
+}
+
+type stubStore struct {
+	snapshot SessionSnapshot
+}
+
+func (s *stubStore) Save(_ context.Context, snapshot SessionSnapshot) error {
+	s.snapshot = snapshot
+	return nil
+}
+
+func (s *stubStore) Load(_ context.Context, _ string) (*SessionSnapshot, error) {
+	cloned := s.snapshot
+	return &cloned, nil
+}
+
+func (s *stubStore) Patch(_ context.Context, _ string, patch SessionPatch) error {
+	if patch.Phase != nil {
+		s.snapshot.Phase = *patch.Phase
+	}
+	if patch.ClaimGraph != nil {
+		s.snapshot.ClaimGraph = append([]ClaimNode(nil), patch.ClaimGraph...)
+	}
+	if patch.ChallengeTickets != nil {
+		s.snapshot.ChallengeTickets = append([]ChallengeTicket(nil), patch.ChallengeTickets...)
+	}
+	if patch.LedgerCursor != nil {
+		s.snapshot.LedgerCursor = *patch.LedgerCursor
+	}
+	if patch.Result != nil {
+		s.snapshot.Result = patch.Result
+	}
+	if patch.Error != nil {
+		s.snapshot.Error = patch.Error
+	}
+	return nil
+}
+
+type stubDelegate struct {
+	tasks map[string]Task
+	next  int
+}
+
+func (d *stubDelegate) Dispatch(_ context.Context, task Task) (DispatchReceipt, error) {
 	if d.tasks == nil {
 		d.tasks = map[string]Task{}
 	}
-	taskID := fmt.Sprintf("task-%d", d.seq)
-	d.seq++
+	taskID := fmt.Sprintf("task-%d", d.next)
+	d.next++
 	d.tasks[taskID] = task
-	return DispatchReceipt{TaskID: taskID, ParticipantID: task.Meta().ParticipantID, Kind: task.Kind()}, nil
+	return DispatchReceipt{TaskID: taskID, AgentID: task.Meta().AgentID, Kind: task.Kind()}, nil
 }
 
-func (d *scriptedDelegate) Await(_ context.Context, taskID string, _ time.Duration) (AwaitedTask, error) {
-	d.mu.Lock()
+func (d *stubDelegate) Await(_ context.Context, taskID string, _ time.Duration) (AwaitedTask, error) {
 	task := d.tasks[taskID]
-	d.mu.Unlock()
-	return d.handler(task)
-}
-
-func (d *scriptedDelegate) Cancel(_ context.Context, _ string) error { return nil }
-
-type fixedIDFactory struct{}
-
-func (fixedIDFactory) NewSessionID() string { return "session-fixed" }
-
-type sequenceClock struct {
-	mu    sync.Mutex
-	times []time.Time
-	index int
-}
-
-func (c *sequenceClock) Now() time.Time {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if len(c.times) == 0 {
-		return time.Unix(0, 0).UTC()
-	}
-	if c.index >= len(c.times) {
-		return c.times[len(c.times)-1]
-	}
-	value := c.times[c.index]
-	c.index++
-	return value
-}
-
-func TestEngineConsensusFlow(t *testing.T) {
-	delegate := &scriptedDelegate{
-		handler: func(task Task) (AwaitedTask, error) {
-			switch value := task.(type) {
-			case RoundTask:
-				switch {
-				case value.Phase == PhaseInitial && value.ParticipantID == "a":
-					return AwaitedTask{OK: true, Output: RoundTaskResult{Output: ParticipantRoundOutput{
-						ParticipantID:   "a",
-						Phase:           PhaseInitial,
-						Round:           0,
-						FullResponse:    "initial a",
-						Summary:         "summary a",
-						TaskTitle:       "Consensus Title",
-						ExtractedClaims: []ExtractedClaim{{Title: "Claim A", Statement: "Claim A"}},
-						Judgements:      []ClaimJudgement{},
-					}}}, nil
-				case value.Phase == PhaseInitial && value.ParticipantID == "b":
-					return AwaitedTask{OK: true, Output: RoundTaskResult{Output: ParticipantRoundOutput{
-						ParticipantID: "b",
-						Phase:         PhaseInitial,
-						Round:         0,
-						FullResponse:  "initial b",
-						Summary:       "summary b",
-						TaskTitle:     "Consensus Title",
-						Judgements:    []ClaimJudgement{},
-					}}}, nil
-				case value.Phase == PhaseDebate:
-					return AwaitedTask{OK: true, Output: RoundTaskResult{Output: ParticipantRoundOutput{
-						ParticipantID: value.ParticipantID,
-						Phase:         PhaseDebate,
-						Round:         value.Round,
-						FullResponse:  "debate",
-						Summary:       "debate",
-						Judgements:    []ClaimJudgement{{ClaimID: "a:0:0", Stance: ClaimStanceAgree, Confidence: 0.9, Rationale: "agree"}},
-					}}}, nil
-				default:
-					return AwaitedTask{OK: true, Output: RoundTaskResult{Output: ParticipantRoundOutput{
-						ParticipantID: value.ParticipantID,
-						Phase:         PhaseFinalVote,
-						Round:         value.Round,
-						FullResponse:  "vote",
-						Summary:       "vote",
-						Judgements:    []ClaimJudgement{{ClaimID: "a:0:0", Stance: ClaimStanceAgree, Confidence: 0.9, Rationale: "agree"}},
-						ClaimVotes:    []ClaimVoteInput{{ClaimID: "a:0:0", Vote: "accept", Reason: "accept"}},
-					}}}, nil
-				}
-			default:
-				t.Fatalf("unexpected task: %#v", task)
-				return AwaitedTask{}, nil
-			}
-		},
-	}
-	engine := NewEngine(EngineDeps{
-		TaskDelegate: delegate,
-		SessionStore: newTestStore(),
-		IDFactory:    fixedIDFactory{},
-	})
-	result, err := engine.Start(context.Background(), baseRequest())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Status != ConsensusStatusConsensus {
-		t.Fatalf("expected consensus, got %s", result.Status)
-	}
-	if len(result.Rounds) != 3 {
-		t.Fatalf("expected 3 rounds with early stop + final vote, got %d", len(result.Rounds))
-	}
-	if result.Task.Title != "Consensus Title" {
-		t.Fatalf("unexpected task title: %s", result.Task.Title)
-	}
-	if len(result.ClaimResolutions) != 1 || result.ClaimResolutions[0].Status != ClaimResolutionResolved {
-		t.Fatalf("unexpected claim resolutions: %#v", result.ClaimResolutions)
-	}
-}
-
-func TestEnginePartialConsensus(t *testing.T) {
-	delegate := &scriptedDelegate{
-		handler: func(task Task) (AwaitedTask, error) {
-			switch value := task.(type) {
-			case RoundTask:
-				switch {
-				case value.Phase == PhaseInitial && value.ParticipantID == "a":
-					return AwaitedTask{OK: true, Output: RoundTaskResult{Output: ParticipantRoundOutput{
-						ParticipantID: "a", Phase: PhaseInitial, Round: 0, FullResponse: "initial a", Summary: "summary a", TaskTitle: "Title",
-						ExtractedClaims: []ExtractedClaim{{Title: "Claim A", Statement: "Claim A"}}, Judgements: []ClaimJudgement{},
-					}}}, nil
-				case value.Phase == PhaseInitial && value.ParticipantID == "b":
-					return AwaitedTask{OK: true, Output: RoundTaskResult{Output: ParticipantRoundOutput{
-						ParticipantID: "b", Phase: PhaseInitial, Round: 0, FullResponse: "initial b", Summary: "summary b", TaskTitle: "Title",
-						ExtractedClaims: []ExtractedClaim{{Title: "Claim B", Statement: "Claim B"}}, Judgements: []ClaimJudgement{},
-					}}}, nil
-				case value.Phase == PhaseDebate:
-					return AwaitedTask{OK: true, Output: RoundTaskResult{Output: ParticipantRoundOutput{
-						ParticipantID: value.ParticipantID,
-						Phase:         PhaseDebate,
-						Round:         1,
-						FullResponse:  "debate",
-						Summary:       "debate",
-						Judgements: []ClaimJudgement{
-							{ClaimID: "a:0:0", Stance: ClaimStanceAgree, Confidence: 0.9, Rationale: "agree"},
-							{ClaimID: "b:0:0", Stance: ClaimStanceAgree, Confidence: 0.9, Rationale: "agree"},
-						},
-					}}}, nil
-				default:
-					votes := []ClaimVoteInput{
-						{ClaimID: "a:0:0", Vote: "accept", Reason: "accept"},
-					}
-					if value.ParticipantID == "a" {
-						votes = append(votes, ClaimVoteInput{ClaimID: "b:0:0", Vote: "accept", Reason: "accept"})
-					} else {
-						votes = append(votes, ClaimVoteInput{ClaimID: "b:0:0", Vote: "reject", Reason: "reject"})
-					}
-					return AwaitedTask{OK: true, Output: RoundTaskResult{Output: ParticipantRoundOutput{
-						ParticipantID: value.ParticipantID,
-						Phase:         PhaseFinalVote,
-						Round:         value.Round,
-						FullResponse:  "vote",
-						Summary:       "vote",
-						Judgements:    []ClaimJudgement{{ClaimID: "a:0:0", Stance: ClaimStanceAgree, Confidence: 0.9, Rationale: "agree"}},
-						ClaimVotes:    votes,
-					}}}, nil
-				}
-			default:
-				return AwaitedTask{}, fmt.Errorf("unexpected task")
-			}
-		},
-	}
-	engine := NewEngine(EngineDeps{TaskDelegate: delegate, SessionStore: newTestStore(), IDFactory: fixedIDFactory{}})
-	result, err := engine.Start(context.Background(), baseRequest())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Status != ConsensusStatusPartialConsensus {
-		t.Fatalf("expected partial consensus, got %s", result.Status)
-	}
-}
-
-func TestEngineGlobalDeadlineUnresolved(t *testing.T) {
-	base := time.Unix(1700000000, 0).UTC()
-	clock := &sequenceClock{times: []time.Time{
-		base,
-		base.Add(100 * time.Millisecond),
-		base.Add(200 * time.Millisecond),
-		base.Add(2 * time.Second),
-		base.Add(3 * time.Second),
-		base.Add(4 * time.Second),
-		base.Add(5 * time.Second),
-	}}
-	delegate := &scriptedDelegate{
-		handler: func(task Task) (AwaitedTask, error) {
-			round := task.(RoundTask)
-			return AwaitedTask{OK: true, Output: RoundTaskResult{Output: ParticipantRoundOutput{
-				ParticipantID:   round.ParticipantID,
-				Phase:           round.Phase,
-				Round:           round.Round,
-				FullResponse:    "ok",
-				Summary:         "ok",
-				TaskTitle:       "Title",
-				ExtractedClaims: []ExtractedClaim{{Title: "Claim A", Statement: "Claim A"}},
-				Judgements:      []ClaimJudgement{},
-			}}}, nil
-		},
-	}
-	req := baseRequest()
-	req.WaitingPolicy.GlobalDeadline = time.Second
-	engine := NewEngine(EngineDeps{
-		TaskDelegate: delegate,
-		SessionStore: newTestStore(),
-		IDFactory:    fixedIDFactory{},
-		Clock:        clock,
-	})
-	result, err := engine.Start(context.Background(), req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Status != ConsensusStatusUnresolved {
-		t.Fatalf("expected unresolved, got %s", result.Status)
-	}
-	if !result.Metrics.GlobalDeadlineHit {
-		t.Fatal("expected global deadline hit")
-	}
-}
-
-func TestEngineReportFallback(t *testing.T) {
-	delegate := &scriptedDelegate{
-		handler: func(task Task) (AwaitedTask, error) {
-			switch value := task.(type) {
-			case RoundTask:
-				return simpleConsensusRound(value), nil
-			case ReportTask:
-				return AwaitedTask{OK: true, Output: ActionTaskResult{Output: ActionExecution{FullResponse: "bad", Summary: "bad"}}}, nil
-			default:
-				return AwaitedTask{}, fmt.Errorf("unexpected task")
-			}
-		},
-	}
-	req := baseRequest()
-	req.ReportPolicy.Composer = ReportComposerRepresentative
-	engine := NewEngine(EngineDeps{TaskDelegate: delegate, SessionStore: newTestStore(), IDFactory: fixedIDFactory{}})
-	result, err := engine.Start(context.Background(), req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Report.Mode != "builtin" {
-		t.Fatalf("expected builtin fallback report, got %#v", result.Report)
-	}
-}
-
-func TestEngineActionFailurePaths(t *testing.T) {
-	t.Run("inactive actor", func(t *testing.T) {
-		delegate := &scriptedDelegate{
-			handler: func(task Task) (AwaitedTask, error) {
-				switch value := task.(type) {
-				case RoundTask:
-					if value.ParticipantID == "c" && value.Phase == PhaseInitial {
-						return AwaitedTask{OK: false, Error: "__timeout__"}, nil
-					}
-					return simpleConsensusRound(value), nil
-				default:
-					return AwaitedTask{}, fmt.Errorf("unexpected task")
-				}
-			},
-		}
-		req := baseRequest()
-		req.Participants = []Participant{{ID: "a"}, {ID: "b"}, {ID: "c"}}
-		req.ActionPolicy = &ActionPolicy{Prompt: "do action", ActorID: "c", IncludeFullResult: true}
-		engine := NewEngine(EngineDeps{TaskDelegate: delegate, SessionStore: newTestStore(), IDFactory: fixedIDFactory{}})
-		result, err := engine.Start(context.Background(), req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if result.Action == nil || result.Action.Status != "failed" {
-			t.Fatalf("expected failed action for inactive actor, got %#v", result.Action)
-		}
-	})
-
-	t.Run("action parse failure", func(t *testing.T) {
-		delegate := &scriptedDelegate{
-			handler: func(task Task) (AwaitedTask, error) {
-				switch value := task.(type) {
-				case RoundTask:
-					return simpleConsensusRound(value), nil
-				case ActionTask:
-					return AwaitedTask{OK: true, Output: ReportTaskResult{Output: FinalReport{FinalSummary: "bad", RepresentativeSpeech: "bad"}}}, nil
-				default:
-					return AwaitedTask{}, fmt.Errorf("unexpected task")
-				}
-			},
-		}
-		req := baseRequest()
-		req.ActionPolicy = &ActionPolicy{Prompt: "do action", IncludeFullResult: true}
-		engine := NewEngine(EngineDeps{TaskDelegate: delegate, SessionStore: newTestStore(), IDFactory: fixedIDFactory{}})
-		result, err := engine.Start(context.Background(), req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if result.Action == nil || result.Action.Status != "failed" || result.Action.Error != "action parse failed" {
-			t.Fatalf("expected parse failure action, got %#v", result.Action)
-		}
-	})
-}
-
-func simpleConsensusRound(value RoundTask) AwaitedTask {
-	switch value.Phase {
-	case PhaseInitial:
-		extractedClaims := []ExtractedClaim{}
-		if value.ParticipantID == "a" {
-			extractedClaims = []ExtractedClaim{{Title: "Claim A", Statement: "Claim A"}}
-		}
-		return AwaitedTask{OK: true, Output: RoundTaskResult{Output: ParticipantRoundOutput{
-			ParticipantID:   value.ParticipantID,
-			Phase:           PhaseInitial,
-			Round:           value.Round,
-			FullResponse:    "initial",
-			Summary:         "initial",
-			TaskTitle:       "Title",
-			ExtractedClaims: extractedClaims,
-			Judgements:      []ClaimJudgement{},
-		}}}
-	case PhaseDebate:
-		return AwaitedTask{OK: true, Output: RoundTaskResult{Output: ParticipantRoundOutput{
-			ParticipantID: value.ParticipantID,
-			Phase:         value.Phase,
-			Round:         value.Round,
-			FullResponse:  "debate",
-			Summary:       "debate",
-			Judgements:    []ClaimJudgement{{ClaimID: "a:0:0", Stance: ClaimStanceAgree, Confidence: 0.9, Rationale: "agree"}},
-		}}}
+	switch value := task.(type) {
+	case ProposalTask:
+		return AwaitedTask{OK: true, Output: ProposalTaskResult{Output: ProposalOutput{
+			Summary: "proposal",
+			Claims: []ClaimDraft{{
+				Title:     "Race fix",
+				Statement: "The patch fixes the race condition",
+				Metadata:  map[string]any{"touchedPaths": []string{"internal/consensus/engine.go"}},
+			}},
+		}}}, nil
+	case ChallengeTask:
+		return AwaitedTask{OK: true, Output: ChallengeTaskResult{Output: ChallengeOutput{
+			Summary: "challenge",
+			Tickets: []ChallengeDraft{{
+				ClaimID:   value.Claims[0].ClaimID,
+				Statement: "Need more evidence",
+				Kind:      "evidence-gap",
+			}},
+		}}}, nil
+	case ReportTask:
+		return AwaitedTask{OK: true, Output: ReportTaskResult{Output: AdjudicationReport{Summary: "report"}}}, nil
+	case ActionTask:
+		return AwaitedTask{OK: true, Output: ActionTaskResult{Output: ActionExecution{FullResponse: "done", Summary: "done"}}}, nil
 	default:
-		return AwaitedTask{OK: true, Output: RoundTaskResult{Output: ParticipantRoundOutput{
-			ParticipantID: value.ParticipantID,
-			Phase:         value.Phase,
-			Round:         value.Round,
-			FullResponse:  "vote",
-			Summary:       "vote",
-			Judgements:    []ClaimJudgement{{ClaimID: "a:0:0", Stance: ClaimStanceAgree, Confidence: 0.9, Rationale: "agree"}},
-			ClaimVotes:    []ClaimVoteInput{{ClaimID: "a:0:0", Vote: "accept", Reason: "accept"}},
-		}}}
+		return AwaitedTask{OK: false, Error: "unexpected task"}, nil
 	}
+}
+
+func (d *stubDelegate) Cancel(_ context.Context, _ string) error { return nil }
+
+type stubVerifier struct {
+	status VerificationStatus
+}
+
+func (v stubVerifier) Run(_ context.Context, req VerificationRequest) ([]VerificationResult, error) {
+	return []VerificationResult{{
+		VerificationID: "verify-1",
+		ClaimID:        req.Claim.ClaimID,
+		Kind:           "allowed_paths",
+		Status:         v.status,
+		Summary:        "verification result",
+	}}, nil
 }
 
 func baseRequest() StartRequest {
 	return StartRequest{
-		RequestID:    "req-1",
-		Task:         "test task",
-		Participants: []Participant{{ID: "a"}, {ID: "b"}},
-		RoundPolicy: RoundPolicy{
-			MinRounds: 1,
-			MaxRounds: 2,
-		},
-		ParticipantsPolicy: ParticipantsPolicy{MinParticipants: 2},
-		SessionPolicy: SessionPolicy{
-			Mode:             "sticky-per-participant",
-			SessionKeyPrefix: "consensus",
-		},
-		PeerContextPolicy: PeerContextPolicy{
-			PassMode:                "full-response-preferred",
-			MaxCharsPerPeerResponse: DefaultPeerChars,
-			MaxPeersPerRound:        DefaultPeerCount,
-			OverflowStrategy:        DefaultPeerOverflowStrategy,
-		},
-		ScoringPolicy: ScoringPolicy{
-			Enabled:    true,
-			TieBreaker: TieBreakerLatestRoundScore,
-			Rubric: RubricWeights{
-				Correctness:   0.35,
-				Completeness:  0.25,
-				Actionability: 0.25,
-				Consistency:   0.15,
+		RequestID: "req-1",
+		TaskSpec: TaskSpec{
+			Goal: "verify patch",
+			Constraints: TaskConstraints{
+				AllowedPaths: []string{"internal/consensus"},
 			},
 		},
-		ConsensusPolicy: ConsensusPolicy{Threshold: 1.0},
-		ReportPolicy: ReportPolicy{
-			Composer:   ReportComposerBuiltin,
-			TraceLevel: TraceLevelCompact,
+		Roles: RoleAssignments{
+			Proposers:   []string{"proposer-1"},
+			Challengers: []string{"challenger-1"},
 		},
+		ProposalPolicy: ProposalPolicy{
+			MaxPasses:          1,
+			MaxClaimsPerWorker: 1,
+		},
+		VerificationPolicy: VerificationPolicy{
+			RequiredChecks:    []VerificationCheck{{Name: "allowed", Kind: "allowed_paths"}},
+			MaxParallelChecks: 1,
+		},
+		ArbiterPolicy: ArbiterPolicy{
+			AllowUndetermined: true,
+			BlindReview:       true,
+		},
+		ReportPolicy: ReportPolicy{Style: "builtin"},
 		WaitingPolicy: WaitingPolicy{
-			PerTaskTimeout:  time.Second,
-			PerRoundTimeout: time.Second,
+			PerTaskTimeout: time.Second,
 		},
 	}
 }
 
-type testStore struct {
-	mu       sync.Mutex
-	sessions map[string]SessionSnapshot
+func TestEngineProducesSupportedVerdict(t *testing.T) {
+	ids := &deterministicIDs{}
+	observer := &captureObserver{}
+	ledger := &memoryLedger{}
+	engine := NewEngine(EngineDeps{
+		TaskDelegate: &stubDelegate{},
+		Verifier:     stubVerifier{status: VerificationStatusPassed},
+		Observer:     observer,
+		Ledger:       ledger,
+		SessionStore: &stubStore{},
+		Clock:        fixedClock{now: time.Unix(1, 0).UTC()},
+		IDFactory:    ids,
+	})
+	result, err := engine.Start(context.Background(), baseRequest())
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	if result.TaskVerdict != TaskVerdictSupported {
+		t.Fatalf("expected supported verdict, got %s", result.TaskVerdict)
+	}
+	if len(result.ClaimGraph) != 1 || result.ClaimGraph[0].Verdict != ClaimVerdictSupported {
+		t.Fatalf("unexpected claim graph: %#v", result.ClaimGraph)
+	}
+	if len(result.ChallengeTickets) != 1 || result.ChallengeTickets[0].Status != ChallengeStatusClosed {
+		t.Fatalf("expected closed challenge, got %#v", result.ChallengeTickets)
+	}
+	if len(ledger.entries) == 0 {
+		t.Fatal("expected ledger entries to be written")
+	}
+	if len(observer.events) == 0 || observer.events[0] != RunEventSessionStarted {
+		t.Fatalf("unexpected event stream: %#v", observer.events)
+	}
 }
 
-func newTestStore() *testStore {
-	return &testStore{sessions: map[string]SessionSnapshot{}}
-}
-
-func (s *testStore) Save(_ context.Context, session SessionSnapshot) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.sessions[session.SessionID] = session
-	return nil
-}
-
-func (s *testStore) Load(_ context.Context, sessionID string) (*SessionSnapshot, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	session, ok := s.sessions[sessionID]
-	if !ok {
-		return nil, nil
+func TestEngineMarksFailedVerificationAsRefuted(t *testing.T) {
+	engine := NewEngine(EngineDeps{
+		TaskDelegate: &stubDelegate{},
+		Verifier:     stubVerifier{status: VerificationStatusFailed},
+		SessionStore: &stubStore{},
+		Clock:        fixedClock{now: time.Unix(1, 0).UTC()},
+		IDFactory:    &deterministicIDs{},
+	})
+	result, err := engine.Start(context.Background(), baseRequest())
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
 	}
-	cloned := session
-	return &cloned, nil
-}
-
-func (s *testStore) Patch(_ context.Context, sessionID string, patch SessionPatch) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	session := s.sessions[sessionID]
-	if patch.State != nil {
-		session.State = *patch.State
+	if result.TaskVerdict != TaskVerdictFailed {
+		t.Fatalf("expected failed verdict, got %s", result.TaskVerdict)
 	}
-	if patch.Result != nil {
-		session.Result = patch.Result
+	if result.ClaimGraph[0].Verdict != ClaimVerdictRefuted {
+		t.Fatalf("expected refuted claim, got %#v", result.ClaimGraph[0])
 	}
-	if patch.Error != nil {
-		session.Error = patch.Error
-	}
-	if patch.ActiveParticipants != nil {
-		session.ActiveParticipants = append([]string(nil), patch.ActiveParticipants...)
-	}
-	if patch.Eliminations != nil {
-		session.Eliminations = append([]EliminationRecord(nil), patch.Eliminations...)
-	}
-	if patch.RunningAt != nil {
-		session.RunningAt = *patch.RunningAt
-	}
-	if patch.FinalizingAt != nil {
-		session.FinalizingAt = *patch.FinalizingAt
-	}
-	if patch.FinishedAt != nil {
-		session.FinishedAt = *patch.FinishedAt
-	}
-	if patch.FailedAt != nil {
-		session.FailedAt = *patch.FailedAt
-	}
-	s.sessions[sessionID] = session
-	return nil
 }

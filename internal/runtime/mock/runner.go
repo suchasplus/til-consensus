@@ -3,6 +3,7 @@ package mock
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/suchasplus/til-consensus/internal/config"
@@ -38,21 +39,22 @@ func RunTask(ctx context.Context, task consensus.Task, agent config.AgentConfig,
 
 func resolveAction(provider config.ProviderConfig, task consensus.Task, agentID string) config.MockAction {
 	scenario := provider.Participants[agentID]
-	switch value := task.(type) {
-	case consensus.RoundTask:
-		switch value.Phase {
-		case consensus.PhaseInitial:
-			if scenario.Initial.Behavior != "" {
-				return scenario.Initial
-			}
-		case consensus.PhaseDebate:
-			if scenario.Debate.Behavior != "" {
-				return scenario.Debate
-			}
-		default:
-			if scenario.FinalVote.Behavior != "" {
-				return scenario.FinalVote
-			}
+	switch task.(type) {
+	case consensus.ProposalTask:
+		if scenario.Propose.Behavior != "" {
+			return scenario.Propose
+		}
+	case consensus.ChallengeTask:
+		if scenario.Challenge.Behavior != "" {
+			return scenario.Challenge
+		}
+	case consensus.SemanticVerificationTask:
+		if scenario.SemanticVerify.Behavior != "" {
+			return scenario.SemanticVerify
+		}
+	case consensus.ArbiterTask:
+		if scenario.Arbiter.Behavior != "" {
+			return scenario.Arbiter
 		}
 	case consensus.ReportTask:
 		if scenario.Report.Behavior != "" {
@@ -75,72 +77,74 @@ func fallbackBehavior(value string) string {
 
 func buildDeterministic(task consensus.Task, agent config.AgentConfig) any {
 	switch value := task.(type) {
+	case consensus.ProposalTask:
+		claims := make([]map[string]any, 0, value.MaxClaims)
+		limit := value.MaxClaims
+		if limit <= 0 {
+			limit = 1
+		}
+		for idx := 0; idx < limit; idx++ {
+			claims = append(claims, map[string]any{
+				"title":     fmt.Sprintf("Claim %d from %s", idx+1, agent.ID),
+				"statement": fmt.Sprintf("%s says the task should be evaluated claim-by-claim (%d)", agent.ID, idx+1),
+				"scope":     value.Scope,
+			})
+		}
+		return map[string]any{
+			"summary": "proposal by " + agent.ID,
+			"claims":  claims,
+		}
+	case consensus.ChallengeTask:
+		tickets := make([]map[string]any, 0, len(value.Claims))
+		for _, claim := range value.Claims {
+			tickets = append(tickets, map[string]any{
+				"claimId":         claim.ClaimID,
+				"statement":       "Need stronger evidence for " + claim.ClaimID,
+				"kind":            "evidence-gap",
+				"requestedChecks": []string{"workspace_snapshot"},
+			})
+		}
+		return map[string]any{
+			"summary": "challenge by " + agent.ID,
+			"tickets": tickets,
+		}
+	case consensus.SemanticVerificationTask:
+		return map[string]any{
+			"summary": "semantic verification by " + agent.ID,
+			"results": []map[string]any{
+				{
+					"claimId":    value.Claim.ClaimID,
+					"verdict":    "supported",
+					"confidence": 0.7,
+					"rationale":  agent.ID + " finds the claim plausible",
+				},
+			},
+		}
+	case consensus.ArbiterTask:
+		decisions := make([]map[string]any, 0, len(value.Claims))
+		for _, claim := range value.Claims {
+			decisions = append(decisions, map[string]any{
+				"claimId":    claim.ClaimID,
+				"verdict":    "supported",
+				"confidence": 0.8,
+				"rationale":  agent.ID + " supports " + claim.ClaimID,
+			})
+		}
+		return map[string]any{
+			"summary":     "arbiter summary by " + agent.ID,
+			"taskVerdict": "supported",
+			"decisions":   decisions,
+		}
 	case consensus.ReportTask:
-		return consensus.FinalReport{
-			Mode:                 "representative",
-			TraceIncluded:        len(value.Input.Rounds) > 0,
-			TraceLevel:           consensus.TraceLevelCompact,
-			FinalSummary:         "Mock summary by " + agent.ID,
-			RepresentativeSpeech: "Mock representative speech by " + agent.ID,
+		return consensus.AdjudicationReport{
+			Summary:     "Report by " + agent.ID,
+			Highlights:  []string{"highlight from " + agent.ID},
+			NextActions: []string{"next action from " + agent.ID},
 		}
 	case consensus.ActionTask:
 		return consensus.ActionExecution{
 			FullResponse: "Action completed by " + agent.ID,
 			Summary:      "Action completed by " + agent.ID,
-		}
-	case consensus.RoundTask:
-		if value.Phase == consensus.PhaseInitial {
-			return map[string]any{
-				"fullResponse": "Initial analysis from " + agent.ID,
-				"summary":      "Initial position from " + agent.ID,
-				"taskTitle":    "Mock debate topic from " + agent.ID,
-				"extractedClaims": []map[string]any{
-					{
-						"title":     "Proposal from " + agent.ID,
-						"statement": agent.ID + " recommends a concrete next step.",
-						"category":  "pro",
-					},
-				},
-				"judgements": []any{},
-			}
-		}
-		if value.Phase == consensus.PhaseDebate {
-			judgements := make([]map[string]any, 0, len(value.ClaimCatalog))
-			for _, claim := range value.ClaimCatalog {
-				judgements = append(judgements, map[string]any{
-					"claimId":    claim.ClaimID,
-					"stance":     "agree",
-					"confidence": 0.9,
-					"rationale":  agent.ID + " agrees with " + claim.ClaimID,
-				})
-			}
-			return map[string]any{
-				"fullResponse":    "Debate response from " + agent.ID,
-				"summary":         "Debate stance from " + agent.ID,
-				"judgements":      judgements,
-				"extractedClaims": []any{},
-			}
-		}
-		judgements := make([]map[string]any, 0, len(value.ClaimCatalog))
-		votes := make([]map[string]any, 0, len(value.ClaimCatalog))
-		for _, claim := range value.ClaimCatalog {
-			judgements = append(judgements, map[string]any{
-				"claimId":    claim.ClaimID,
-				"stance":     "agree",
-				"confidence": 0.95,
-				"rationale":  agent.ID + " accepts " + claim.ClaimID,
-			})
-			votes = append(votes, map[string]any{
-				"claimId": claim.ClaimID,
-				"vote":    "accept",
-				"reason":  agent.ID + " accepts " + claim.ClaimID,
-			})
-		}
-		return map[string]any{
-			"fullResponse": "Final vote from " + agent.ID,
-			"summary":      "Final vote from " + agent.ID,
-			"judgements":   judgements,
-			"claimVotes":   votes,
 		}
 	default:
 		return map[string]any{}

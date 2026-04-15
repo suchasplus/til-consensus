@@ -47,26 +47,23 @@ func (s *Store) Patch(_ context.Context, sessionID string, patch consensus.Sessi
 	if !ok {
 		return fmt.Errorf("unknown session id: %s", sessionID)
 	}
-	if patch.State != nil {
-		current.State = *patch.State
-	}
-	if patch.ActiveParticipants != nil {
-		current.ActiveParticipants = append([]string(nil), patch.ActiveParticipants...)
-	}
-	if patch.Eliminations != nil {
-		current.Eliminations = append([]consensus.EliminationRecord(nil), patch.Eliminations...)
-	}
-	if patch.RunningAt != nil {
-		current.RunningAt = *patch.RunningAt
-	}
-	if patch.FinalizingAt != nil {
-		current.FinalizingAt = *patch.FinalizingAt
+	if patch.Phase != nil {
+		current.Phase = *patch.Phase
 	}
 	if patch.FinishedAt != nil {
 		current.FinishedAt = *patch.FinishedAt
 	}
 	if patch.FailedAt != nil {
 		current.FailedAt = *patch.FailedAt
+	}
+	if patch.ClaimGraph != nil {
+		current.ClaimGraph = append([]consensus.ClaimNode(nil), patch.ClaimGraph...)
+	}
+	if patch.ChallengeTickets != nil {
+		current.ChallengeTickets = append([]consensus.ChallengeTicket(nil), patch.ChallengeTickets...)
+	}
+	if patch.LedgerCursor != nil {
+		current.LedgerCursor = *patch.LedgerCursor
 	}
 	if patch.Result != nil {
 		current.Result = patch.Result

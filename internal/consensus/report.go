@@ -1,126 +1,77 @@
 package consensus
 
 import (
-	"strconv"
+	"context"
+	"fmt"
 	"strings"
 )
 
-func BuildBuiltinReport(includeTrace bool, traceLevel TraceLevel, status ConsensusStatus, representativeSpeech string, rounds []RoundRecord, representativeID string, finalClaims []Claim, claimResolutions []ClaimResolution) FinalReport {
-	_ = representativeID
-	report := FinalReport{
-		Mode:                 "builtin",
-		TraceIncluded:        includeTrace,
-		TraceLevel:           traceLevel,
-		FinalSummary:         buildFinalSummary(status, finalClaims, claimResolutions, rounds),
-		RepresentativeSpeech: representativeSpeech,
+func ComposeReport(ctx context.Context, delegate TaskDelegate, request StartRequest, sessionID string, arbiter ArbiterReport, claims []ClaimNode, tickets []ChallengeTicket, timeout WaitingPolicy) (AdjudicationReport, *ArtifactRef, error) {
+	if request.Roles.Reporter == "" || delegate == nil {
+		return BuildBuiltinReport(request, arbiter, claims, tickets), nil, nil
 	}
-	if includeTrace {
-		report.OpinionShiftTimeline = buildOpinionShiftTimeline(rounds)
-		report.RoundHighlights = buildRoundHighlights(rounds, traceLevel)
+	task := ReportTask{
+		TaskMeta: TaskMeta{
+			SessionID: sessionID,
+			RequestID: request.RequestID,
+			AgentID:   request.Roles.Reporter,
+			Role:      "reporter",
+		},
+		TaskSpec:    request.TaskSpec,
+		TaskVerdict: arbiter.TaskVerdict,
+		Claims:      claims,
+		Challenges:  tickets,
+		Arbiter:     arbiter,
 	}
-	return report
+	dispatched, err := delegate.Dispatch(ctx, task)
+	if err != nil {
+		return BuildBuiltinReport(request, arbiter, claims, tickets), nil, nil
+	}
+	awaited, err := delegate.Await(ctx, dispatched.TaskID, timeout.PerTaskTimeout)
+	if err != nil || !awaited.OK {
+		return BuildBuiltinReport(request, arbiter, claims, tickets), awaited.Artifact, nil
+	}
+	typed, ok := awaited.Output.(ReportTaskResult)
+	if !ok {
+		return BuildBuiltinReport(request, arbiter, claims, tickets), awaited.Artifact, nil
+	}
+	return typed.Output, awaited.Artifact, nil
 }
 
-func buildFinalSummary(status ConsensusStatus, finalClaims []Claim, claimResolutions []ClaimResolution, rounds []RoundRecord) string {
-	activeClaims := make([]Claim, 0)
-	for _, claim := range finalClaims {
-		if claim.Status == ClaimStatusActive {
-			activeClaims = append(activeClaims, claim)
+func BuildBuiltinReport(request StartRequest, arbiter ArbiterReport, claims []ClaimNode, tickets []ChallengeTicket) AdjudicationReport {
+	highlights := make([]string, 0, len(claims))
+	nextActions := make([]string, 0)
+	for _, claim := range claims {
+		highlights = append(highlights, fmt.Sprintf("%s: %s", claim.Verdict, firstNonEmpty(claim.Title, claim.Statement)))
+		if claim.Verdict == ClaimVerdictUndetermined || claim.Verdict == ClaimVerdictInsufficientEvidence {
+			nextActions = append(nextActions, "补充证据: "+firstNonEmpty(claim.Title, claim.Statement))
 		}
 	}
-	resolved := 0
-	for _, resolution := range claimResolutions {
-		if resolution.Status == ClaimResolutionResolved {
-			resolved++
+	openChallenges := 0
+	for _, ticket := range tickets {
+		if ticket.Status == ChallengeStatusOpen {
+			openChallenges++
 		}
 	}
-	unresolved := len(claimResolutions) - resolved
-	label := map[ConsensusStatus]string{
-		ConsensusStatusConsensus:        "Consensus reached",
-		ConsensusStatusPartialConsensus: "Partial consensus",
-		ConsensusStatusUnresolved:       "Unresolved",
-		ConsensusStatusFailed:           "Failed",
-	}[status]
-	lines := []string{strings.TrimSpace(label + ". " + strconv.Itoa(len(activeClaims)) + " claims: " + strconv.Itoa(resolved) + " resolved, " + strconv.Itoa(unresolved) + " unresolved.")}
-	for _, claim := range activeClaims {
-		voteStr := ""
-		for _, resolution := range claimResolutions {
-			if resolution.ClaimID == claim.ClaimID {
-				voteStr = " (" + strconv.Itoa(resolution.AcceptCount) + "/" + strconv.Itoa(resolution.TotalVoters) + " accept)"
-				break
-			}
-		}
-		lines = append(lines, "- "+claim.ClaimID+": "+claim.Title+voteStr)
+	if openChallenges > 0 {
+		nextActions = append(nextActions, fmt.Sprintf("关闭剩余 %d 个 challenge", openChallenges))
 	}
-	if len(rounds) > 0 {
-		last := rounds[0]
-		for _, round := range rounds[1:] {
-			if round.Round > last.Round {
-				last = round
-			}
-		}
-		lines = append(lines, "", "Final round summaries:")
-		for _, output := range last.Outputs {
-			lines = append(lines, "- "+output.ParticipantID+": "+singleLine(output.Summary))
-		}
+	summary := strings.TrimSpace(arbiter.Summary)
+	if summary == "" {
+		summary = fmt.Sprintf("任务 %q 的裁决结果为 %s", request.TaskSpec.Goal, arbiter.TaskVerdict)
 	}
-	return strings.Join(lines, "\n")
+	return AdjudicationReport{
+		Summary:     summary,
+		Highlights:  highlights,
+		NextActions: dedupeStrings(nextActions),
+	}
 }
 
-func buildOpinionShiftTimeline(rounds []RoundRecord) []OpinionShift {
-	last := map[string]ClaimStance{}
-	out := make([]OpinionShift, 0)
-	for _, round := range rounds {
-		for _, output := range round.Outputs {
-			for _, judgement := range output.Judgements {
-				key := output.ParticipantID + "::" + judgement.ClaimID
-				prev, ok := last[key]
-				if !ok || prev != judgement.Stance {
-					from := "unknown"
-					if ok {
-						from = string(prev)
-					}
-					out = append(out, OpinionShift{
-						ClaimID:       judgement.ClaimID,
-						ParticipantID: output.ParticipantID,
-						From:          from,
-						To:            judgement.Stance,
-						Round:         round.Round,
-						Reason:        judgement.Rationale,
-					})
-					last[key] = judgement.Stance
-				}
-			}
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
 		}
 	}
-	return out
-}
-
-func buildRoundHighlights(rounds []RoundRecord, level TraceLevel) []RoundHighlight {
-	limit := 140
-	if level == TraceLevelFull {
-		limit = 280
-	}
-	out := make([]RoundHighlight, 0)
-	for _, round := range rounds {
-		for _, output := range round.Outputs {
-			out = append(out, RoundHighlight{
-				Round:         round.Round,
-				ParticipantID: output.ParticipantID,
-				Summary:       truncate(output.Summary, limit),
-			})
-		}
-	}
-	return out
-}
-
-func truncate(text string, maxChars int) string {
-	if len(text) <= maxChars {
-		return text
-	}
-	return text[:maxChars-1] + "…"
-}
-
-func singleLine(value string) string {
-	return strings.Join(strings.Fields(value), " ")
+	return ""
 }

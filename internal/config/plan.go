@@ -11,175 +11,196 @@ import (
 )
 
 type ResolvedRunPlan struct {
-	RequestID      string
-	Task           string
-	ParticipantIDs []string
-	EventsPath     string
-	ResultPath     string
-	SummaryPath    string
-	ErrorPath      string
-	Verbose        bool
-	StartRequest   consensus.StartRequest
+	RequestID    string
+	Task         string
+	Roles        consensus.RoleAssignments
+	LedgerPath   string
+	EventsPath   string
+	ResultPath   string
+	SummaryPath  string
+	ErrorPath    string
+	ArtifactsDir string
+	Verbose      bool
+	StartRequest consensus.StartRequest
 }
 
 func ResolveRunPlan(loaded LoadedConfig, input RunInput, overrides RunOverrides, now time.Time) (ResolvedRunPlan, error) {
 	cfg := loaded.Config
-	requestID := firstNonEmpty(overridesTaskID(overrides), input.RequestID)
+	requestID := strings.TrimSpace(input.RequestID)
 	if requestID == "" {
 		requestID = artifact.NewRequestID(now)
 	}
-	task := firstNonEmpty(strings.TrimSpace(overrides.Task), strings.TrimSpace(input.Task))
+	task := firstNonEmpty(strings.TrimSpace(overrides.Task), strings.TrimSpace(input.TaskSpec.Goal))
 	if task == "" {
 		return ResolvedRunPlan{}, fmt.Errorf("missing task")
 	}
-	participantIDs, err := resolveParticipants(cfg, input, overrides)
+	roles, err := resolveRoles(cfg.Roles, input.Roles, overrides)
 	if err != nil {
 		return ResolvedRunPlan{}, err
 	}
-	participants := make([]consensus.Participant, 0, len(participantIDs))
-	for _, id := range participantIDs {
-		for _, agent := range cfg.Agents {
-			if agent.ID == id {
-				participants = append(participants, consensus.Participant{ID: agent.ID, Role: agent.Role})
-				break
-			}
-		}
+	taskSpec := consensus.TaskSpec{
+		Goal:              task,
+		Materials:         input.TaskSpec.Materials,
+		Constraints:       mergeConstraints(cfg.Defaults.TaskConstraints, input.TaskSpec.Constraints),
+		SuccessCriteria:   pickStrings(overrides.SuccessCriteria, input.TaskSpec.SuccessCriteria, cfg.Defaults.SuccessCriteria),
+		AllowedTools:      pickStrings(nil, input.TaskSpec.AllowedTools, cfg.Defaults.AllowedTools),
+		WorkspaceSnapshot: resolveWorkspaceSnapshot(cfg.Defaults.WorkspaceSnapshot, input.TaskSpec.WorkspaceSnapshot, overrides.WorkspaceSnapshot, loaded.ConfigDir),
+		Context:           input.TaskSpec.Context,
 	}
-
-	minRounds := pickInt(overrides.MinRounds, input.MinRounds, cfg.Defaults.MinRounds, consensus.DefaultMinRounds)
-	maxRounds := pickInt(overrides.MaxRounds, input.MaxRounds, cfg.Defaults.MaxRounds, consensus.DefaultMaxRounds)
-	if maxRounds < minRounds {
-		return ResolvedRunPlan{}, fmt.Errorf("max rounds must be >= min rounds")
+	proposalPolicy := consensus.ProposalPolicy{
+		MaxPasses:          pickInt(input.ProposalPolicy.MaxPasses, cfg.Defaults.ProposalPolicy.MaxPasses, consensus.DefaultProposalPasses),
+		MaxClaimsPerWorker: pickInt(input.ProposalPolicy.MaxClaimsPerWorker, cfg.Defaults.ProposalPolicy.MaxClaimsPerWorker, consensus.DefaultMaxClaimsPerWorker),
+		DedupeStrategy:     firstNonEmpty(input.ProposalPolicy.DedupeStrategy, cfg.Defaults.ProposalPolicy.DedupeStrategy),
 	}
-	threshold := pickFloat(overrides.Threshold, input.Threshold, cfg.Defaults.Threshold, consensus.DefaultConsensusThreshold)
-	timeout := pickDuration(overrides.Timeout, input.Timeout.Duration, cfg.Defaults.PerRoundTimeout.Duration, consensus.DefaultPerRoundTimeout)
-	perTaskTimeout := pickDuration(0, input.Timeout.Duration, cfg.Defaults.PerTaskTimeout.Duration, timeout)
-	if overrides.Timeout > 0 {
-		perTaskTimeout = overrides.Timeout
+	verificationPolicy := consensus.VerificationPolicy{
+		RequiredChecks:        pickChecks(input.VerificationPolicy.RequiredChecks, cfg.Defaults.VerificationPolicy.RequiredChecks),
+		AllowSemanticVerifier: cfg.Defaults.VerificationPolicy.AllowSemanticVerifier || input.VerificationPolicy.AllowSemanticVerifier,
+		MaxParallelChecks:     pickInt(input.VerificationPolicy.MaxParallelChecks, cfg.Defaults.VerificationPolicy.MaxParallelChecks, consensus.DefaultMaxParallelChecks),
 	}
-	globalDeadline := pickDuration(overrides.GlobalDeadline, input.GlobalDeadline.Duration, cfg.Defaults.GlobalDeadline.Duration, 0)
-	language := firstNonEmpty(input.Language, cfg.Defaults.Language)
-	tokenBudgetHint := pickInt(0, input.TokenBudgetHint, cfg.Defaults.TokenBudgetHint, 0)
-	composer := firstNonEmpty(input.Composer, cfg.Defaults.Composer)
-	if composer == "" {
-		composer = string(consensus.ReportComposerBuiltin)
+	arbiterPolicy := consensus.ArbiterPolicy{
+		AllowUndetermined: true,
+		BlindReview:       true,
 	}
-	traceLevel := firstNonEmpty(input.TraceLevel, cfg.Defaults.TraceLevel)
-	if traceLevel == "" {
-		traceLevel = string(consensus.TraceLevelCompact)
+	if cfg.Defaults.ArbiterPolicy.AllowUndetermined || input.ArbiterPolicy.AllowUndetermined {
+		arbiterPolicy.AllowUndetermined = true
 	}
-	includeTrace := cfg.Defaults.IncludeDeliberationTrace
-	if input.IncludeDeliberationTrace != nil {
-		includeTrace = *input.IncludeDeliberationTrace
+	if cfg.Defaults.ArbiterPolicy.BlindReview || input.ArbiterPolicy.BlindReview {
+		arbiterPolicy.BlindReview = true
 	}
+	perTaskTimeout := pickDuration(overrides.Timeout, cfg.Defaults.PerTaskTimeout.Duration, consensus.DefaultPerTaskTimeout)
+	globalDeadline := pickDuration(overrides.GlobalDeadline, cfg.Defaults.GlobalDeadline.Duration, 0)
+	actionPrompt := firstNonEmpty(strings.TrimSpace(overrides.Action), strings.TrimSpace(input.Action))
 
 	baseDir := cfg.Output.Directory
 	if strings.TrimSpace(baseDir) == "" {
 		baseDir = "./out/{requestId}"
 	}
 	baseDir = resolveOutputPath(baseDir, loaded.ConfigDir, requestID)
+	ledgerPath := resolveOutputPath(fallbackPath(cfg.Output.LedgerPath, filepath.Join(baseDir, "ledger.jsonl")), loaded.ConfigDir, requestID)
 	eventsPath := resolveOutputPath(fallbackPath(cfg.Output.EventsPath, filepath.Join(baseDir, "events.jsonl")), loaded.ConfigDir, requestID)
 	resultPath := resolveOutputPath(fallbackPath(cfg.Output.ResultPath, filepath.Join(baseDir, "result.json")), loaded.ConfigDir, requestID)
 	summaryPath := resolveOutputPath(fallbackPath(cfg.Output.SummaryPath, filepath.Join(baseDir, "summary.md")), loaded.ConfigDir, requestID)
 	errorPath := resolveOutputPath(fallbackPath(cfg.Output.ErrorPath, filepath.Join(baseDir, "error.json")), loaded.ConfigDir, requestID)
+	artifactsDir := resolveOutputPath(fallbackPath(cfg.Output.ArtifactsDir, filepath.Join(baseDir, "artifacts")), loaded.ConfigDir, requestID)
 
 	startRequest := consensus.StartRequest{
-		RequestID:    requestID,
-		Task:         task,
-		Participants: participants,
-		RoundPolicy: consensus.RoundPolicy{
-			MinRounds: minRounds,
-			MaxRounds: maxRounds,
-		},
-		ParticipantsPolicy: consensus.ParticipantsPolicy{MinParticipants: consensus.DefaultMinParticipants},
-		SessionPolicy: consensus.SessionPolicy{
-			Mode:             "sticky-per-participant",
-			SessionKeyPrefix: "consensus",
-		},
-		PeerContextPolicy: consensus.PeerContextPolicy{
-			PassMode:                "full-response-preferred",
-			MaxCharsPerPeerResponse: consensus.DefaultPeerChars,
-			MaxPeersPerRound:        consensus.DefaultPeerCount,
-			OverflowStrategy:        consensus.DefaultPeerOverflowStrategy,
-		},
-		ScoringPolicy: consensus.ScoringPolicy{
-			Enabled:    true,
-			TieBreaker: consensus.TieBreakerLatestRoundScore,
-			Rubric: consensus.RubricWeights{
-				Correctness:   0.35,
-				Completeness:  0.25,
-				Actionability: 0.25,
-				Consistency:   0.15,
-			},
-		},
-		ConsensusPolicy: consensus.ConsensusPolicy{Threshold: threshold},
+		RequestID:          requestID,
+		TaskSpec:           taskSpec,
+		Roles:              roles,
+		ProposalPolicy:     proposalPolicy,
+		VerificationPolicy: verificationPolicy,
+		ArbiterPolicy:      arbiterPolicy,
 		ReportPolicy: consensus.ReportPolicy{
-			Composer:                 consensus.ReportComposer(composer),
-			RepresentativeID:         firstNonEmpty(input.RepresentativeID, cfg.Defaults.RepresentativeID),
-			IncludeDeliberationTrace: includeTrace,
-			TraceLevel:               consensus.TraceLevel(traceLevel),
+			Style: "builtin",
 		},
 		WaitingPolicy: consensus.WaitingPolicy{
-			PerTaskTimeout:  perTaskTimeout,
-			PerRoundTimeout: timeout,
-			GlobalDeadline:  globalDeadline,
+			PerTaskTimeout: perTaskTimeout,
+			GlobalDeadline: globalDeadline,
 		},
-		Context: input.Context,
 	}
-	if language != "" || tokenBudgetHint > 0 {
-		startRequest.Constraints = &consensus.Constraints{
-			Language:        language,
-			TokenBudgetHint: tokenBudgetHint,
-		}
-	}
-	actionPrompt := firstNonEmpty(strings.TrimSpace(overrides.Action), strings.TrimSpace(input.Action))
 	if actionPrompt != "" {
 		startRequest.ActionPolicy = &consensus.ActionPolicy{
-			Prompt:            actionPrompt,
-			IncludeFullResult: true,
+			Prompt:        actionPrompt,
+			ActorID:       roles.Actor,
+			IncludeResult: true,
 		}
 	}
-
+	normalized, err := consensus.NormalizeStartRequest(startRequest)
+	if err != nil {
+		return ResolvedRunPlan{}, err
+	}
 	return ResolvedRunPlan{
-		RequestID:      requestID,
-		Task:           task,
-		ParticipantIDs: participantIDs,
-		EventsPath:     eventsPath,
-		ResultPath:     resultPath,
-		SummaryPath:    summaryPath,
-		ErrorPath:      errorPath,
-		Verbose:        overrides.Verbose,
-		StartRequest:   startRequest,
+		RequestID:    requestID,
+		Task:         task,
+		Roles:        roles,
+		LedgerPath:   ledgerPath,
+		EventsPath:   eventsPath,
+		ResultPath:   resultPath,
+		SummaryPath:  summaryPath,
+		ErrorPath:    errorPath,
+		ArtifactsDir: artifactsDir,
+		Verbose:      overrides.Verbose,
+		StartRequest: normalized,
 	}, nil
 }
 
-func resolveParticipants(cfg Config, input RunInput, overrides RunOverrides) ([]string, error) {
-	source := overrides.Agents
-	if len(source) == 0 {
-		source = input.Agents
+func ResolveResultTemplate(loaded LoadedConfig) string {
+	requestToken := "{requestId}"
+	baseDir := loaded.Config.Output.Directory
+	if strings.TrimSpace(baseDir) == "" {
+		baseDir = "./out/{requestId}"
 	}
-	if len(source) == 0 {
-		source = cfg.Defaults.DefaultAgents
+	baseDir = resolveOutputPath(baseDir, loaded.ConfigDir, requestToken)
+	return resolveOutputPath(
+		fallbackPath(loaded.Config.Output.ResultPath, filepath.Join(baseDir, "result.json")),
+		loaded.ConfigDir,
+		requestToken,
+	)
+}
+
+func resolveRoles(cfg RolesConfig, input RolesConfig, overrides RunOverrides) (consensus.RoleAssignments, error) {
+	roles := consensus.RoleAssignments{
+		Proposers:        pickStrings(overrides.Proposers, input.Proposers, cfg.Proposers),
+		Challengers:      pickStrings(overrides.Challengers, input.Challengers, cfg.Challengers),
+		Arbiter:          firstNonEmpty(overrides.Arbiter, input.Arbiter, cfg.Arbiter),
+		SemanticVerifier: firstNonEmpty(overrides.SemanticVerifier, input.SemanticVerifier, cfg.SemanticVerifier),
+		Reporter:         firstNonEmpty(overrides.Reporter, input.Reporter, cfg.Reporter),
+		Actor:            firstNonEmpty(overrides.Actor, input.Actor, cfg.Actor),
 	}
-	if len(source) == 0 {
-		for _, agent := range cfg.Agents {
-			source = append(source, agent.ID)
+	if len(roles.Proposers) == 0 {
+		return consensus.RoleAssignments{}, fmt.Errorf("at least one proposer is required")
+	}
+	if len(roles.Challengers) == 0 {
+		return consensus.RoleAssignments{}, fmt.Errorf("at least one challenger is required")
+	}
+	return roles, nil
+}
+
+func resolveWorkspaceSnapshot(defaultValue *consensus.WorkspaceSnapshot, input *consensus.WorkspaceSnapshot, override string, baseDir string) *consensus.WorkspaceSnapshot {
+	if strings.TrimSpace(override) != "" {
+		return &consensus.WorkspaceSnapshot{Root: resolveOutputPath(override, baseDir, "")}
+	}
+	if input != nil {
+		clone := *input
+		if clone.Root != "" {
+			clone.Root = resolveOutputPath(clone.Root, baseDir, "")
+		}
+		return &clone
+	}
+	if defaultValue != nil {
+		clone := *defaultValue
+		if clone.Root != "" {
+			clone.Root = resolveOutputPath(clone.Root, baseDir, "")
+		}
+		return &clone
+	}
+	return nil
+}
+
+func mergeConstraints(base consensus.TaskConstraints, override consensus.TaskConstraints) consensus.TaskConstraints {
+	out := base
+	if override.Language != "" {
+		out.Language = override.Language
+	}
+	if len(override.AllowedPaths) > 0 {
+		out.AllowedPaths = override.AllowedPaths
+	}
+	if len(override.RequiredCommands) > 0 {
+		out.RequiredCommands = override.RequiredCommands
+	}
+	if len(override.Notes) > 0 {
+		out.Notes = override.Notes
+	}
+	return out
+}
+
+func pickChecks(values ...[]consensus.VerificationCheck) []consensus.VerificationCheck {
+	for _, value := range values {
+		if len(value) > 0 {
+			return append([]consensus.VerificationCheck(nil), value...)
 		}
 	}
-	source = dedupe(source)
-	if len(source) < 2 {
-		return nil, fmt.Errorf("at least two agents are required")
-	}
-	known := map[string]struct{}{}
-	for _, agent := range cfg.Agents {
-		known[agent.ID] = struct{}{}
-	}
-	for _, id := range source {
-		if _, ok := known[id]; !ok {
-			return nil, fmt.Errorf("unknown agent id: %s", id)
-		}
-	}
-	return source, nil
+	return nil
 }
 
 func resolveOutputPath(rawPath, baseDir, requestID string) string {
@@ -194,11 +215,15 @@ func dedupe(items []string) []string {
 	seen := map[string]struct{}{}
 	out := make([]string, 0, len(items))
 	for _, item := range items {
-		if _, ok := seen[item]; ok {
+		trimmed := strings.TrimSpace(item)
+		if trimmed == "" {
 			continue
 		}
-		seen[item] = struct{}{}
-		out = append(out, item)
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		out = append(out, trimmed)
 	}
 	return out
 }
@@ -221,15 +246,6 @@ func pickInt(values ...int) int {
 	return 0
 }
 
-func pickFloat(values ...float64) float64 {
-	for _, value := range values {
-		if value > 0 {
-			return value
-		}
-	}
-	return 0
-}
-
 func pickDuration(values ...time.Duration) time.Duration {
 	for _, value := range values {
 		if value > 0 {
@@ -239,13 +255,18 @@ func pickDuration(values ...time.Duration) time.Duration {
 	return 0
 }
 
+func pickStrings(values ...[]string) []string {
+	for _, value := range values {
+		if len(value) > 0 {
+			return dedupe(value)
+		}
+	}
+	return nil
+}
+
 func fallbackPath(value, fallback string) string {
 	if strings.TrimSpace(value) == "" {
 		return fallback
 	}
 	return value
-}
-
-func overridesTaskID(_ RunOverrides) string {
-	return ""
 }

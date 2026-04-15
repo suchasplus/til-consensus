@@ -2,388 +2,249 @@ package consensus
 
 import (
 	"fmt"
-	"math"
-	"sort"
+	"maps"
+	"slices"
 	"strings"
 )
 
-func UpdateClaims(base []Claim, outputs []ParticipantRoundOutput) ([]Claim, int, []RoundAppliedMerge) {
-	claimMap := make(map[string]Claim, len(base))
-	order := make(map[string]int, len(base))
-	for idx, claim := range base {
-		claimMap[claim.ClaimID] = claim
-		order[claim.ClaimID] = idx
+func UpsertClaim(claims []ClaimNode, draft ClaimDraft, proposedBy string, evidenceRef string, idFactory IDFactory) ([]ClaimNode, ClaimNode, bool) {
+	key := normalizedClaimKey(draft.Statement)
+	for idx := range claims {
+		if normalizedClaimKey(claims[idx].Statement) != key {
+			continue
+		}
+		claims[idx].ProposedBy = appendUnique(claims[idx].ProposedBy, proposedBy)
+		claims[idx].EvidenceRefs = appendUnique(claims[idx].EvidenceRefs, evidenceRef)
+		claims[idx].Dependencies = appendUnique(claims[idx].Dependencies, draft.Dependencies...)
+		if claims[idx].Title == "" {
+			claims[idx].Title = strings.TrimSpace(draft.Title)
+		}
+		if claims[idx].Scope == "" {
+			claims[idx].Scope = strings.TrimSpace(draft.Scope)
+		}
+		if claims[idx].Applicability == "" {
+			claims[idx].Applicability = strings.TrimSpace(draft.Applicability)
+		}
+		if claims[idx].Metadata == nil && draft.Metadata != nil {
+			claims[idx].Metadata = maps.Clone(draft.Metadata)
+		}
+		return claims, claims[idx], false
 	}
-	nextOrder := len(order)
-	newClaimCount := 0
-	seqByParticipant := map[string]int{}
-
-	for _, output := range outputs {
-		for _, extracted := range output.ExtractedClaims {
-			seq := seqByParticipant[output.ParticipantID]
-			seqByParticipant[output.ParticipantID] = seq + 1
-			claimID := fmt.Sprintf("%s:%d:%d", output.ParticipantID, output.Round, seq)
-			claimMap[claimID] = Claim{
-				ClaimID:    claimID,
-				Title:      extracted.Title,
-				Statement:  extracted.Statement,
-				Category:   extracted.Category,
-				ProposedBy: []string{output.ParticipantID},
-				Status:     ClaimStatusActive,
-			}
-			order[claimID] = nextOrder
-			nextOrder++
-			newClaimCount++
-		}
+	claimID := idFactory.NewEntityID("claim")
+	claim := ClaimNode{
+		ClaimID:       claimID,
+		Title:         strings.TrimSpace(draft.Title),
+		Statement:     strings.TrimSpace(draft.Statement),
+		Scope:         strings.TrimSpace(draft.Scope),
+		Dependencies:  dedupeStrings(draft.Dependencies),
+		Applicability: strings.TrimSpace(draft.Applicability),
+		Status:        ClaimStatusProposed,
+		ProposedBy:    []string{proposedBy},
+		EvidenceRefs:  filterEmpty([]string{evidenceRef}),
+		Metadata:      maps.Clone(draft.Metadata),
 	}
-
-	if len(claimMap) == 0 {
-		for _, output := range outputs {
-			claimID := fmt.Sprintf("seed:%s:%d", output.ParticipantID, output.Round)
-			claimMap[claimID] = Claim{
-				ClaimID:    claimID,
-				Title:      fmt.Sprintf("Seed from %s", output.ParticipantID),
-				Statement:  output.Summary,
-				Category:   ClaimCategoryTodo,
-				ProposedBy: []string{output.ParticipantID},
-				Status:     ClaimStatusActive,
-			}
-			order[claimID] = nextOrder
-			nextOrder++
-			newClaimCount++
-		}
-	}
-
-	type mergeState struct {
-		SourceClaimID  string
-		TargetClaimID  string
-		ParticipantIDs map[string]struct{}
-	}
-	mergeBySource := map[string]*mergeState{}
-	appendParticipant := func(source, target, participantID string, createIfMissing bool) {
-		if existing, ok := mergeBySource[source]; ok && existing.TargetClaimID == target {
-			existing.ParticipantIDs[participantID] = struct{}{}
-			return
-		}
-		if !createIfMissing {
-			return
-		}
-		mergeBySource[source] = &mergeState{
-			SourceClaimID:  source,
-			TargetClaimID:  target,
-			ParticipantIDs: map[string]struct{}{participantID: {}},
-		}
-	}
-
-	for _, output := range outputs {
-		for _, judgement := range output.Judgements {
-			directClaim, directOK := claimMap[judgement.ClaimID]
-			targetID := resolveClaimID(claimMap, judgement.ClaimID)
-			targetClaim, targetOK := claimMap[targetID]
-			if !directOK && !targetOK {
-				continue
-			}
-
-			if judgement.RevisedStatement != "" && (judgement.Stance == ClaimStanceRevise || judgement.Stance == ClaimStanceDisagree) {
-				revisionTarget := directClaim
-				if !directOK {
-					revisionTarget = targetClaim
-				}
-				revisionTarget.Statement = judgement.RevisedStatement
-				claimMap[revisionTarget.ClaimID] = revisionTarget
-			}
-
-			if judgement.MergesWith == "" {
-				continue
-			}
-			mergeIntoID := resolveClaimID(claimMap, judgement.MergesWith)
-			if _, ok := claimMap[mergeIntoID]; !ok {
-				continue
-			}
-			if targetID == mergeIntoID {
-				if directOK && directClaim.Status == ClaimStatusMerged && directClaim.MergedInto == mergeIntoID {
-					appendParticipant(directClaim.ClaimID, mergeIntoID, output.ParticipantID, false)
-				}
-				continue
-			}
-
-			leftOrder := order[targetID]
-			rightOrder := order[mergeIntoID]
-			survivorID := targetID
-			loserID := mergeIntoID
-			if rightOrder < leftOrder {
-				survivorID, loserID = mergeIntoID, targetID
-			}
-			survivor, ok1 := claimMap[survivorID]
-			loser, ok2 := claimMap[loserID]
-			if !ok1 || !ok2 {
-				continue
-			}
-			loser.Status = ClaimStatusMerged
-			loser.MergedInto = survivorID
-			survivor.ProposedBy = uniqueStrings(append(survivor.ProposedBy, loser.ProposedBy...))
-			claimMap[loser.ClaimID] = loser
-			claimMap[survivor.ClaimID] = survivor
-
-			for id, claim := range claimMap {
-				if claim.Status == ClaimStatusMerged && claim.MergedInto == loserID {
-					claim.MergedInto = survivorID
-					claimMap[id] = claim
-				}
-			}
-			appendParticipant(loserID, survivorID, output.ParticipantID, true)
-		}
-	}
-
-	claims := make([]Claim, 0, len(claimMap))
-	for _, claim := range claimMap {
-		claims = append(claims, claim)
-	}
-	sort.SliceStable(claims, func(i, j int) bool {
-		leftOrder, lok := order[claims[i].ClaimID]
-		rightOrder, rok := order[claims[j].ClaimID]
-		if lok && rok && leftOrder != rightOrder {
-			return leftOrder < rightOrder
-		}
-		return claims[i].ClaimID < claims[j].ClaimID
-	})
-
-	merges := make([]RoundAppliedMerge, 0, len(mergeBySource))
-	for _, state := range mergeBySource {
-		participantIDs := make([]string, 0, len(state.ParticipantIDs))
-		for participantID := range state.ParticipantIDs {
-			participantIDs = append(participantIDs, participantID)
-		}
-		sort.Strings(participantIDs)
-		merges = append(merges, RoundAppliedMerge{
-			SourceClaimID:  state.SourceClaimID,
-			TargetClaimID:  state.TargetClaimID,
-			ParticipantIDs: participantIDs,
-		})
-	}
-	sort.SliceStable(merges, func(i, j int) bool {
-		leftOrder := order[merges[i].SourceClaimID]
-		rightOrder := order[merges[j].SourceClaimID]
-		if leftOrder != rightOrder {
-			return leftOrder < rightOrder
-		}
-		return merges[i].SourceClaimID < merges[j].SourceClaimID
-	})
-
-	return claims, newClaimCount, merges
+	return append(claims, claim), claim, true
 }
 
-func BuildClaimResolutions(claims []Claim, finalVoteOutputs []ParticipantRoundOutput, threshold float64, forceUnresolved bool) []ClaimResolution {
-	activeClaims := make([]Claim, 0)
-	active := map[string]struct{}{}
+func ResolveClaimRef(claims []ClaimNode, claimID string, statement string) (ClaimNode, bool) {
+	if strings.TrimSpace(claimID) != "" {
+		for _, claim := range claims {
+			if claim.ClaimID == strings.TrimSpace(claimID) {
+				return claim, true
+			}
+		}
+	}
+	key := normalizedClaimKey(statement)
 	for _, claim := range claims {
-		if claim.Status == ClaimStatusActive {
-			activeClaims = append(activeClaims, claim)
-			active[claim.ClaimID] = struct{}{}
+		if normalizedClaimKey(claim.Statement) == key {
+			return claim, true
 		}
 	}
-	votesByClaim := map[string]map[string]ClaimVote{}
-	for _, claim := range activeClaims {
-		votesByClaim[claim.ClaimID] = map[string]ClaimVote{}
-	}
-	for _, output := range finalVoteOutputs {
-		if output.Phase != PhaseFinalVote {
+	return ClaimNode{}, false
+}
+
+func UpsertChallenge(tickets []ChallengeTicket, draft ChallengeDraft, claimID string, openedBy string, evidenceRef string, idFactory IDFactory) ([]ChallengeTicket, ChallengeTicket, bool) {
+	key := claimID + "::" + normalizedClaimKey(draft.Statement) + "::" + strings.ToLower(strings.TrimSpace(draft.Kind))
+	for idx := range tickets {
+		existing := tickets[idx]
+		if existing.ClaimID+"::"+normalizedClaimKey(existing.Statement)+"::"+strings.ToLower(existing.Kind) != key {
 			continue
 		}
-		for _, vote := range output.ClaimVotes {
-			if _, ok := active[vote.ClaimID]; !ok {
-				continue
-			}
-			votesByClaim[vote.ClaimID][output.ParticipantID] = ClaimVote{
-				ParticipantID: output.ParticipantID,
-				ClaimID:       vote.ClaimID,
-				Vote:          vote.Vote,
-				Reason:        vote.Reason,
-			}
+		tickets[idx].EvidenceRefs = appendUnique(tickets[idx].EvidenceRefs, evidenceRef)
+		tickets[idx].RequestedChecks = appendUnique(tickets[idx].RequestedChecks, draft.RequestedChecks...)
+		return tickets, tickets[idx], false
+	}
+	ticket := ChallengeTicket{
+		TicketID:        idFactory.NewEntityID("challenge"),
+		ClaimID:         claimID,
+		Kind:            strings.TrimSpace(draft.Kind),
+		OpenedBy:        openedBy,
+		Statement:       strings.TrimSpace(draft.Statement),
+		Status:          ChallengeStatusOpen,
+		EvidenceRefs:    filterEmpty([]string{evidenceRef}),
+		RequestedChecks: dedupeStrings(draft.RequestedChecks),
+	}
+	return append(tickets, ticket), ticket, true
+}
+
+func AttachEvidenceToClaim(claims []ClaimNode, claimID string, evidenceRef string) []ClaimNode {
+	for idx := range claims {
+		if claims[idx].ClaimID != claimID {
+			continue
+		}
+		claims[idx].EvidenceRefs = appendUnique(claims[idx].EvidenceRefs, evidenceRef)
+		return claims
+	}
+	return claims
+}
+
+func AttachVerificationToClaim(claims []ClaimNode, claimID string, verificationRef string) []ClaimNode {
+	for idx := range claims {
+		if claims[idx].ClaimID != claimID {
+			continue
+		}
+		claims[idx].VerificationRefs = appendUnique(claims[idx].VerificationRefs, verificationRef)
+		claims[idx].Status = ClaimStatusVerified
+		return claims
+	}
+	return claims
+}
+
+func AttachChallengeToClaim(claims []ClaimNode, claimID string, challengeRef string) []ClaimNode {
+	for idx := range claims {
+		if claims[idx].ClaimID != claimID {
+			continue
+		}
+		claims[idx].ChallengeRefs = appendUnique(claims[idx].ChallengeRefs, challengeRef)
+		claims[idx].Status = ClaimStatusChallenged
+		return claims
+	}
+	return claims
+}
+
+func ApplyDecisions(claims []ClaimNode, decisions []ArbiterDecision) []ClaimNode {
+	index := make(map[string]ArbiterDecision, len(decisions))
+	for _, decision := range decisions {
+		index[decision.ClaimID] = decision
+	}
+	for idx := range claims {
+		decision, ok := index[claims[idx].ClaimID]
+		if !ok {
+			continue
+		}
+		claims[idx].Status = ClaimStatusAdjudicated
+		claims[idx].Verdict = decision.Verdict
+		claims[idx].Confidence = decision.Confidence
+		claims[idx].Rationale = decision.Rationale
+		claims[idx].EvidenceRefs = appendUnique(claims[idx].EvidenceRefs, decision.EvidenceRefs...)
+	}
+	return claims
+}
+
+func CloseChallenges(tickets []ChallengeTicket, claimID string, verificationRefs []string, resolution string) []ChallengeTicket {
+	for idx := range tickets {
+		if tickets[idx].ClaimID != claimID {
+			continue
+		}
+		tickets[idx].Status = ChallengeStatusClosed
+		tickets[idx].VerificationRefs = appendUnique(tickets[idx].VerificationRefs, verificationRefs...)
+		if tickets[idx].ResolutionSummary == "" {
+			tickets[idx].ResolutionSummary = strings.TrimSpace(resolution)
 		}
 	}
+	return tickets
+}
 
-	out := make([]ClaimResolution, 0, len(activeClaims))
-	for _, claim := range activeClaims {
-		voteMap := votesByClaim[claim.ClaimID]
-		votes := make([]ClaimVote, 0, len(voteMap))
-		acceptCount := 0
-		rejectCount := 0
-		for _, vote := range voteMap {
-			votes = append(votes, vote)
-			if vote.Vote == "accept" {
-				acceptCount++
-			}
-			if vote.Vote == "reject" {
-				rejectCount++
-			}
-		}
-		sort.SliceStable(votes, func(i, j int) bool {
-			return votes[i].ParticipantID < votes[j].ParticipantID
-		})
-		totalVoters := len(votes)
-		ratio := 0.0
-		if totalVoters > 0 {
-			ratio = float64(acceptCount) / float64(totalVoters)
-		}
-		status := ClaimResolutionUnresolved
-		if !forceUnresolved && totalVoters > 0 && ratio >= threshold {
-			status = ClaimResolutionResolved
-		}
-		out = append(out, ClaimResolution{
-			ClaimID:     claim.ClaimID,
-			Status:      status,
-			AcceptCount: acceptCount,
-			RejectCount: rejectCount,
-			TotalVoters: totalVoters,
-			Votes:       votes,
-		})
+func CountVerdicts(claims []ClaimNode) map[ClaimVerdict]int {
+	out := map[ClaimVerdict]int{}
+	for _, claim := range claims {
+		out[claim.Verdict]++
 	}
 	return out
 }
 
-func AggregateSessionStatus(claimResolutions []ClaimResolution, globalDeadlineHit bool) ConsensusStatus {
-	if globalDeadlineHit {
-		return ConsensusStatusUnresolved
+func DetermineTaskVerdict(claims []ClaimNode) TaskVerdict {
+	if len(claims) == 0 {
+		return TaskVerdictFailed
 	}
-	if len(claimResolutions) == 0 {
-		return ConsensusStatusUnresolved
+	counts := CountVerdicts(claims)
+	switch {
+	case counts[ClaimVerdictSupported] == len(claims):
+		return TaskVerdictSupported
+	case counts[ClaimVerdictSupported] > 0:
+		return TaskVerdictPartiallySupported
+	case counts[ClaimVerdictRefuted] == len(claims):
+		return TaskVerdictFailed
+	default:
+		return TaskVerdictUndetermined
 	}
-	resolvedCount := 0
-	for _, resolution := range claimResolutions {
-		if resolution.Status == ClaimResolutionResolved {
-			resolvedCount++
-		}
-	}
-	if resolvedCount == len(claimResolutions) {
-		return ConsensusStatusConsensus
-	}
-	if resolvedCount > 0 {
-		return ConsensusStatusPartialConsensus
-	}
-	return ConsensusStatusUnresolved
 }
 
-func ShouldEarlyStop(outputs []ParticipantRoundOutput, newClaimCount int) bool {
-	if len(outputs) == 0 || newClaimCount > 0 {
-		return false
-	}
-	for _, output := range outputs {
-		if len(output.Judgements) == 0 {
-			return false
-		}
-		for _, judgement := range output.Judgements {
-			if judgement.Stance != ClaimStanceAgree || judgement.RevisedStatement != "" {
-				return false
-			}
-		}
-	}
-	return true
+func normalizedClaimKey(value string) string {
+	trimmed := strings.TrimSpace(strings.ToLower(value))
+	return strings.Join(strings.Fields(trimmed), " ")
 }
 
-func ApplyTextBudget(text string, maxChars int, strategy OverflowStrategy) (string, bool) {
-	if len(text) <= maxChars {
-		return text, false
-	}
-	if maxChars < 10 {
-		return text[:maxChars], true
-	}
-	if strategy == OverflowTruncateMiddle {
-		head := int(math.Floor(float64(maxChars-1) / 2))
-		tail := maxChars - 1 - head
-		return text[:head] + "…" + text[len(text)-tail:], true
-	}
-	return text[:maxChars-1] + "…", true
-}
-
-func CollectDisagreements(rounds []RoundRecord) []Disagreement {
-	out := make([]Disagreement, 0)
-	for _, round := range rounds {
-		for _, output := range round.Outputs {
-			for _, judgement := range output.Judgements {
-				if judgement.Stance != ClaimStanceDisagree {
-					continue
-				}
-				out = append(out, Disagreement{
-					ClaimID:       judgement.ClaimID,
-					ParticipantID: output.ParticipantID,
-					Reason:        judgement.Rationale,
-				})
-			}
-		}
-	}
-	return out
-}
-
-func SelectTaskTitle(rounds []RoundRecord, representativeID string, scoreboard []ParticipantScore, fallbackPrompt string) string {
-	var initRound *RoundRecord
-	for idx := range rounds {
-		if rounds[idx].Round == 0 {
-			initRound = &rounds[idx]
-			break
-		}
-	}
-	if initRound != nil {
-		if ownTitle := findInitialTaskTitle(initRound.Outputs, representativeID); ownTitle != "" {
-			return ownTitle
-		}
-		for _, score := range scoreboard {
-			if score.ParticipantID == representativeID {
-				continue
-			}
-			if candidate := findInitialTaskTitle(initRound.Outputs, score.ParticipantID); candidate != "" {
-				return candidate
-			}
-		}
-	}
-	trimmed := strings.TrimSpace(fallbackPrompt)
-	if trimmed == "" {
-		return "Untitled til-consensus session"
-	}
-	if len(trimmed) <= 60 {
-		return trimmed
-	}
-	return trimmed[:59] + "…"
-}
-
-func findInitialTaskTitle(outputs []ParticipantRoundOutput, participantID string) string {
-	for _, output := range outputs {
-		if output.Phase == PhaseInitial && output.ParticipantID == participantID && output.TaskTitle != "" {
-			return output.TaskTitle
-		}
-	}
-	return ""
-}
-
-func resolveClaimID(claimMap map[string]Claim, claimID string) string {
-	current := claimID
+func appendUnique(base []string, values ...string) []string {
 	seen := map[string]struct{}{}
-	for {
-		if _, ok := seen[current]; ok {
-			return current
-		}
-		seen[current] = struct{}{}
-		claim, ok := claimMap[current]
-		if !ok || claim.Status != ClaimStatusMerged || claim.MergedInto == "" {
-			return current
-		}
-		current = claim.MergedInto
-	}
-}
-
-func uniqueStrings(items []string) []string {
-	seen := map[string]struct{}{}
-	out := make([]string, 0, len(items))
-	for _, item := range items {
-		if item == "" {
-			continue
-		}
-		if _, ok := seen[item]; ok {
-			continue
-		}
+	for _, item := range base {
 		seen[item] = struct{}{}
-		out = append(out, item)
 	}
-	sort.Strings(out)
-	return out
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		base = append(base, trimmed)
+	}
+	return base
+}
+
+func filterEmpty(values []string) []string {
+	return dedupeStrings(values)
+}
+
+func SortClaims(claims []ClaimNode) {
+	slices.SortFunc(claims, func(left, right ClaimNode) int {
+		switch {
+		case left.ClaimID < right.ClaimID:
+			return -1
+		case left.ClaimID > right.ClaimID:
+			return 1
+		default:
+			return 0
+		}
+	})
+}
+
+func SortChallenges(tickets []ChallengeTicket) {
+	slices.SortFunc(tickets, func(left, right ChallengeTicket) int {
+		switch {
+		case left.TicketID < right.TicketID:
+			return -1
+		case left.TicketID > right.TicketID:
+			return 1
+		default:
+			return 0
+		}
+	})
+}
+
+func ValidateClaimDependencies(claims []ClaimNode) error {
+	index := map[string]struct{}{}
+	for _, claim := range claims {
+		index[claim.ClaimID] = struct{}{}
+	}
+	for _, claim := range claims {
+		for _, dep := range claim.Dependencies {
+			if _, ok := index[dep]; !ok {
+				return fmt.Errorf("claim %s references unknown dependency %s", claim.ClaimID, dep)
+			}
+		}
+	}
+	return nil
 }

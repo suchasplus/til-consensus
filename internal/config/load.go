@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/suchasplus/til-consensus/internal/consensus"
 	"gopkg.in/yaml.v3"
 )
 
@@ -51,6 +52,7 @@ func Load(path string) (LoadedConfig, error) {
 	if err := decoder.Decode(&cfg); err != nil {
 		return LoadedConfig{}, fmt.Errorf("decode yaml config: %w", err)
 	}
+	cfg = Normalize(cfg)
 	if err := Validate(cfg); err != nil {
 		return LoadedConfig{}, err
 	}
@@ -88,27 +90,51 @@ func InitTemplate() Config {
 	return Config{
 		SchemaVersion: 1,
 		Defaults: DefaultsConfig{
-			DefaultAgents:   []string{"mock-a", "mock-b"},
-			MinRounds:       2,
-			MaxRounds:       3,
-			Threshold:       1.0,
+			SuccessCriteria: []string{"给出 claim 级裁决", "允许 undetermined"},
+			AllowedTools:    []string{"repo", "tests", "benchmarks"},
 			PerTaskTimeout:  Duration{Duration: 20 * time.Minute},
-			PerRoundTimeout: Duration{Duration: 20 * time.Minute},
-			Composer:        "builtin",
-			TraceLevel:      "compact",
+			ProposalPolicy: ProposalPolicyConfig{
+				MaxPasses:          1,
+				MaxClaimsPerWorker: 3,
+				DedupeStrategy:     "normalized-statement",
+			},
+			VerificationPolicy: VerificationPolicyConfig{
+				AllowSemanticVerifier: true,
+				MaxParallelChecks:     4,
+				RequiredChecks: []consensus.VerificationCheck{
+					{Name: "allowed_paths", Kind: "allowed_paths"},
+				},
+			},
+			ArbiterPolicy: ArbiterPolicyConfig{
+				AllowUndetermined: true,
+				BlindReview:       true,
+			},
 		},
 		Output: OutputConfig{
 			Directory: "./out/{requestId}",
 		},
 		Providers: map[string]ProviderConfig{
 			"mock": {
-				Type:     "mock",
+				Type:     ProviderTypeMock,
 				Behavior: "deterministic",
+				Models: map[string]ProviderModelConfig{
+					"default": {
+						ProviderModel: "mock-default",
+					},
+				},
 			},
 		},
 		Agents: []AgentConfig{
-			{ID: "mock-a", Provider: "mock", Role: "reviewer-a"},
-			{ID: "mock-b", Provider: "mock", Role: "reviewer-b"},
+			{ID: "proposer-a", Provider: "mock", Model: "default", Role: "proposer"},
+			{ID: "challenger-a", Provider: "mock", Model: "default", Role: "challenger"},
+			{ID: "arbiter-a", Provider: "mock", Model: "default", Role: "arbiter"},
+			{ID: "reporter-a", Provider: "mock", Model: "default", Role: "reporter"},
+		},
+		Roles: RolesConfig{
+			Proposers:   []string{"proposer-a"},
+			Challengers: []string{"challenger-a"},
+			Arbiter:     "arbiter-a",
+			Reporter:    "reporter-a",
 		},
 	}
 }
@@ -129,9 +155,7 @@ func WriteTemplate(path string) error {
 }
 
 func DefaultConfigPath() (string, error) {
-	cwd := mustGetwd()
-	projectPath := filepath.Join(cwd, "til-consensus.yaml")
-	return projectPath, nil
+	return filepath.Join(mustGetwd(), "til-consensus.yaml"), nil
 }
 
 func toAbs(path, base string) string {

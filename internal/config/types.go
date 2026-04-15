@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/suchasplus/til-consensus/internal/consensus"
 )
 
 type Duration struct {
@@ -45,52 +47,92 @@ type Config struct {
 	Output        OutputConfig              `yaml:"output"`
 	Providers     map[string]ProviderConfig `yaml:"providers"`
 	Agents        []AgentConfig             `yaml:"agents"`
+	Roles         RolesConfig               `yaml:"roles"`
 }
 
 type DefaultsConfig struct {
-	DefaultAgents            []string `yaml:"default_agents"`
-	Language                 string   `yaml:"language"`
-	TokenBudgetHint          int      `yaml:"token_budget_hint"`
-	MinRounds                int      `yaml:"min_rounds"`
-	MaxRounds                int      `yaml:"max_rounds"`
-	Threshold                float64  `yaml:"threshold"`
-	PerTaskTimeout           Duration `yaml:"per_task_timeout"`
-	PerRoundTimeout          Duration `yaml:"per_round_timeout"`
-	GlobalDeadline           Duration `yaml:"global_deadline"`
-	Composer                 string   `yaml:"composer"`
-	RepresentativeID         string   `yaml:"representative_id"`
-	IncludeDeliberationTrace bool     `yaml:"include_deliberation_trace"`
-	TraceLevel               string   `yaml:"trace_level"`
+	SuccessCriteria    []string                     `yaml:"success_criteria"`
+	AllowedTools       []string                     `yaml:"allowed_tools"`
+	PerTaskTimeout     Duration                     `yaml:"per_task_timeout"`
+	GlobalDeadline     Duration                     `yaml:"global_deadline"`
+	ProposalPolicy     ProposalPolicyConfig         `yaml:"proposal_policy"`
+	VerificationPolicy VerificationPolicyConfig     `yaml:"verification_policy"`
+	ArbiterPolicy      ArbiterPolicyConfig          `yaml:"arbiter_policy"`
+	WorkspaceSnapshot  *consensus.WorkspaceSnapshot `yaml:"workspace_snapshot,omitempty"`
+	TaskConstraints    consensus.TaskConstraints    `yaml:"task_constraints,omitempty"`
+}
+
+type RolesConfig struct {
+	Proposers        []string `yaml:"proposers"`
+	Challengers      []string `yaml:"challengers"`
+	Arbiter          string   `yaml:"arbiter,omitempty"`
+	SemanticVerifier string   `yaml:"semantic_verifier,omitempty"`
+	Reporter         string   `yaml:"reporter,omitempty"`
+	Actor            string   `yaml:"actor,omitempty"`
+}
+
+type ProposalPolicyConfig struct {
+	MaxPasses          int    `yaml:"max_passes"`
+	MaxClaimsPerWorker int    `yaml:"max_claims_per_worker"`
+	DedupeStrategy     string `yaml:"dedupe_strategy,omitempty"`
+}
+
+type VerificationPolicyConfig struct {
+	RequiredChecks        []consensus.VerificationCheck `yaml:"required_checks,omitempty"`
+	AllowSemanticVerifier bool                          `yaml:"allow_semantic_verifier"`
+	MaxParallelChecks     int                           `yaml:"max_parallel_checks,omitempty"`
+}
+
+type ArbiterPolicyConfig struct {
+	AllowUndetermined bool `yaml:"allow_undetermined"`
+	BlindReview       bool `yaml:"blind_review"`
 }
 
 type OutputConfig struct {
-	Directory   string `yaml:"directory"`
-	EventsPath  string `yaml:"events_path"`
-	ResultPath  string `yaml:"result_path"`
-	SummaryPath string `yaml:"summary_path"`
-	ErrorPath   string `yaml:"error_path"`
+	Directory    string `yaml:"directory"`
+	LedgerPath   string `yaml:"ledger_path"`
+	EventsPath   string `yaml:"events_path"`
+	ResultPath   string `yaml:"result_path"`
+	SummaryPath  string `yaml:"summary_path"`
+	ErrorPath    string `yaml:"error_path"`
+	ArtifactsDir string `yaml:"artifacts_dir"`
+}
+
+type ProviderModelConfig struct {
+	ProviderModel   string   `yaml:"provider_model,omitempty"`
+	ContextWindow   int      `yaml:"context_window,omitempty"`
+	MaxOutputTokens int      `yaml:"max_output_tokens,omitempty"`
+	Temperature     *float64 `yaml:"temperature,omitempty"`
+	Reasoning       string   `yaml:"reasoning,omitempty"`
 }
 
 type ProviderConfig struct {
 	Type         string                             `yaml:"type"`
-	BaseURL      string                             `yaml:"base_url"`
-	APIKeyEnv    string                             `yaml:"api_key_env"`
-	Model        string                             `yaml:"model"`
-	Command      string                             `yaml:"command"`
-	Args         []string                           `yaml:"args"`
-	Env          map[string]string                  `yaml:"env"`
-	Behavior     string                             `yaml:"behavior"`
-	Delay        Duration                           `yaml:"delay"`
-	Error        string                             `yaml:"error"`
-	Participants map[string]MockParticipantScenario `yaml:"participants"`
+	Protocol     string                             `yaml:"protocol,omitempty"`
+	CLIType      string                             `yaml:"cli_type,omitempty"`
+	BaseURL      string                             `yaml:"base_url,omitempty"`
+	APIKeyEnv    string                             `yaml:"api_key_env,omitempty"`
+	Headers      map[string]string                  `yaml:"headers,omitempty"`
+	Model        string                             `yaml:"model,omitempty"`
+	Models       map[string]ProviderModelConfig     `yaml:"models,omitempty"`
+	Command      string                             `yaml:"command,omitempty"`
+	Args         []string                           `yaml:"args,omitempty"`
+	Env          map[string]string                  `yaml:"env,omitempty"`
+	Adapter      string                             `yaml:"adapter,omitempty"`
+	Options      map[string]any                     `yaml:"options,omitempty"`
+	Behavior     string                             `yaml:"behavior,omitempty"`
+	Delay        Duration                           `yaml:"delay,omitempty"`
+	Error        string                             `yaml:"error,omitempty"`
+	Participants map[string]MockParticipantScenario `yaml:"participants,omitempty"`
 }
 
 type MockParticipantScenario struct {
-	Initial   MockAction `yaml:"initial"`
-	Debate    MockAction `yaml:"debate"`
-	FinalVote MockAction `yaml:"final_vote"`
-	Report    MockAction `yaml:"report"`
-	Action    MockAction `yaml:"action"`
+	Propose        MockAction `yaml:"propose"`
+	Challenge      MockAction `yaml:"challenge"`
+	SemanticVerify MockAction `yaml:"semantic_verify"`
+	Arbiter        MockAction `yaml:"arbiter"`
+	Report         MockAction `yaml:"report"`
+	Action         MockAction `yaml:"action"`
 }
 
 type MockAction struct {
@@ -102,10 +144,12 @@ type MockAction struct {
 type AgentConfig struct {
 	ID           string   `yaml:"id"`
 	Provider     string   `yaml:"provider"`
-	Model        string   `yaml:"model"`
-	Role         string   `yaml:"role"`
-	SystemPrompt string   `yaml:"system_prompt"`
-	Timeout      Duration `yaml:"timeout"`
+	Model        string   `yaml:"model,omitempty"`
+	Role         string   `yaml:"role,omitempty"`
+	SystemPrompt string   `yaml:"system_prompt,omitempty"`
+	Timeout      Duration `yaml:"timeout,omitempty"`
+	Temperature  *float64 `yaml:"temperature,omitempty"`
+	Reasoning    string   `yaml:"reasoning,omitempty"`
 }
 
 type LoadedConfig struct {
@@ -115,34 +159,39 @@ type LoadedConfig struct {
 }
 
 type RunInput struct {
-	RequestID                string         `yaml:"request_id" json:"request_id"`
-	Task                     string         `yaml:"task" json:"task"`
-	Agents                   []string       `yaml:"agents" json:"agents"`
-	MinRounds                int            `yaml:"min_rounds" json:"min_rounds"`
-	MaxRounds                int            `yaml:"max_rounds" json:"max_rounds"`
-	Threshold                float64        `yaml:"threshold" json:"threshold"`
-	Timeout                  Duration       `yaml:"timeout" json:"timeout"`
-	GlobalDeadline           Duration       `yaml:"global_deadline" json:"global_deadline"`
-	Action                   string         `yaml:"action" json:"action"`
-	Language                 string         `yaml:"language" json:"language"`
-	TokenBudgetHint          int            `yaml:"token_budget_hint" json:"token_budget_hint"`
-	RepresentativeID         string         `yaml:"representative_id" json:"representative_id"`
-	Composer                 string         `yaml:"composer" json:"composer"`
-	IncludeDeliberationTrace *bool          `yaml:"include_deliberation_trace" json:"include_deliberation_trace"`
-	TraceLevel               string         `yaml:"trace_level" json:"trace_level"`
-	Context                  map[string]any `yaml:"context" json:"context"`
+	RequestID          string                   `yaml:"request_id" json:"request_id"`
+	TaskSpec           TaskSpecInput            `yaml:"task_spec" json:"task_spec"`
+	Roles              RolesConfig              `yaml:"roles" json:"roles"`
+	ProposalPolicy     ProposalPolicyConfig     `yaml:"proposal_policy" json:"proposal_policy"`
+	VerificationPolicy VerificationPolicyConfig `yaml:"verification_policy" json:"verification_policy"`
+	ArbiterPolicy      ArbiterPolicyConfig      `yaml:"arbiter_policy" json:"arbiter_policy"`
+	Action             string                   `yaml:"action" json:"action"`
+}
+
+type TaskSpecInput struct {
+	Goal              string                       `yaml:"goal" json:"goal"`
+	Materials         []consensus.MaterialRef      `yaml:"materials,omitempty" json:"materials,omitempty"`
+	Constraints       consensus.TaskConstraints    `yaml:"constraints,omitempty" json:"constraints,omitempty"`
+	SuccessCriteria   []string                     `yaml:"success_criteria,omitempty" json:"success_criteria,omitempty"`
+	AllowedTools      []string                     `yaml:"allowed_tools,omitempty" json:"allowed_tools,omitempty"`
+	WorkspaceSnapshot *consensus.WorkspaceSnapshot `yaml:"workspace_snapshot,omitempty" json:"workspace_snapshot,omitempty"`
+	Context           map[string]any               `yaml:"context,omitempty" json:"context,omitempty"`
 }
 
 type RunOverrides struct {
-	ConfigPath     string
-	InputPath      string
-	Task           string
-	Agents         []string
-	MinRounds      int
-	MaxRounds      int
-	Threshold      float64
-	Timeout        time.Duration
-	GlobalDeadline time.Duration
-	Action         string
-	Verbose        bool
+	ConfigPath        string
+	InputPath         string
+	Task              string
+	Proposers         []string
+	Challengers       []string
+	Arbiter           string
+	SemanticVerifier  string
+	Reporter          string
+	Actor             string
+	SuccessCriteria   []string
+	WorkspaceSnapshot string
+	Timeout           time.Duration
+	GlobalDeadline    time.Duration
+	Action            string
+	Verbose           bool
 }

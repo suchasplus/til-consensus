@@ -28,10 +28,10 @@ func (o *Output) Errorf(format string, args ...any) {
 }
 
 func (o *Output) EventObserver() consensus.Observer {
-	return observerFunc(func(_ context.Context, event consensus.ConsensusEvent) error {
+	return observerFunc(func(_ context.Context, event consensus.RunEvent) error {
 		if !o.verbose {
 			switch event.Type {
-			case consensus.EventRoundDispatched, consensus.EventParticipantEliminated, consensus.EventActionFailed:
+			case consensus.RunEventTaskFailed, consensus.RunEventPhaseChanged:
 				o.Printf("[til-consensus] %s %s\n", event.Type, compactPayload(event.Payload))
 			}
 			return nil
@@ -41,11 +41,15 @@ func (o *Output) EventObserver() consensus.Observer {
 	})
 }
 
-func (o *Output) RunStarted(requestID, task string, agents []string) {
+func (o *Output) RunStarted(requestID, task string, roles consensus.RoleAssignments) {
 	o.Printf("[til-consensus] run started\n")
 	o.Printf("  requestId: %s\n", requestID)
 	o.Printf("  task: %s\n", task)
-	o.Printf("  agents: %s\n", strings.Join(agents, ", "))
+	o.Printf("  proposers: %s\n", strings.Join(roles.Proposers, ", "))
+	o.Printf("  challengers: %s\n", strings.Join(roles.Challengers, ", "))
+	if roles.Arbiter != "" {
+		o.Printf("  arbiter: %s\n", roles.Arbiter)
+	}
 }
 
 func (o *Output) RunCompleted(resultPath, summaryPath string) {
@@ -65,8 +69,8 @@ func compactPayload(payload map[string]any) string {
 	return strings.Join(parts, " ")
 }
 
-type observerFunc func(context.Context, consensus.ConsensusEvent) error
+type observerFunc func(context.Context, consensus.RunEvent) error
 
-func (f observerFunc) OnEvent(ctx context.Context, event consensus.ConsensusEvent) error {
+func (f observerFunc) OnEvent(ctx context.Context, event consensus.RunEvent) error {
 	return f(ctx, event)
 }

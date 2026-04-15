@@ -2,44 +2,59 @@ package consensus
 
 import "fmt"
 
-type SessionState string
+type SessionPhase string
 
 const (
-	SessionStateCreated    SessionState = "created"
-	SessionStateRunning    SessionState = "running"
-	SessionStateFinalizing SessionState = "finalizing"
-	SessionStateFinished   SessionState = "finished"
-	SessionStateFailed     SessionState = "failed"
+	SessionPhaseCreated    SessionPhase = "created"
+	SessionPhaseIngest     SessionPhase = "ingest"
+	SessionPhasePropose    SessionPhase = "propose"
+	SessionPhaseChallenge  SessionPhase = "challenge"
+	SessionPhaseVerify     SessionPhase = "verify"
+	SessionPhaseAdjudicate SessionPhase = "adjudicate"
+	SessionPhaseReport     SessionPhase = "report"
+	SessionPhaseAction     SessionPhase = "action"
+	SessionPhaseFinished   SessionPhase = "finished"
+	SessionPhaseFailed     SessionPhase = "failed"
 )
 
 type StateMachine struct {
-	state SessionState
+	state SessionPhase
 }
 
 func NewStateMachine() *StateMachine {
-	return &StateMachine{state: SessionStateCreated}
+	return &StateMachine{state: SessionPhaseCreated}
 }
 
-func (m *StateMachine) Current() SessionState {
+func (m *StateMachine) Current() SessionPhase {
 	return m.state
 }
 
-func (m *StateMachine) Transition(next SessionState) error {
+func (m *StateMachine) Transition(next SessionPhase) error {
 	if !allowedTransition(m.state, next) {
-		return fmt.Errorf("invalid session state transition: %s -> %s", m.state, next)
+		return fmt.Errorf("invalid session phase transition: %s -> %s", m.state, next)
 	}
 	m.state = next
 	return nil
 }
 
-func allowedTransition(current, next SessionState) bool {
+func allowedTransition(current, next SessionPhase) bool {
 	switch current {
-	case SessionStateCreated:
-		return next == SessionStateRunning || next == SessionStateFailed
-	case SessionStateRunning:
-		return next == SessionStateFinalizing || next == SessionStateFailed
-	case SessionStateFinalizing:
-		return next == SessionStateFinished || next == SessionStateFailed
+	case SessionPhaseCreated:
+		return next == SessionPhaseIngest || next == SessionPhaseFailed
+	case SessionPhaseIngest:
+		return next == SessionPhasePropose || next == SessionPhaseFailed
+	case SessionPhasePropose:
+		return next == SessionPhaseChallenge || next == SessionPhaseFinished || next == SessionPhaseFailed
+	case SessionPhaseChallenge:
+		return next == SessionPhaseVerify || next == SessionPhaseFinished || next == SessionPhaseFailed
+	case SessionPhaseVerify:
+		return next == SessionPhaseAdjudicate || next == SessionPhaseFinished || next == SessionPhaseFailed
+	case SessionPhaseAdjudicate:
+		return next == SessionPhaseReport || next == SessionPhaseAction || next == SessionPhaseFinished || next == SessionPhaseFailed
+	case SessionPhaseReport:
+		return next == SessionPhaseAction || next == SessionPhaseFinished || next == SessionPhaseFailed
+	case SessionPhaseAction:
+		return next == SessionPhaseFinished || next == SessionPhaseFailed
 	default:
 		return false
 	}

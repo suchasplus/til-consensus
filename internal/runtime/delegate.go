@@ -2,6 +2,9 @@ package runtime
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,17 +14,19 @@ import (
 
 	"github.com/suchasplus/til-consensus/internal/config"
 	"github.com/suchasplus/til-consensus/internal/consensus"
-	commandrunner "github.com/suchasplus/til-consensus/internal/runtime/command"
+	apirunner "github.com/suchasplus/til-consensus/internal/runtime/api"
+	clirunner "github.com/suchasplus/til-consensus/internal/runtime/cli"
 	mockrunner "github.com/suchasplus/til-consensus/internal/runtime/mock"
-	openairunner "github.com/suchasplus/til-consensus/internal/runtime/openai"
+	sdkrunner "github.com/suchasplus/til-consensus/internal/runtime/sdk"
 )
 
 type Delegate struct {
-	mu     sync.Mutex
-	agents map[string]ResolvedAgentRuntime
-	tasks  map[string]*taskEntry
-	runDir string
-	seq    int
+	mu          sync.Mutex
+	agents      map[string]ResolvedAgentRuntime
+	runners     map[string]ProviderRunner
+	tasks       map[string]*taskEntry
+	artifactDir string
+	seq         int
 }
 
 type taskEntry struct {
@@ -31,67 +36,77 @@ type taskEntry struct {
 }
 
 type taskOutcome struct {
-	result consensus.TaskResult
-	err    error
+	result   consensus.TaskResult
+	artifact *consensus.ArtifactRef
+	err      error
 }
 
-func NewDelegate(cfg config.Config, runDir string) (*Delegate, error) {
+func NewDelegate(cfg config.Config, artifactDir string) (*Delegate, error) {
+	cfg = config.Normalize(cfg)
 	agents := map[string]ResolvedAgentRuntime{}
 	for _, agent := range cfg.Agents {
 		provider, ok := cfg.Providers[agent.Provider]
 		if !ok {
-			return nil, fmt.Errorf("unknown provider %s", agent.Provider)
+			return nil, fmt.Errorf("unknown agent id provider %s", agent.Provider)
 		}
-		model := agent.Model
-		if model == "" {
-			model = provider.Model
+		resolved, err := resolveAgentRuntime(agent, provider)
+		if err != nil {
+			return nil, fmt.Errorf("resolve agent %s: %w", agent.ID, err)
 		}
-		agents[agent.ID] = ResolvedAgentRuntime{
-			AgentConfig:   agent,
-			ProviderName:  agent.Provider,
-			Provider:      provider,
-			ProviderModel: model,
-		}
+		agents[agent.ID] = resolved
 	}
 	return &Delegate{
-		agents: agents,
-		tasks:  map[string]*taskEntry{},
-		runDir: runDir,
+		agents:      agents,
+		runners:     map[string]ProviderRunner{},
+		tasks:       map[string]*taskEntry{},
+		artifactDir: artifactDir,
 	}, nil
 }
 
 func (d *Delegate) Dispatch(ctx context.Context, task consensus.Task) (consensus.DispatchReceipt, error) {
 	d.mu.Lock()
-	defer d.mu.Unlock()
-	agent, ok := d.agents[task.Meta().ParticipantID]
+	agent, ok := d.agents[task.Meta().AgentID]
 	if !ok {
-		return consensus.DispatchReceipt{}, fmt.Errorf("unknown agent id: %s", task.Meta().ParticipantID)
+		d.mu.Unlock()
+		return consensus.DispatchReceipt{}, fmt.Errorf("unknown agent id: %s", task.Meta().AgentID)
+	}
+	runner, err := d.getRunnerLocked(agent)
+	if err != nil {
+		d.mu.Unlock()
+		return consensus.DispatchReceipt{}, err
 	}
 	taskID := fmt.Sprintf("task-%d", d.seq)
 	d.seq++
 	taskCtx, cancel := context.WithCancel(ctx)
 	done := make(chan taskOutcome, 1)
 	d.tasks[taskID] = &taskEntry{cancel: cancel, done: done, task: task}
+	d.mu.Unlock()
+
 	go func() {
-		raw, err := d.getRunner(agent.Provider).RunTask(taskCtx, ProviderTaskRequest{Task: task, Agent: agent})
+		raw, err := runner.RunTask(taskCtx, ProviderTaskRequest{Task: task, Agent: agent})
 		if err != nil {
 			done <- taskOutcome{err: err}
+			return
+		}
+		artifact, persistErr := d.persistRawOutput(task, raw)
+		if persistErr != nil {
+			done <- taskOutcome{err: persistErr}
 			return
 		}
 		result, err := NormalizeTaskOutput(task, raw)
 		if err != nil {
 			if parseErr, ok := err.(*JSONParseError); ok {
-				_ = d.persistRawParseError(task, parseErr)
+				artifact, _ = d.persistRawParseError(task, parseErr)
 			}
-			done <- taskOutcome{err: err}
+			done <- taskOutcome{artifact: artifact, err: err}
 			return
 		}
-		done <- taskOutcome{result: result}
+		done <- taskOutcome{result: result, artifact: artifact}
 	}()
 	return consensus.DispatchReceipt{
-		TaskID:        taskID,
-		ParticipantID: task.Meta().ParticipantID,
-		Kind:          task.Kind(),
+		TaskID:  taskID,
+		AgentID: task.Meta().AgentID,
+		Kind:    task.Kind(),
 	}, nil
 }
 
@@ -118,9 +133,9 @@ func (d *Delegate) Await(ctx context.Context, taskID string, timeout time.Durati
 		delete(d.tasks, taskID)
 		d.mu.Unlock()
 		if outcome.err != nil {
-			return consensus.AwaitedTask{OK: false, Error: outcome.err.Error()}, nil
+			return consensus.AwaitedTask{OK: false, Error: outcome.err.Error(), Artifact: outcome.artifact}, nil
 		}
-		return consensus.AwaitedTask{OK: true, Output: outcome.result}, nil
+		return consensus.AwaitedTask{OK: true, Output: outcome.result, Artifact: outcome.artifact}, nil
 	}
 }
 
@@ -134,46 +149,95 @@ func (d *Delegate) Cancel(_ context.Context, taskID string) error {
 	return nil
 }
 
-func (d *Delegate) getRunner(provider config.ProviderConfig) ProviderRunner {
-	switch provider.Type {
-	case "mock":
-		return providerRunnerFunc(func(ctx context.Context, req ProviderTaskRequest) (any, error) {
+func (d *Delegate) getRunnerLocked(agent ResolvedAgentRuntime) (ProviderRunner, error) {
+	if runner, ok := d.runners[agent.ID]; ok {
+		return runner, nil
+	}
+	var runner ProviderRunner
+	switch agent.Provider.Type {
+	case config.ProviderTypeMock:
+		runner = providerRunnerFunc(func(ctx context.Context, req ProviderTaskRequest) (any, error) {
 			return mockrunner.RunTask(ctx, req.Task, req.Agent.AgentConfig, req.Agent.Provider)
 		})
-	case "openai":
-		return providerRunnerFunc(func(ctx context.Context, req ProviderTaskRequest) (any, error) {
-			return openairunner.RunTask(
+	case config.ProviderTypeAPI:
+		apiRunner := apirunner.NewRunner(agent.Provider)
+		runner = providerRunnerFunc(func(ctx context.Context, req ProviderTaskRequest) (any, error) {
+			return apiRunner.RunTask(
 				ctx,
 				BuildTaskPrompt(req.Task, req.Agent, true),
 				req.Agent.SystemPrompt,
-				req.Agent.Provider,
 				req.Agent.ProviderModel,
+				req.Agent.EffectiveTemperature(),
+				req.Agent.EffectiveReasoning(),
+				req.Agent.ModelConfig.MaxOutputTokens,
 				TaskOutputJSONSchema(req.Task),
 			)
 		})
-	default:
-		return providerRunnerFunc(func(ctx context.Context, req ProviderTaskRequest) (any, error) {
-			return commandrunner.RunTask(
+	case config.ProviderTypeCLI:
+		cliRunner := clirunner.NewRunner(agent.Provider)
+		runner = providerRunnerFunc(func(ctx context.Context, req ProviderTaskRequest) (any, error) {
+			return cliRunner.RunTask(
 				ctx,
 				req.Task,
 				BuildTaskPrompt(req.Task, req.Agent, true),
-				req.Agent.Provider,
 				req.Agent.ID,
+				req.Agent.Role,
 				req.Agent.ProviderModel,
+				req.Agent.EffectiveReasoning(),
+				req.Agent.EffectiveTemperature(),
 			)
 		})
+	case config.ProviderTypeSDK:
+		sdkRunner := sdkrunner.NewRunner(agent.Provider)
+		runner = providerRunnerFunc(func(ctx context.Context, req ProviderTaskRequest) (any, error) {
+			return sdkRunner.RunTask(
+				ctx,
+				req.Task,
+				BuildTaskPrompt(req.Task, req.Agent, true),
+				req.Agent.AgentConfig,
+				req.Agent.ProviderModel,
+				req.Agent.ModelConfig,
+			)
+		})
+	default:
+		return nil, fmt.Errorf("unsupported provider type %q for agent %s", agent.Provider.Type, agent.ID)
 	}
+	d.runners[agent.ID] = runner
+	return runner, nil
 }
 
-func (d *Delegate) persistRawParseError(task consensus.Task, parseErr *JSONParseError) error {
-	if err := os.MkdirAll(d.runDir, 0o755); err != nil {
-		return err
+func (d *Delegate) persistRawOutput(task consensus.Task, raw any) (*consensus.ArtifactRef, error) {
+	if strings.TrimSpace(d.artifactDir) == "" {
+		return nil, nil
 	}
-	filename := buildRawErrorFilename(task)
+	var (
+		body      []byte
+		mediaType = "application/json"
+	)
+	switch value := raw.(type) {
+	case string:
+		body = []byte(value)
+		mediaType = "text/plain"
+	default:
+		var err error
+		body, err = json.MarshalIndent(value, "", "  ")
+		if err != nil {
+			return nil, fmt.Errorf("marshal raw output: %w", err)
+		}
+		body = append(body, '\n')
+	}
+	filename := filepath.Join(d.artifactDir, buildRawFilename(task))
+	return writeArtifact(filename, body, mediaType)
+}
+
+func (d *Delegate) persistRawParseError(task consensus.Task, parseErr *JSONParseError) (*consensus.ArtifactRef, error) {
+	if strings.TrimSpace(d.artifactDir) == "" {
+		return nil, nil
+	}
 	body := strings.Join([]string{
 		"# til-consensus raw agent output",
 		"# error: " + parseErr.Message,
-		"# participant_id: " + task.Meta().ParticipantID,
+		"# agent_id: " + task.Meta().AgentID,
 		"# request_id: " + task.Meta().RequestID,
 		"# session_id: " + task.Meta().SessionID,
 		"",
@@ -184,13 +248,93 @@ func (d *Delegate) persistRawParseError(task consensus.Task, parseErr *JSONParse
 		parseErr.ExtractedCandidate,
 		"",
 	}, "\n")
-	return os.WriteFile(filepath.Join(d.runDir, filename), []byte(body), 0o644)
+	filename := filepath.Join(d.artifactDir, buildParseErrorFilename(task))
+	return writeArtifact(filename, []byte(body), "text/plain")
 }
 
-func buildRawErrorFilename(task consensus.Task) string {
-	safeParticipant := strings.NewReplacer("/", "_", " ", "_", ":", "_").Replace(task.Meta().ParticipantID)
-	if round, ok := task.(consensus.RoundTask); ok {
-		return fmt.Sprintf("raw-error-%s-%s-%d.txt", safeParticipant, round.Phase, round.Round)
+func buildRawFilename(task consensus.Task) string {
+	safeAgent := sanitizeFilename(task.Meta().AgentID)
+	return fmt.Sprintf("raw-%s-%s.json", safeAgent, task.Kind())
+}
+
+func buildParseErrorFilename(task consensus.Task) string {
+	safeAgent := sanitizeFilename(task.Meta().AgentID)
+	return fmt.Sprintf("raw-error-%s-%s.txt", safeAgent, task.Kind())
+}
+
+func writeArtifact(path string, body []byte, mediaType string) (*consensus.ArtifactRef, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, err
 	}
-	return fmt.Sprintf("raw-error-%s-%s.txt", safeParticipant, task.Kind())
+	if err := os.WriteFile(path, body, 0o644); err != nil {
+		return nil, err
+	}
+	hash := sha256.Sum256(body)
+	return &consensus.ArtifactRef{
+		Path:      path,
+		Hash:      hex.EncodeToString(hash[:]),
+		MediaType: mediaType,
+	}, nil
+}
+
+func sanitizeFilename(value string) string {
+	replacer := strings.NewReplacer("/", "_", " ", "_", ":", "_")
+	return replacer.Replace(value)
+}
+
+func resolveAgentRuntime(agent config.AgentConfig, provider config.ProviderConfig) (ResolvedAgentRuntime, error) {
+	var (
+		modelID       = agent.Model
+		modelConfig   config.ProviderModelConfig
+		providerModel string
+	)
+	if len(provider.Models) > 0 {
+		if modelID == "" {
+			if inferred, ok := singleModelID(provider); ok {
+				modelID = inferred
+			}
+		}
+		if modelID == "" {
+			return ResolvedAgentRuntime{}, fmt.Errorf("model is required")
+		}
+		resolved, ok := provider.Models[modelID]
+		if !ok {
+			return ResolvedAgentRuntime{}, fmt.Errorf("unknown model %s", modelID)
+		}
+		modelConfig = resolved
+		providerModel = resolved.ProviderModel
+		if providerModel == "" {
+			providerModel = modelID
+		}
+	} else {
+		providerModel = firstNonEmpty(agent.Model, provider.Model)
+	}
+	resolvedAgent := agent
+	resolvedAgent.Model = modelID
+	return ResolvedAgentRuntime{
+		AgentConfig:   resolvedAgent,
+		ProviderName:  agent.Provider,
+		Provider:      provider,
+		ModelConfig:   modelConfig,
+		ProviderModel: providerModel,
+	}, nil
+}
+
+func singleModelID(provider config.ProviderConfig) (string, bool) {
+	if len(provider.Models) != 1 {
+		return "", false
+	}
+	for modelID := range provider.Models {
+		return modelID, true
+	}
+	return "", false
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }

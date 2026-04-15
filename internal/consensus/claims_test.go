@@ -2,74 +2,59 @@ package consensus
 
 import "testing"
 
-func TestUpdateClaimsAssignsDeterministicIDs(t *testing.T) {
-	outputs := []ParticipantRoundOutput{
-		{
-			ParticipantID: "a",
-			Round:         0,
-			ExtractedClaims: []ExtractedClaim{
-				{Title: "A1", Statement: "A1"},
-				{Title: "A2", Statement: "A2"},
-			},
-		},
-		{
-			ParticipantID: "b",
-			Round:         0,
-			ExtractedClaims: []ExtractedClaim{
-				{Title: "B1", Statement: "B1"},
-			},
-		},
+type testIDs struct{ n int }
+
+func (i *testIDs) NewSessionID() string { return "session-test" }
+func (i *testIDs) NewEntityID(prefix string) string {
+	i.n++
+	return prefix + "-id-" + string(rune('0'+i.n))
+}
+
+func TestUpsertClaimDedupeByNormalizedStatement(t *testing.T) {
+	ids := &testIDs{}
+	claims := []ClaimNode{}
+	var created bool
+
+	claims, _, created = UpsertClaim(claims, ClaimDraft{Title: "A", Statement: " Patch fixes race condition "}, "p1", "ledger-1", ids)
+	if !created || len(claims) != 1 {
+		t.Fatalf("expected first claim to be created")
 	}
-	claims, newCount, _ := UpdateClaims(nil, outputs)
-	if newCount != 3 {
-		t.Fatalf("expected 3 new claims, got %d", newCount)
+
+	claims, claim, created := UpsertClaim(claims, ClaimDraft{Title: "B", Statement: "patch   fixes race condition"}, "p2", "ledger-2", ids)
+	if created {
+		t.Fatalf("expected duplicate statement to be merged")
 	}
-	if claims[0].ClaimID != "a:0:0" || claims[1].ClaimID != "a:0:1" || claims[2].ClaimID != "b:0:0" {
-		t.Fatalf("unexpected claim ids: %#v", claims)
+	if len(claims) != 1 {
+		t.Fatalf("expected one merged claim, got %d", len(claims))
+	}
+	if len(claim.ProposedBy) != 2 {
+		t.Fatalf("expected merged claim to retain both proposers, got %#v", claim.ProposedBy)
+	}
+	if len(claim.EvidenceRefs) != 2 {
+		t.Fatalf("expected merged claim to retain both evidence refs, got %#v", claim.EvidenceRefs)
 	}
 }
 
-func TestUpdateClaimsSeedsWhenNoClaimsPresent(t *testing.T) {
-	outputs := []ParticipantRoundOutput{
-		{ParticipantID: "a", Round: 0, Summary: "seed a"},
-		{ParticipantID: "b", Round: 0, Summary: "seed b"},
-	}
-	claims, newCount, _ := UpdateClaims(nil, outputs)
-	if newCount != 2 {
-		t.Fatalf("expected 2 seeded claims, got %d", newCount)
-	}
-	if claims[0].ClaimID != "seed:a:0" || claims[1].ClaimID != "seed:b:0" {
-		t.Fatalf("unexpected seeded claim ids: %#v", claims)
-	}
-}
+func TestUpsertChallengeDedupesSameClaimAndStatement(t *testing.T) {
+	ids := &testIDs{}
+	tickets := []ChallengeTicket{}
+	var created bool
 
-func TestUpdateClaimsRevisesAndMerges(t *testing.T) {
-	base := []Claim{
-		{ClaimID: "c1", Title: "C1", Statement: "first", ProposedBy: []string{"a"}, Status: ClaimStatusActive},
-		{ClaimID: "c2", Title: "C2", Statement: "second", ProposedBy: []string{"b"}, Status: ClaimStatusActive},
+	tickets, _, created = UpsertChallenge(tickets, ChallengeDraft{
+		Statement: "Need more evidence",
+		Kind:      "evidence-gap",
+	}, "claim-1", "challenger-1", "ledger-1", ids)
+	if !created || len(tickets) != 1 {
+		t.Fatalf("expected first challenge to be created")
 	}
-	outputs := []ParticipantRoundOutput{
-		{
-			ParticipantID: "a",
-			Round:         1,
-			Judgements: []ClaimJudgement{
-				{
-					ClaimID:          "c1",
-					Stance:           ClaimStanceRevise,
-					RevisedStatement: "first revised",
-					MergesWith:       "c2",
-				},
-			},
-		},
+	_, ticket, created := UpsertChallenge(tickets, ChallengeDraft{
+		Statement: " need   more evidence ",
+		Kind:      "evidence-gap",
+	}, "claim-1", "challenger-2", "ledger-2", ids)
+	if created {
+		t.Fatalf("expected duplicate challenge to be merged")
 	}
-	claims, _, merges := UpdateClaims(base, outputs)
-	if len(merges) != 1 {
-		t.Fatalf("expected 1 merge event, got %#v", merges)
-	}
-	if claims[0].Statement != "first revised" {
-		t.Fatalf("expected revised statement, got %#v", claims[0])
-	}
-	if claims[1].Status != ClaimStatusMerged || claims[1].MergedInto != "c1" {
-		t.Fatalf("expected c2 merged into c1, got %#v", claims[1])
+	if len(ticket.EvidenceRefs) != 2 {
+		t.Fatalf("expected merged evidence refs, got %#v", ticket.EvidenceRefs)
 	}
 }

@@ -6,15 +6,16 @@ import (
 )
 
 type DispatchReceipt struct {
-	TaskID        string
-	ParticipantID string
-	Kind          TaskKind
+	TaskID  string
+	AgentID string
+	Kind    TaskKind
 }
 
 type AwaitedTask struct {
-	OK     bool
-	Output TaskResult
-	Error  string
+	OK       bool
+	Output   TaskResult
+	Error    string
+	Artifact *ArtifactRef
 }
 
 type TaskDelegate interface {
@@ -23,67 +24,61 @@ type TaskDelegate interface {
 	Cancel(ctx context.Context, taskID string) error
 }
 
-type TaskSettled struct {
-	TaskID        string
-	ParticipantID string
-	Status        string
-	At            string
-	Output        *ParticipantRoundOutput
-	Error         string
+type VerificationRequest struct {
+	Request    StartRequest
+	SessionID  string
+	Claim      ClaimNode
+	Challenges []ChallengeTicket
 }
 
-type WaitTask struct {
-	TaskID        string
-	ParticipantID string
+type Verifier interface {
+	Run(ctx context.Context, req VerificationRequest) ([]VerificationResult, error)
 }
 
-type WaitRoundRequest struct {
-	Round         int
-	Tasks         []WaitTask
-	Policy        WaitingPolicy
-	OnTaskSettled func(context.Context, TaskSettled) error
+type ArbiterInput struct {
+	Request    StartRequest
+	SessionID  string
+	Claims     []ClaimNode
+	Challenges []ChallengeTicket
+	Ledger     []EvidenceRecord
+	Findings   []VerificationResult
 }
 
-type WaitRoundResult struct {
-	Completed []ParticipantRoundOutput
-	TimedOut  []string
-	Failed    []string
-}
-
-type WaitCoordinator interface {
-	WaitRound(ctx context.Context, req WaitRoundRequest) (WaitRoundResult, error)
+type Arbiter interface {
+	Decide(ctx context.Context, input ArbiterInput) (ArbiterReport, error)
 }
 
 type Observer interface {
-	OnEvent(ctx context.Context, event ConsensusEvent) error
+	OnEvent(ctx context.Context, event RunEvent) error
+}
+
+type Ledger interface {
+	Append(ctx context.Context, entry EvidenceRecord) (EvidenceRecord, error)
 }
 
 type SessionSnapshot struct {
-	SessionID          string
-	RequestID          string
-	Participants       []string
-	ActiveParticipants []string
-	Eliminations       []EliminationRecord
-	State              SessionState
-	StartedAt          string
-	RunningAt          string
-	FinalizingAt       string
-	FinishedAt         string
-	FailedAt           string
-	Result             *ConsensusResult
-	Error              *FailureInfo
+	SessionID        string
+	RequestID        string
+	Phase            SessionPhase
+	ClaimGraph       []ClaimNode
+	ChallengeTickets []ChallengeTicket
+	LedgerCursor     int
+	StartedAt        string
+	FinishedAt       string
+	FailedAt         string
+	Result           *AdjudicationResult
+	Error            *FailureInfo
 }
 
 type SessionPatch struct {
-	ActiveParticipants []string
-	Eliminations       []EliminationRecord
-	State              *SessionState
-	RunningAt          *string
-	FinalizingAt       *string
-	FinishedAt         *string
-	FailedAt           *string
-	Result             *ConsensusResult
-	Error              *FailureInfo
+	Phase            *SessionPhase
+	ClaimGraph       []ClaimNode
+	ChallengeTickets []ChallengeTicket
+	LedgerCursor     *int
+	FinishedAt       *string
+	FailedAt         *string
+	Result           *AdjudicationResult
+	Error            *FailureInfo
 }
 
 type SessionStore interface {
@@ -102,4 +97,5 @@ func (SystemClock) Now() time.Time { return time.Now().UTC() }
 
 type IDFactory interface {
 	NewSessionID() string
+	NewEntityID(prefix string) string
 }
