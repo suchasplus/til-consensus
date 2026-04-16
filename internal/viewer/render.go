@@ -25,6 +25,8 @@ const (
 	SectionClaims        = "claims"
 	SectionChallenges    = "challenges"
 	SectionVerifications = "verifications"
+	SectionObservations  = "observations"
+	SectionFollowups     = "followups"
 	SectionArtifacts     = "artifacts"
 	SectionRounds        = "rounds"
 	SectionVotes         = "votes"
@@ -59,6 +61,10 @@ type Bundle struct {
 type Overview struct {
 	RequestID         string         `json:"requestId"`
 	SessionID         string         `json:"sessionId"`
+	ParentRequestID   string         `json:"parentRequestId,omitempty"`
+	ParentSessionID   string         `json:"parentSessionId,omitempty"`
+	ParentCaseID      string         `json:"parentCaseId,omitempty"`
+	Trigger           string         `json:"trigger,omitempty"`
 	Mode              string         `json:"mode"`
 	PrimaryResult     string         `json:"primaryResult"`
 	TerminalState     string         `json:"terminalState,omitempty"`
@@ -118,6 +124,27 @@ type VerificationView struct {
 	VerdictSuggestion consensus.ClaimVerdict       `json:"verdictSuggestion,omitempty"`
 	Confidence        float64                      `json:"confidence,omitempty"`
 	ArtifactPath      string                       `json:"artifactPath,omitempty"`
+}
+
+type ObservationView struct {
+	ObservationID     string `json:"observationId"`
+	Outcome           string `json:"outcome"`
+	Summary           string `json:"summary"`
+	Reopen            bool   `json:"reopen,omitempty"`
+	FollowUpCaseID    string `json:"followUpCaseId,omitempty"`
+	FollowUpRequestID string `json:"followUpRequestId,omitempty"`
+	FollowUpArtifact  string `json:"followUpArtifact,omitempty"`
+}
+
+type FollowUpView struct {
+	ObservationID     string `json:"observationId,omitempty"`
+	ParentRequestID   string `json:"parentRequestId,omitempty"`
+	ParentSessionID   string `json:"parentSessionId,omitempty"`
+	ParentCaseID      string `json:"parentCaseId,omitempty"`
+	Trigger           string `json:"trigger,omitempty"`
+	FollowUpCaseID    string `json:"followUpCaseId"`
+	FollowUpRequestID string `json:"followUpRequestId,omitempty"`
+	ArtifactPath      string `json:"artifactPath,omitempty"`
 }
 
 type ArtifactView struct {
@@ -183,6 +210,8 @@ type Document struct {
 	Claims            []ClaimView        `json:"claims,omitempty"`
 	Challenges        []ChallengeView    `json:"challenges,omitempty"`
 	Verifications     []VerificationView `json:"verifications,omitempty"`
+	Observations      []ObservationView  `json:"observations,omitempty"`
+	FollowUps         []FollowUpView     `json:"followups,omitempty"`
 	Rounds            []RoundView        `json:"rounds,omitempty"`
 	Votes             []VoteView         `json:"votes,omitempty"`
 	Statements        []StatementView    `json:"statements,omitempty"`
@@ -239,6 +268,8 @@ func BuildDocument(bundle Bundle, options RenderOptions) Document {
 		RequestedSections: normalizeSections(options.Sections),
 		Overview:          buildOverview(bundle),
 		Verifications:     limitVerifications(extractVerifications(bundle.Ledger), limit),
+		Observations:      buildObservations(bundle.Result, bundle.Files.RunDir, limit),
+		FollowUps:         buildFollowUps(bundle.Result, bundle.Files.RunDir, limit),
 		Artifacts:         limitArtifacts(extractArtifacts(bundle.Manifest, bundle.Files.RunDir), limit),
 		Risks:             buildRisks(bundle.Result, bundle.Ledger),
 		Files: FileView{
@@ -385,6 +416,9 @@ func renderText(doc Document, verbose bool) string {
 		writeTextHeading(&b, "运行头部")
 		fmt.Fprintf(&b, "requestId: %s\n", doc.Overview.RequestID)
 		fmt.Fprintf(&b, "mode: %s\n", doc.Overview.Mode)
+		if doc.Overview.ParentRequestID != "" || doc.Overview.ParentSessionID != "" {
+			fmt.Fprintf(&b, "parent: request=%s session=%s case=%s trigger=%s\n", firstNonEmpty(doc.Overview.ParentRequestID, "-"), firstNonEmpty(doc.Overview.ParentSessionID, "-"), firstNonEmpty(doc.Overview.ParentCaseID, "-"), firstNonEmpty(doc.Overview.Trigger, "-"))
+		}
 		fmt.Fprintf(&b, "result: %s\n", doc.Overview.PrimaryResult)
 		if doc.Overview.TerminalState != "" {
 			fmt.Fprintf(&b, "terminal state: %s\n", doc.Overview.TerminalState)
@@ -478,6 +512,46 @@ func renderText(doc Document, verbose bool) string {
 		}
 	}
 
+	if requested[SectionObservations] || (requested[SectionAll] && len(doc.Observations) > 0) {
+		writeTextHeading(&b, "Observations")
+		if len(doc.Observations) == 0 {
+			b.WriteString("(无 observation 数据)\n")
+		}
+		for _, item := range doc.Observations {
+			fmt.Fprintf(&b, "- %s | %s\n", item.ObservationID, item.Outcome)
+			fmt.Fprintf(&b, "  %s\n", item.Summary)
+			if item.Reopen {
+				fmt.Fprintf(&b, "  reopen: true\n")
+			}
+			if item.FollowUpCaseID != "" || item.FollowUpRequestID != "" {
+				fmt.Fprintf(&b, "  follow-up: case=%s request=%s\n", firstNonEmpty(item.FollowUpCaseID, "-"), firstNonEmpty(item.FollowUpRequestID, "-"))
+			}
+			if verbose && item.FollowUpArtifact != "" {
+				fmt.Fprintf(&b, "  artifact: %s\n", item.FollowUpArtifact)
+			}
+		}
+	}
+
+	if requested[SectionFollowups] || (requested[SectionAll] && len(doc.FollowUps) > 0) {
+		writeTextHeading(&b, "Follow-ups")
+		if len(doc.FollowUps) == 0 {
+			b.WriteString("(无 follow-up 数据)\n")
+		}
+		for _, item := range doc.FollowUps {
+			fmt.Fprintf(&b, "- child request=%s | case=%s\n", firstNonEmpty(item.FollowUpRequestID, "-"), firstNonEmpty(item.FollowUpCaseID, "-"))
+			fmt.Fprintf(&b, "  parent request=%s session=%s case=%s\n", firstNonEmpty(item.ParentRequestID, "-"), firstNonEmpty(item.ParentSessionID, "-"), firstNonEmpty(item.ParentCaseID, "-"))
+			if item.ObservationID != "" {
+				fmt.Fprintf(&b, "  triggered by observation=%s\n", item.ObservationID)
+			}
+			if item.Trigger != "" {
+				fmt.Fprintf(&b, "  trigger=%s\n", item.Trigger)
+			}
+			if verbose && item.ArtifactPath != "" {
+				fmt.Fprintf(&b, "  artifact: %s\n", item.ArtifactPath)
+			}
+		}
+	}
+
 	if requested[SectionAll] || requested[SectionRounds] {
 		writeTextHeading(&b, "Rounds")
 		if len(doc.Rounds) == 0 {
@@ -563,6 +637,9 @@ func renderMarkdown(doc Document, verbose bool) string {
 	b.WriteString("# til-consensus 结果浏览\n\n")
 	fmt.Fprintf(&b, "- requestId: `%s`\n", doc.Overview.RequestID)
 	fmt.Fprintf(&b, "- mode: `%s`\n", doc.Overview.Mode)
+	if doc.Overview.ParentRequestID != "" || doc.Overview.ParentSessionID != "" {
+		fmt.Fprintf(&b, "- parent: request=`%s` session=`%s` case=`%s` trigger=`%s`\n", firstNonEmpty(doc.Overview.ParentRequestID, "-"), firstNonEmpty(doc.Overview.ParentSessionID, "-"), firstNonEmpty(doc.Overview.ParentCaseID, "-"), firstNonEmpty(doc.Overview.Trigger, "-"))
+	}
 	fmt.Fprintf(&b, "- result: `%s`\n", doc.Overview.PrimaryResult)
 	if doc.Overview.TerminalState != "" {
 		fmt.Fprintf(&b, "- terminal state: `%s`\n", doc.Overview.TerminalState)
@@ -595,6 +672,29 @@ func renderMarkdown(doc Document, verbose bool) string {
 		}
 		b.WriteString("\n")
 	}
+	if len(doc.Observations) > 0 {
+		b.WriteString("## Observations\n\n")
+		for _, item := range doc.Observations {
+			fmt.Fprintf(&b, "- `%s` | `%s` | %s\n", item.ObservationID, item.Outcome, item.Summary)
+			if item.FollowUpRequestID != "" || item.FollowUpCaseID != "" {
+				fmt.Fprintf(&b, "  follow-up: request=`%s` case=`%s`\n", firstNonEmpty(item.FollowUpRequestID, "-"), firstNonEmpty(item.FollowUpCaseID, "-"))
+			}
+			if verbose && item.FollowUpArtifact != "" {
+				fmt.Fprintf(&b, "  artifact: `%s`\n", item.FollowUpArtifact)
+			}
+		}
+		b.WriteString("\n")
+	}
+	if len(doc.FollowUps) > 0 {
+		b.WriteString("## Follow-ups\n\n")
+		for _, item := range doc.FollowUps {
+			fmt.Fprintf(&b, "- child request=`%s` case=`%s` <- parent request=`%s`\n", firstNonEmpty(item.FollowUpRequestID, "-"), firstNonEmpty(item.FollowUpCaseID, "-"), firstNonEmpty(item.ParentRequestID, "-"))
+			if item.ObservationID != "" {
+				fmt.Fprintf(&b, "  observation: `%s`\n", item.ObservationID)
+			}
+		}
+		b.WriteString("\n")
+	}
 	b.WriteString("## 风险与未决项\n\n")
 	if len(doc.Risks) == 0 {
 		b.WriteString("_无明显风险_\n\n")
@@ -618,6 +718,10 @@ func buildOverview(bundle Bundle) Overview {
 		RequestID:       result.RequestID,
 		SessionID:       result.SessionID,
 		Mode:            string(result.Mode),
+		ParentRequestID: lineageParentRequestID(result.Lineage),
+		ParentSessionID: lineageParentSessionID(result.Lineage),
+		ParentCaseID:    lineageParentCaseID(result.Lineage),
+		Trigger:         lineageTrigger(result.Lineage),
 		PrimaryResult:   primaryResult(result),
 		TerminalState:   string(result.TerminalState),
 		Elapsed:         artifact.FormatDuration(time.Duration(result.Metrics.ElapsedMs) * time.Millisecond),
@@ -653,6 +757,61 @@ func buildOverview(bundle Bundle) Overview {
 		}
 	}
 	return overview
+}
+
+func buildObservations(result consensus.RunResult, runDir string, limit int) []ObservationView {
+	out := make([]ObservationView, 0, len(result.Observations))
+	for _, item := range result.Observations[:min(limit, len(result.Observations))] {
+		out = append(out, ObservationView{
+			ObservationID:     item.ObservationID,
+			Outcome:           string(item.Outcome),
+			Summary:           item.Summary,
+			Reopen:            item.Reopen,
+			FollowUpCaseID:    item.FollowUpCaseID,
+			FollowUpRequestID: item.FollowUpRequestID,
+			FollowUpArtifact:  displayCompanionPath(runDir, artifactRefPath(item.FollowUpArtifact)),
+		})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func buildFollowUps(result consensus.RunResult, runDir string, limit int) []FollowUpView {
+	out := make([]FollowUpView, 0)
+	for _, item := range result.Observations {
+		if item.FollowUpCaseID == "" && item.FollowUpRequestID == "" && item.FollowUpArtifact == nil {
+			continue
+		}
+		out = append(out, FollowUpView{
+			ObservationID:     item.ObservationID,
+			ParentRequestID:   result.RequestID,
+			ParentSessionID:   result.SessionID,
+			ParentCaseID:      lineageCaseID(result),
+			Trigger:           "observe_contradiction",
+			FollowUpCaseID:    item.FollowUpCaseID,
+			FollowUpRequestID: item.FollowUpRequestID,
+			ArtifactPath:      displayCompanionPath(runDir, artifactRefPath(item.FollowUpArtifact)),
+		})
+	}
+	if result.Lineage != nil {
+		out = append(out, FollowUpView{
+			ParentRequestID: result.Lineage.ParentRequestID,
+			ParentSessionID: result.Lineage.ParentSessionID,
+			ParentCaseID:    result.Lineage.ParentCaseID,
+			Trigger:         result.Lineage.Trigger,
+			FollowUpRequestID: result.RequestID,
+			FollowUpCaseID:    lineageCaseID(result),
+		})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	if len(out) > limit {
+		return out[:limit]
+	}
+	return out
 }
 
 func primaryResult(result consensus.RunResult) string {
@@ -819,6 +978,14 @@ func buildRisks(result consensus.RunResult, ledger []consensus.EvidenceRecord) [
 				out = append(out, RiskView{Category: category, TargetID: item.ClaimID, Summary: item.Summary})
 			}
 		}
+		for _, item := range result.Observations {
+			switch item.Outcome {
+			case consensus.ObservationOutcomeContradicted:
+				out = append(out, RiskView{Category: "observation_contradicted", TargetID: item.ObservationID, Summary: item.Summary})
+			case consensus.ObservationOutcomeFollowUp:
+				out = append(out, RiskView{Category: "follow_up_recommended", TargetID: item.ObservationID, Summary: item.Summary})
+			}
+		}
 	}
 	if result.FreeDebate != nil && result.FreeDebate.Outcome != consensus.FreeDebateOutcomeConsensus {
 		out = append(out, RiskView{Category: "debate_outcome", TargetID: string(result.FreeDebate.Outcome), Summary: "自由辩论未形成完整共识"})
@@ -863,6 +1030,48 @@ func normalizeSections(sections []string) []string {
 		return []string{SectionAll}
 	}
 	return out
+}
+
+func lineageParentRequestID(lineage *consensus.RunLineage) string {
+	if lineage == nil {
+		return ""
+	}
+	return lineage.ParentRequestID
+}
+
+func lineageParentSessionID(lineage *consensus.RunLineage) string {
+	if lineage == nil {
+		return ""
+	}
+	return lineage.ParentSessionID
+}
+
+func lineageParentCaseID(lineage *consensus.RunLineage) string {
+	if lineage == nil {
+		return ""
+	}
+	return lineage.ParentCaseID
+}
+
+func lineageTrigger(lineage *consensus.RunLineage) string {
+	if lineage == nil {
+		return ""
+	}
+	return lineage.Trigger
+}
+
+func lineageCaseID(result consensus.RunResult) string {
+	if result.CaseManifest == nil {
+		return ""
+	}
+	return result.CaseManifest.CaseID
+}
+
+func artifactRefPath(ref *consensus.ArtifactRef) string {
+	if ref == nil {
+		return ""
+	}
+	return ref.Path
 }
 
 func sectionSet(values []string) map[string]bool {

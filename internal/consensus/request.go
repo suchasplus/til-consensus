@@ -104,6 +104,8 @@ type ExternalCommandParseMode string
 const (
 	ExternalCommandParseModeText ExternalCommandParseMode = "text"
 	ExternalCommandParseModeJSON ExternalCommandParseMode = "json"
+	ExternalCommandParseModeYAML ExternalCommandParseMode = "yaml"
+	ExternalCommandParseModeXML  ExternalCommandParseMode = "xml"
 )
 
 type ExternalCommandParsing struct {
@@ -114,6 +116,7 @@ type ExternalCommandParsing struct {
 	ExcerptPath   string                   `json:"excerptPath,omitempty" yaml:"excerpt_path,omitempty"`
 	NotesPath     string                   `json:"notesPath,omitempty" yaml:"notes_path,omitempty"`
 	MetadataPaths map[string]string        `json:"metadataPaths,omitempty" yaml:"metadata_paths,omitempty"`
+	RequiredPaths []string                 `json:"requiredPaths,omitempty" yaml:"required_paths,omitempty"`
 }
 
 type IngestPolicy struct {
@@ -217,9 +220,17 @@ type WaitingPolicy struct {
 	RetryAttempts  int           `json:"retryAttempts,omitempty" yaml:"retry_attempts,omitempty"`
 }
 
+type RunLineage struct {
+	ParentRequestID string `json:"parentRequestId,omitempty" yaml:"parent_request_id,omitempty"`
+	ParentSessionID string `json:"parentSessionId,omitempty" yaml:"parent_session_id,omitempty"`
+	ParentCaseID    string `json:"parentCaseId,omitempty" yaml:"parent_case_id,omitempty"`
+	Trigger         string `json:"trigger,omitempty" yaml:"trigger,omitempty"`
+}
+
 type StartRequest struct {
 	Mode               WorkflowMode               `json:"mode,omitempty" yaml:"mode,omitempty"`
 	RequestID          string                     `json:"requestId" yaml:"request_id"`
+	Lineage            *RunLineage                `json:"lineage,omitempty" yaml:"lineage,omitempty"`
 	TaskSpec           TaskSpec                   `json:"taskSpec" yaml:"task_spec"`
 	Roles              RoleAssignments            `json:"roles" yaml:"roles"`
 	ProposalPolicy     ProposalPolicy             `json:"proposalPolicy" yaml:"proposal_policy"`
@@ -240,6 +251,18 @@ func NormalizeStartRequest(in StartRequest) (StartRequest, error) {
 	out := in
 	out.Mode = normalizeWorkflowMode(out.Mode)
 	out.RequestID = strings.TrimSpace(out.RequestID)
+	if out.Lineage != nil {
+		clone := *out.Lineage
+		clone.ParentRequestID = strings.TrimSpace(clone.ParentRequestID)
+		clone.ParentSessionID = strings.TrimSpace(clone.ParentSessionID)
+		clone.ParentCaseID = strings.TrimSpace(clone.ParentCaseID)
+		clone.Trigger = strings.TrimSpace(clone.Trigger)
+		if clone.ParentRequestID == "" && clone.ParentSessionID == "" && clone.ParentCaseID == "" && clone.Trigger == "" {
+			out.Lineage = nil
+		} else {
+			out.Lineage = &clone
+		}
+	}
 	out.TaskSpec.Goal = strings.TrimSpace(out.TaskSpec.Goal)
 	out.TaskSpec.TaskType = normalizeCaseTaskType(out.TaskSpec.TaskType)
 	out.TaskSpec.SuccessCriteria = dedupeStrings(out.TaskSpec.SuccessCriteria)
@@ -521,7 +544,7 @@ func ValidateStartRequest(in StartRequest) error {
 			return fmt.Errorf("external source %s: command is required", source.Name)
 		}
 		switch source.Parsing.Mode {
-		case "", ExternalCommandParseModeText, ExternalCommandParseModeJSON:
+		case "", ExternalCommandParseModeText, ExternalCommandParseModeJSON, ExternalCommandParseModeYAML, ExternalCommandParseModeXML:
 		default:
 			return fmt.Errorf("external source %s: parsing.mode is invalid: %s", source.Name, source.Parsing.Mode)
 		}
@@ -568,6 +591,7 @@ func normalizeExternalCommandSource(in ExternalCommandSource) ExternalCommandSou
 	in.Parsing.ExcerptPath = strings.TrimSpace(in.Parsing.ExcerptPath)
 	in.Parsing.NotesPath = strings.TrimSpace(in.Parsing.NotesPath)
 	in.Parsing.MetadataPaths = cloneStringMap(in.Parsing.MetadataPaths)
+	in.Parsing.RequiredPaths = dedupeStrings(in.Parsing.RequiredPaths)
 	return in
 }
 

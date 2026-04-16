@@ -11,6 +11,7 @@ import (
 
 	"github.com/suchasplus/til-consensus/internal/config"
 	"github.com/suchasplus/til-consensus/internal/consensus"
+	filestore "github.com/suchasplus/til-consensus/internal/store/file"
 )
 
 func TestNewBuildsCommandTree(t *testing.T) {
@@ -18,14 +19,14 @@ func TestNewBuildsCommandTree(t *testing.T) {
 	if cmd.Name != "til-consensus" {
 		t.Fatalf("unexpected root name: %s", cmd.Name)
 	}
-	if len(cmd.Commands) != 5 {
+	if len(cmd.Commands) != 7 {
 		t.Fatalf("unexpected root command count: %d", len(cmd.Commands))
 	}
 	if cmd.Version == "" {
 		t.Fatal("expected root version to be populated")
 	}
-	names := []string{cmd.Commands[0].Name, cmd.Commands[1].Name, cmd.Commands[2].Name, cmd.Commands[3].Name, cmd.Commands[4].Name}
-	if strings.Join(names, ",") != "run,config,act,view,version" {
+	names := []string{cmd.Commands[0].Name, cmd.Commands[1].Name, cmd.Commands[2].Name, cmd.Commands[3].Name, cmd.Commands[4].Name, cmd.Commands[5].Name, cmd.Commands[6].Name}
+	if strings.Join(names, ",") != "run,followup,config,act,session,view,version" {
 		t.Fatalf("unexpected command tree: %#v", names)
 	}
 }
@@ -232,5 +233,133 @@ func TestParseHelpersAndOutputHelpers(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "task failed: challenger-claude -> challenge (collecting challenges) attempt=1/2 error=__timeout__") {
 		t.Fatalf("unexpected stdout for task failure: %s", stdout.String())
+	}
+}
+
+func TestFollowUpRunAndSessionCommands(t *testing.T) {
+	tmp := t.TempDir()
+	configPath := filepath.Join(tmp, "til-consensus.yaml")
+	if err := runConfigInitCommand(&bytes.Buffer{}, configPath, "quickstart", false, false); err != nil {
+		t.Fatalf("runConfigInitCommand failed: %v", err)
+	}
+	loaded, err := config.Load(configPath)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	request, err := consensus.NormalizeStartRequest(consensus.StartRequest{
+		RequestID: "followup-request-1",
+		Lineage: &consensus.RunLineage{
+			ParentRequestID: "parent-request-1",
+			ParentSessionID: "parent-session-1",
+			ParentCaseID:    "parent-case-1",
+			Trigger:         "observe_contradiction",
+		},
+		TaskSpec: consensus.TaskSpec{
+			Goal:            "复核上一轮裁决是否被新的观测证据推翻",
+			SuccessCriteria: []string{"必须输出 claim 级裁决"},
+		},
+		Roles: consensus.RoleAssignments{
+			Proposers:        loaded.Config.Roles.Proposers,
+			Challengers:      loaded.Config.Roles.Challengers,
+			Arbiter:          loaded.Config.Roles.Arbiter,
+			SemanticVerifier: loaded.Config.Roles.SemanticVerifier,
+			Reporter:         loaded.Config.Roles.Reporter,
+		},
+		ProposalPolicy: consensus.ProposalPolicy{MaxPasses: 1, MaxClaimsPerWorker: 2},
+		VerificationPolicy: consensus.VerificationPolicy{
+			AllowSemanticVerifier: true,
+			MaxParallelChecks:     1,
+		},
+		ArbiterPolicy: consensus.ArbiterPolicy{AllowUndetermined: true, BlindReview: true},
+		ReportPolicy:  consensus.ReportPolicy{Style: "builtin"},
+		WaitingPolicy: consensus.WaitingPolicy{PerTaskTimeout: consensus.DefaultPerTaskTimeout, RetryAttempts: 1},
+	})
+	if err != nil {
+		t.Fatalf("NormalizeStartRequest failed: %v", err)
+	}
+	artifactPath := filepath.Join(tmp, "followup.json")
+	body, err := json.Marshal(consensus.FollowUpCaseArtifact{
+		SchemaVersion:   consensus.SchemaVersion,
+		CaseID:          "child-case-1",
+		RequestID:       request.RequestID,
+		ParentRequestID: "parent-request-1",
+		ParentSessionID: "parent-session-1",
+		ParentCaseID:    "parent-case-1",
+		Trigger:         "observe_contradiction",
+		CreatedAt:       "2026-04-16T10:00:00Z",
+		Request:         request,
+	})
+	if err != nil {
+		t.Fatalf("marshal followup artifact failed: %v", err)
+	}
+	if err := os.WriteFile(artifactPath, append(body, '\n'), 0o644); err != nil {
+		t.Fatalf("write followup artifact failed: %v", err)
+	}
+
+	followupCmd := newFollowUpCommand()
+	var followupOut bytes.Buffer
+	followupCmd.Writer = &followupOut
+	if err := followupCmd.Run(context.Background(), []string{"followup", "run", "--config", configPath, "--artifact", artifactPath}); err != nil {
+		t.Fatalf("followup run failed: %v", err)
+	}
+	paths := config.ResolveRunArtifacts(loaded, request.RequestID)
+	body, err = os.ReadFile(paths.ResultPath)
+	if err != nil {
+		t.Fatalf("read result failed: %v", err)
+	}
+	result, err := consensus.DecodeRunResult(body)
+	if err != nil {
+		t.Fatalf("DecodeRunResult failed: %v", err)
+	}
+	if result.Lineage == nil || result.Lineage.ParentRequestID != "parent-request-1" || result.Lineage.ParentSessionID != "parent-session-1" {
+		t.Fatalf("unexpected lineage: %#v", result.Lineage)
+	}
+
+	sessionListCmd := newSessionCommand().Commands[0]
+	var listOut bytes.Buffer
+	sessionListCmd.Writer = &listOut
+	if err := sessionListCmd.Run(context.Background(), []string{"list", "--config", configPath, "--request-id", request.RequestID}); err != nil {
+		t.Fatalf("session list failed: %v", err)
+	}
+	var snapshots []consensus.SessionSnapshot
+	if err := json.Unmarshal(listOut.Bytes(), &snapshots); err != nil {
+		t.Fatalf("decode session list failed: %v", err)
+	}
+	if len(snapshots) == 0 || snapshots[0].SessionID == "" {
+		t.Fatalf("unexpected session list: %#v", snapshots)
+	}
+	sessionShowCmd := newSessionCommand().Commands[1]
+	var showOut bytes.Buffer
+	sessionShowCmd.Writer = &showOut
+	if err := sessionShowCmd.Run(context.Background(), []string{"show", "--config", configPath, "--session-id", snapshots[0].SessionID}); err != nil {
+		t.Fatalf("session show failed: %v", err)
+	}
+	var shown consensus.SessionSnapshot
+	if err := json.Unmarshal(showOut.Bytes(), &shown); err != nil {
+		t.Fatalf("decode session show failed: %v", err)
+	}
+	if shown.SessionID != snapshots[0].SessionID || shown.Request == nil {
+		t.Fatalf("unexpected session show payload: %#v", shown)
+	}
+
+	runCmd := newRunCommand()
+	var replayOut bytes.Buffer
+	runCmd.Writer = &replayOut
+	if err := runCmd.Run(context.Background(), []string{"run", "--config", configPath, "--replay-session", snapshots[0].SessionID}); err != nil {
+		t.Fatalf("run --replay-session failed: %v", err)
+	}
+	allSnapshots, err := filestore.New(config.ResolveSessionStoreDir(loaded)).List(context.Background())
+	if err != nil {
+		t.Fatalf("list persisted sessions failed: %v", err)
+	}
+	foundReplay := false
+	for _, snapshot := range allSnapshots {
+		if snapshot.Request != nil && snapshot.Request.Lineage != nil && snapshot.Request.Lineage.ParentSessionID == snapshots[0].SessionID && snapshot.Request.Lineage.Trigger == "session_replay" {
+			foundReplay = true
+			break
+		}
+	}
+	if !foundReplay {
+		t.Fatalf("expected replay session in store, got %#v", allSnapshots)
 	}
 }

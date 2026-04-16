@@ -1,0 +1,43 @@
+request_id: coding-composite-001
+
+task_spec:
+  goal: 判断这个 patch 是否既修复了问题又没有引入性能回退
+  task_type: coding
+  success_criteria:
+    - 必须结合 git diff、tests 和 benchmark
+  workspace_snapshot:
+    root: .
+
+roles:
+  proposers: [proposer-a]
+  challengers: [challenger-a]
+  arbiter: arbiter-a
+  reporter: reporter-a
+
+proposal_policy:
+  max_passes: 1
+  max_claims_per_worker: 1
+
+verification_policy:
+  allow_semantic_verifier: false
+  max_parallel_checks: 1
+  required_checks:
+    - name: diff
+      kind: git_diff_paths
+      base_revision: HEAD
+      paths: [internal]
+    - name: unit
+      kind: command
+      command: sh
+      args: ["./scripts/test.sh"]
+    - name: perf
+      kind: benchmark_threshold
+      command: sh
+      args: ["./scripts/bench.sh"]
+      pattern: "latency=([0-9.]+)"
+      threshold: 0.20
+      threshold_mode: max
+
+arbiter_policy:
+  allow_undetermined: true
+  blind_review: true

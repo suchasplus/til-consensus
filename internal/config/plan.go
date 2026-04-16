@@ -15,6 +15,7 @@ type ResolvedRunPlan struct {
 	Task         string
 	Mode         consensus.WorkflowMode
 	Roles        consensus.RoleAssignments
+	SessionStoreDir string
 	LedgerPath   string
 	ManifestPath string
 	EventsPath   string
@@ -146,19 +147,44 @@ func ResolveRunPlan(loaded LoadedConfig, input RunInput, overrides RunOverrides,
 		return ResolvedRunPlan{}, err
 	}
 	return ResolvedRunPlan{
-		RequestID:    requestID,
-		Task:         task,
-		Mode:         mode,
-		Roles:        roles,
-		LedgerPath:   artifactPaths.LedgerPath,
-		ManifestPath: artifactPaths.ManifestPath,
-		EventsPath:   artifactPaths.EventsPath,
-		ResultPath:   artifactPaths.ResultPath,
-		SummaryPath:  artifactPaths.SummaryPath,
-		ErrorPath:    artifactPaths.ErrorPath,
-		ArtifactsDir: artifactPaths.ArtifactsDir,
-		Verbose:      overrides.Verbose,
-		StartRequest: normalized,
+		RequestID:       requestID,
+		Task:            task,
+		Mode:            mode,
+		Roles:           roles,
+		SessionStoreDir: resolveSessionStoreDir(artifactPaths.RunDir),
+		LedgerPath:      artifactPaths.LedgerPath,
+		ManifestPath:    artifactPaths.ManifestPath,
+		EventsPath:      artifactPaths.EventsPath,
+		ResultPath:      artifactPaths.ResultPath,
+		SummaryPath:     artifactPaths.SummaryPath,
+		ErrorPath:       artifactPaths.ErrorPath,
+		ArtifactsDir:    artifactPaths.ArtifactsDir,
+		Verbose:         overrides.Verbose,
+		StartRequest:    normalized,
+	}, nil
+}
+
+func ResolveRunPlanForRequest(loaded LoadedConfig, request consensus.StartRequest, verbose bool) (ResolvedRunPlan, error) {
+	normalized, err := consensus.NormalizeStartRequest(request)
+	if err != nil {
+		return ResolvedRunPlan{}, err
+	}
+	artifactPaths := ResolveRunArtifacts(loaded, normalized.RequestID)
+	return ResolvedRunPlan{
+		RequestID:       normalized.RequestID,
+		Task:            normalized.TaskSpec.Goal,
+		Mode:            normalized.Mode,
+		Roles:           normalized.Roles,
+		SessionStoreDir: resolveSessionStoreDir(artifactPaths.RunDir),
+		LedgerPath:      artifactPaths.LedgerPath,
+		ManifestPath:    artifactPaths.ManifestPath,
+		EventsPath:      artifactPaths.EventsPath,
+		ResultPath:      artifactPaths.ResultPath,
+		SummaryPath:     artifactPaths.SummaryPath,
+		ErrorPath:       artifactPaths.ErrorPath,
+		ArtifactsDir:    artifactPaths.ArtifactsDir,
+		Verbose:         verbose,
+		StartRequest:    normalized,
 	}, nil
 }
 
@@ -193,6 +219,24 @@ func ResolveResultTemplate(loaded LoadedConfig) string {
 		loaded.ConfigDir,
 		requestToken,
 	)
+}
+
+func ResolveSessionStoreDir(loaded LoadedConfig) string {
+	requestToken := "{requestId}"
+	baseDir := loaded.Config.Output.Directory
+	if strings.TrimSpace(baseDir) == "" {
+		baseDir = "./out/{requestId}"
+	}
+	baseDir = resolveOutputPath(baseDir, loaded.ConfigDir, requestToken)
+	return resolveSessionStoreDir(strings.ReplaceAll(baseDir, requestToken, "_template_"))
+}
+
+func resolveSessionStoreDir(runDir string) string {
+	parent := filepath.Dir(runDir)
+	if strings.TrimSpace(parent) == "" || parent == "." {
+		parent = runDir
+	}
+	return filepath.Join(parent, "_sessions")
 }
 
 func resolveRoles(mode consensus.WorkflowMode, cfg RolesConfig, input RolesConfig, overrides RunOverrides) (consensus.RoleAssignments, error) {

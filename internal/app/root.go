@@ -17,8 +17,10 @@ func New() *cli.Command {
 		},
 		Commands: []*cli.Command{
 			newRunCommand(),
+			newFollowUpCommand(),
 			newConfigCommand(),
 			newActCommand(),
+			newSessionCommand(),
 			newViewCommand(),
 			newVersionCommand(),
 		},

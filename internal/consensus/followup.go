@@ -17,9 +17,25 @@ type FollowUpCaseArtifact struct {
 	RequestID       string       `json:"requestId"`
 	ParentRequestID string       `json:"parentRequestId"`
 	ParentSessionID string       `json:"parentSessionId"`
+	ParentCaseID    string       `json:"parentCaseId"`
 	Trigger         string       `json:"trigger"`
 	CreatedAt       string       `json:"createdAt"`
 	Request         StartRequest `json:"request"`
+}
+
+func LoadFollowUpCaseArtifact(path string) (FollowUpCaseArtifact, error) {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return FollowUpCaseArtifact{}, fmt.Errorf("read follow-up case artifact: %w", err)
+	}
+	var artifact FollowUpCaseArtifact
+	if err := json.Unmarshal(body, &artifact); err != nil {
+		return FollowUpCaseArtifact{}, fmt.Errorf("decode follow-up case artifact: %w", err)
+	}
+	if artifact.SchemaVersion != SchemaVersion {
+		return FollowUpCaseArtifact{}, fmt.Errorf("unsupported follow-up case schema version: %d", artifact.SchemaVersion)
+	}
+	return artifact, nil
 }
 
 func (e *Engine) createFollowUpCaseArtifact(request StartRequest, run *workflowRun, source ExternalCommandSource, sourceResult externalSourceResult, reason string) (string, string, *ArtifactRef, error) {
@@ -31,6 +47,12 @@ func (e *Engine) createFollowUpCaseArtifact(request StartRequest, run *workflowR
 	followUpRequestID := e.ids.NewEntityID("followup")
 	followUpRequest := request
 	followUpRequest.RequestID = followUpRequestID
+	followUpRequest.Lineage = &RunLineage{
+		ParentRequestID: request.RequestID,
+		ParentSessionID: run.sessionID,
+		ParentCaseID:    run.manifest.CaseID,
+		Trigger:         reason,
+	}
 	followUpRequest.ActionPolicy = nil
 	followUpRequest.TaskSpec.Goal = fmt.Sprintf("复核上一轮裁决是否被新的观测证据推翻：%s", request.TaskSpec.Goal)
 	followUpRequest.TaskSpec.Materials = append([]MaterialRef(nil), request.TaskSpec.Materials...)
@@ -72,6 +94,7 @@ func (e *Engine) createFollowUpCaseArtifact(request StartRequest, run *workflowR
 		RequestID:       followUpRequestID,
 		ParentRequestID: request.RequestID,
 		ParentSessionID: run.sessionID,
+		ParentCaseID:    run.manifest.CaseID,
 		Trigger:         "observe_contradiction",
 		CreatedAt:       e.clock.Now().Format(time.RFC3339Nano),
 		Request:         followUpRequest,

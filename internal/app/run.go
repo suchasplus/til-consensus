@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 	"time"
@@ -11,7 +13,7 @@ import (
 	"github.com/suchasplus/til-consensus/internal/consensus"
 	"github.com/suchasplus/til-consensus/internal/observer"
 	"github.com/suchasplus/til-consensus/internal/runtime"
-	memorystore "github.com/suchasplus/til-consensus/internal/store/memory"
+	filestore "github.com/suchasplus/til-consensus/internal/store/file"
 	"github.com/urfave/cli/v3"
 )
 
@@ -22,6 +24,9 @@ func newRunCommand() *cli.Command {
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "config", Usage: "配置文件路径"},
 			&cli.StringFlag{Name: "input", Usage: "输入文件路径"},
+			&cli.StringFlag{Name: "followup", Usage: "直接执行 follow-up case artifact"},
+			&cli.StringFlag{Name: "resume-session", Usage: "从持久化 session store 重新执行某个 session 的 request"},
+			&cli.StringFlag{Name: "replay-session", Usage: "基于某个 session 的 request 生成新的 child run"},
 			&cli.StringFlag{Name: "mode", Usage: "工作流模式(adjudication|free-debate|delphi)"},
 			&cli.StringFlag{Name: "task", Usage: "任务目标"},
 			&cli.StringFlag{Name: "proposers", Usage: "逗号分隔的 proposer agent 列表"},
@@ -58,39 +63,119 @@ func runCommand(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
+	sessionStore := filestore.New(config.ResolveSessionStoreDir(loaded))
+	if followupPath := strings.TrimSpace(cmd.String("followup")); followupPath != "" {
+		if hasConflictingRunSource(cmd, "followup") {
+			return fmt.Errorf("--followup 不能与 --input/--task/--resume-session/--replay-session 同时使用")
+		}
+		artifact, err := consensus.LoadFollowUpCaseArtifact(followupPath)
+		if err != nil {
+			return err
+		}
+		plan, err := config.ResolveRunPlanForRequest(loaded, artifact.Request, cmd.Bool("verbose"))
+		if err != nil {
+			return err
+		}
+		return executeResolvedPlan(ctx, loaded, plan, cmd.Writer)
+	}
+	if sessionID := strings.TrimSpace(cmd.String("resume-session")); sessionID != "" {
+		if hasConflictingRunSource(cmd, "resume-session") {
+			return fmt.Errorf("--resume-session 不能与 --input/--task/--followup/--replay-session 同时使用")
+		}
+		snapshot, err := sessionStore.Load(ctx, sessionID)
+		if err != nil {
+			return err
+		}
+		if snapshot == nil || snapshot.Request == nil {
+			return fmt.Errorf("session %s 没有可恢复的 request", sessionID)
+		}
+		plan, err := config.ResolveRunPlanForRequest(loaded, *snapshot.Request, cmd.Bool("verbose"))
+		if err != nil {
+			return err
+		}
+		return executeResolvedPlan(ctx, loaded, plan, cmd.Writer)
+	}
+	if sessionID := strings.TrimSpace(cmd.String("replay-session")); sessionID != "" {
+		if hasConflictingRunSource(cmd, "replay-session") {
+			return fmt.Errorf("--replay-session 不能与 --input/--task/--followup/--resume-session 同时使用")
+		}
+		snapshot, err := sessionStore.Load(ctx, sessionID)
+		if err != nil {
+			return err
+		}
+		if snapshot == nil || snapshot.Request == nil {
+			return fmt.Errorf("session %s 没有可重放的 request", sessionID)
+		}
+		replayRequest := *snapshot.Request
+		replayRequest.RequestID = artifact.NewRequestID(time.Now().UTC())
+		replayRequest.Lineage = &consensus.RunLineage{
+			ParentRequestID: snapshot.RequestID,
+			ParentSessionID: snapshot.SessionID,
+			Trigger:         "session_replay",
+		}
+		if snapshot.Result != nil && snapshot.Result.CaseManifest != nil {
+			replayRequest.Lineage.ParentCaseID = snapshot.Result.CaseManifest.CaseID
+		}
+		plan, err := config.ResolveRunPlanForRequest(loaded, replayRequest, cmd.Bool("verbose"))
+		if err != nil {
+			return err
+		}
+		return executeResolvedPlan(ctx, loaded, plan, cmd.Writer)
+	}
 	input, err := config.LoadRunInput(cmd.String("input"))
 	if err != nil {
 		return err
 	}
 	overrides := config.RunOverrides{
-		ConfigPath:        cmd.String("config"),
-		InputPath:         cmd.String("input"),
-		Mode:              parseMode(cmd.String("mode")),
-		Task:              cmd.String("task"),
-		Proposers:         splitComma(cmd.String("proposers")),
-		Challengers:       splitComma(cmd.String("challengers")),
-		Participants:      splitComma(cmd.String("participants")),
-		Arbiter:           cmd.String("arbiter"),
-		SemanticVerifier:  cmd.String("semantic-verifier"),
-		Facilitator:       cmd.String("facilitator"),
-		Reporter:          cmd.String("reporter"),
-		Actor:             cmd.String("actor"),
-		SuccessCriteria:   cmd.StringSlice("success-criteria"),
-		WorkspaceSnapshot: cmd.String("workspace-snapshot"),
-		MinRounds:         cmd.Int("min-rounds"),
-		MaxRounds:         cmd.Int("max-rounds"),
-		VoteThreshold:     cmd.Float64("vote-threshold"),
+		ConfigPath:           cmd.String("config"),
+		InputPath:            cmd.String("input"),
+		Mode:                 parseMode(cmd.String("mode")),
+		Task:                 cmd.String("task"),
+		Proposers:            splitComma(cmd.String("proposers")),
+		Challengers:          splitComma(cmd.String("challengers")),
+		Participants:         splitComma(cmd.String("participants")),
+		Arbiter:              cmd.String("arbiter"),
+		SemanticVerifier:     cmd.String("semantic-verifier"),
+		Facilitator:          cmd.String("facilitator"),
+		Reporter:             cmd.String("reporter"),
+		Actor:                cmd.String("actor"),
+		SuccessCriteria:      cmd.StringSlice("success-criteria"),
+		WorkspaceSnapshot:    cmd.String("workspace-snapshot"),
+		MinRounds:            cmd.Int("min-rounds"),
+		MaxRounds:            cmd.Int("max-rounds"),
+		VoteThreshold:        cmd.Float64("vote-threshold"),
 		ConvergenceThreshold: cmd.Float64("convergence-threshold"),
-		Timeout:           cmd.Duration("timeout"),
-		GlobalDeadline:    cmd.Duration("global-deadline"),
-		Action:            cmd.String("action"),
-		Verbose:           cmd.Bool("verbose"),
+		Timeout:              cmd.Duration("timeout"),
+		GlobalDeadline:       cmd.Duration("global-deadline"),
+		Action:               cmd.String("action"),
+		Verbose:              cmd.Bool("verbose"),
 	}
 	plan, err := config.ResolveRunPlan(loaded, input, overrides, time.Now().UTC())
 	if err != nil {
 		return err
 	}
-	output := NewOutput(cmd.Writer, os.Stderr, plan.Verbose)
+	return executeResolvedPlan(ctx, loaded, plan, cmd.Writer)
+}
+
+func hasConflictingRunSource(cmd *cli.Command, active string) bool {
+	sources := map[string]bool{
+		"input":          strings.TrimSpace(cmd.String("input")) != "",
+		"task":           strings.TrimSpace(cmd.String("task")) != "",
+		"followup":       strings.TrimSpace(cmd.String("followup")) != "",
+		"resume-session": strings.TrimSpace(cmd.String("resume-session")) != "",
+		"replay-session": strings.TrimSpace(cmd.String("replay-session")) != "",
+	}
+	sources[active] = false
+	for _, present := range sources {
+		if present {
+			return true
+		}
+	}
+	return false
+}
+
+func executeResolvedPlan(ctx context.Context, loaded config.LoadedConfig, plan config.ResolvedRunPlan, writer interface{ Write([]byte) (int, error) }) error {
+	output := NewOutput(writer, os.Stderr, plan.Verbose)
 	output.RunStarted(plan.RequestID, plan.Mode, plan.Task, plan.Roles)
 
 	delegate, err := runtime.NewDelegate(loaded.Config, plan.ArtifactsDir)
@@ -104,7 +189,7 @@ func runCommand(ctx context.Context, cmd *cli.Command) error {
 			output.EventObserver(),
 		),
 		Ledger:       observer.NewLedger(plan.LedgerPath, plan.ManifestPath),
-		SessionStore: memorystore.New(),
+		SessionStore: filestore.New(plan.SessionStoreDir),
 		ArtifactDir:  plan.ArtifactsDir,
 	})
 	result, runErr := engine.Start(ctx, plan.StartRequest)
@@ -144,4 +229,12 @@ func splitComma(value string) []string {
 		}
 	}
 	return out
+}
+
+func marshalPretty(value any) (string, error) {
+	body, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(body) + "\n", nil
 }

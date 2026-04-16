@@ -59,6 +59,7 @@ type Ledger interface {
 type SessionSnapshot struct {
 	SessionID        string
 	RequestID        string
+	Request          *StartRequest
 	Phase            SessionPhase
 	ClaimGraph       []ClaimNode
 	ChallengeTickets []ChallengeTicket

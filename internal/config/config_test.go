@@ -203,3 +203,51 @@ func TestResolveRunPlanCarriesAdjudicationFallbackAndObservationPolicies(t *test
 		t.Fatalf("unexpected observe policy: %#v", plan.StartRequest.ObservePolicy)
 	}
 }
+
+func TestResolveRunPlanForRequestAndSessionStoreDir(t *testing.T) {
+	tmp := t.TempDir()
+	loaded := LoadedConfig{
+		ConfigDir: tmp,
+		Config: Normalize(Config{
+			SchemaVersion: 1,
+			Output: OutputConfig{Directory: "./out/{requestId}"},
+		}),
+	}
+	request, err := consensus.NormalizeStartRequest(consensus.StartRequest{
+		RequestID: "child-request-1",
+		Lineage: &consensus.RunLineage{
+			ParentRequestID: "parent-request-1",
+			ParentSessionID: "parent-session-1",
+			Trigger:         "observe_contradiction",
+		},
+		TaskSpec: consensus.TaskSpec{Goal: "follow-up goal"},
+		Roles: consensus.RoleAssignments{
+			Proposers:   []string{"p1"},
+			Challengers: []string{"c1"},
+		},
+		ProposalPolicy: consensus.ProposalPolicy{MaxPasses: 1, MaxClaimsPerWorker: 1},
+		VerificationPolicy: consensus.VerificationPolicy{
+			MaxParallelChecks: 1,
+		},
+		ArbiterPolicy: consensus.ArbiterPolicy{AllowUndetermined: true, BlindReview: true},
+		ReportPolicy:  consensus.ReportPolicy{Style: "builtin"},
+		WaitingPolicy: consensus.WaitingPolicy{PerTaskTimeout: time.Second},
+	})
+	if err != nil {
+		t.Fatalf("NormalizeStartRequest failed: %v", err)
+	}
+	plan, err := ResolveRunPlanForRequest(loaded, request, true)
+	if err != nil {
+		t.Fatalf("ResolveRunPlanForRequest failed: %v", err)
+	}
+	if plan.RequestID != "child-request-1" || plan.StartRequest.Lineage == nil || plan.StartRequest.Lineage.ParentRequestID != "parent-request-1" {
+		t.Fatalf("unexpected plan lineage: %#v", plan)
+	}
+	want := filepath.Join(tmp, "out", "_sessions")
+	if plan.SessionStoreDir != want {
+		t.Fatalf("unexpected session store dir: got=%s want=%s", plan.SessionStoreDir, want)
+	}
+	if got := ResolveSessionStoreDir(loaded); got != want {
+		t.Fatalf("unexpected resolved session store dir: got=%s want=%s", got, want)
+	}
+}

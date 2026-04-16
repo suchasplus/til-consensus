@@ -1,0 +1,5 @@
+report:
+  summary: 最新来源显示迁移尚未完成
+  excerpt: 2026-04-15 的状态页仍然标记为 in-progress
+  publishedAt: 2026-04-15T09:00:00Z
+  source: latest-status-page

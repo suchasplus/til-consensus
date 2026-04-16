@@ -4,15 +4,19 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/xml"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 type externalSourceResult struct {
@@ -23,6 +27,7 @@ type externalSourceResult struct {
 	MatchedOK    bool
 	Contradicted bool
 	ExecFailed   bool
+	FailureClass string
 	Notes        []string
 	Metadata     map[string]any
 }
@@ -69,12 +74,14 @@ func runExternalCommandSource(ctx context.Context, deps EngineDeps, clock Clock,
 	if err != nil {
 		result.ExecFailed = true
 		result.Contradicted = true
+		result.FailureClass = "command_exec_failed"
 		result.Summary = fmt.Sprintf("external source %s 执行失败: %v", source.Name, err)
 		result.Notes = append(result.Notes, classifyCommandFailure(err))
 		return result, nil
 	}
 	parsed, parseErr := parseExternalSourceOutput(source.Parsing, output)
 	if parseErr != nil {
+		result.FailureClass = "structured_parse_failed"
 		result.Notes = append(result.Notes, "structured_parse_failed:"+parseErr.Error())
 	} else {
 		result.Metadata = cloneAnyMap(parsed.Metadata)
@@ -87,6 +94,7 @@ func runExternalCommandSource(ctx context.Context, deps EngineDeps, clock Clock,
 		}
 		if parsed.HasFailure && parsed.Failure {
 			result.Contradicted = true
+			result.FailureClass = "structured_failure"
 			if strings.TrimSpace(result.Summary) == "" {
 				result.Summary = fmt.Sprintf("external source %s 命中结构化 failure 条件", source.Name)
 			}
@@ -112,6 +120,7 @@ func runExternalCommandSource(ctx context.Context, deps EngineDeps, clock Clock,
 			result.Notes = append(result.Notes, "failure_pattern_invalid:"+matchErr.Error())
 		} else if matched {
 			result.Contradicted = true
+			result.FailureClass = "failure_pattern_matched"
 			result.Summary = fmt.Sprintf("external source %s 命中 failure_pattern", source.Name)
 			return result, nil
 		}
@@ -120,6 +129,7 @@ func runExternalCommandSource(ctx context.Context, deps EngineDeps, clock Clock,
 		matched, matchErr := matchesPattern(source.SuccessPattern, stdout.String()+"\n"+stderr.String())
 		if matchErr != nil {
 			result.Notes = append(result.Notes, "success_pattern_invalid:"+matchErr.Error())
+			result.FailureClass = "success_pattern_invalid"
 			result.Summary = fmt.Sprintf("external source %s 执行成功，但 success_pattern 无法解析", source.Name)
 			return result, nil
 		}
@@ -210,19 +220,28 @@ func parseExternalSourceOutput(parsing ExternalCommandParsing, body string) (str
 	}
 	switch parsing.Mode {
 	case ExternalCommandParseModeJSON:
-		return parseJSONExternalOutput(parsing, body)
+		return parseStructuredExternalOutput(parsing, body, parseJSONPayload)
+	case ExternalCommandParseModeYAML:
+		return parseStructuredExternalOutput(parsing, body, parseYAMLPayload)
+	case ExternalCommandParseModeXML:
+		return parseStructuredExternalOutput(parsing, body, parseXMLPayload)
 	default:
 		return structuredParseResult{}, fmt.Errorf("unsupported parse mode: %s", parsing.Mode)
 	}
 }
 
-func parseJSONExternalOutput(parsing ExternalCommandParsing, body string) (structuredParseResult, error) {
-	var payload any
-	if err := json.Unmarshal([]byte(body), &payload); err != nil {
+func parseStructuredExternalOutput(parsing ExternalCommandParsing, body string, parser func(string) (any, error)) (structuredParseResult, error) {
+	payload, err := parser(body)
+	if err != nil {
 		return structuredParseResult{}, err
 	}
 	result := structuredParseResult{
 		Metadata: map[string]any{},
+	}
+	for _, path := range parsing.RequiredPaths {
+		if _, ok := jsonPathLookup(payload, path); !ok {
+			return structuredParseResult{}, fmt.Errorf("required path missing: %s", path)
+		}
 	}
 	if value, ok := jsonPathLookup(payload, parsing.SummaryPath); ok {
 		result.Summary = coerceStructuredString(value)
@@ -256,56 +275,176 @@ func parseJSONExternalOutput(parsing ExternalCommandParsing, body string) (struc
 	return result, nil
 }
 
+func parseJSONPayload(body string) (any, error) {
+	var payload any
+	if err := json.Unmarshal([]byte(body), &payload); err != nil {
+		return nil, err
+	}
+	return payload, nil
+}
+
+func parseYAMLPayload(body string) (any, error) {
+	var payload any
+	if err := yaml.Unmarshal([]byte(body), &payload); err != nil {
+		return nil, err
+	}
+	return normalizeStructuredValue(payload), nil
+}
+
+func parseXMLPayload(body string) (any, error) {
+	decoder := xml.NewDecoder(strings.NewReader(body))
+	var root *xmlNode
+	var stack []*xmlNode
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return nil, err
+		}
+		switch current := token.(type) {
+		case xml.StartElement:
+			node := &xmlNode{Name: current.Name.Local}
+			stack = append(stack, node)
+		case xml.CharData:
+			if len(stack) == 0 {
+				continue
+			}
+			stack[len(stack)-1].Text += string(current)
+		case xml.EndElement:
+			if len(stack) == 0 {
+				continue
+			}
+			node := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+			if len(stack) == 0 {
+				root = node
+				continue
+			}
+			parent := stack[len(stack)-1]
+			parent.Children = append(parent.Children, node)
+		}
+	}
+	if root == nil {
+		return nil, fmt.Errorf("empty xml payload")
+	}
+	return map[string]any{root.Name: xmlNodeValue(root)}, nil
+}
+
+type xmlNode struct {
+	Name     string
+	Text     string
+	Children []*xmlNode
+}
+
+func xmlNodeValue(node *xmlNode) any {
+	if node == nil {
+		return nil
+	}
+	if len(node.Children) == 0 {
+		return strings.TrimSpace(node.Text)
+	}
+	value := map[string]any{}
+	if text := strings.TrimSpace(node.Text); text != "" {
+		value["_text"] = text
+	}
+	grouped := map[string][]any{}
+	for _, child := range node.Children {
+		grouped[child.Name] = append(grouped[child.Name], xmlNodeValue(child))
+	}
+	for key, items := range grouped {
+		if len(items) == 1 {
+			value[key] = items[0]
+			continue
+		}
+		value[key] = items
+	}
+	return value
+}
+
 func jsonPathLookup(root any, path string) (any, bool) {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return nil, false
 	}
-	current := root
+	current := []any{root}
 	for _, raw := range strings.Split(path, ".") {
 		part := strings.TrimSpace(raw)
 		if part == "" {
 			return nil, false
 		}
-		name, index, hasIndex, ok := splitJSONPathPart(part)
+		name, index, hasIndex, wildcard, ok := splitJSONPathPart(part)
 		if !ok {
 			return nil, false
 		}
-		if name != "" {
-			obj, ok := current.(map[string]any)
+		next := make([]any, 0)
+		for _, candidate := range current {
+			resolved, ok := stepStructuredPath(candidate, name, hasIndex, index, wildcard)
 			if !ok {
-				return nil, false
+				continue
 			}
-			current, ok = obj[name]
-			if !ok {
-				return nil, false
-			}
+			next = append(next, resolved...)
 		}
-		if hasIndex {
-			list, ok := current.([]any)
-			if !ok || index < 0 || index >= len(list) {
-				return nil, false
-			}
-			current = list[index]
+		if len(next) == 0 {
+			return nil, false
 		}
+		current = next
+	}
+	if len(current) == 1 {
+		return current[0], true
 	}
 	return current, true
 }
 
-func splitJSONPathPart(part string) (string, int, bool, bool) {
+func stepStructuredPath(current any, name string, hasIndex bool, index int, wildcard bool) ([]any, bool) {
+	value := current
+	if name != "" {
+		obj, ok := current.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		var found bool
+		value, found = obj[name]
+		if !found {
+			return nil, false
+		}
+	}
+	if wildcard {
+		list, ok := value.([]any)
+		if !ok || len(list) == 0 {
+			return nil, false
+		}
+		return list, true
+	}
+	if hasIndex {
+		list, ok := value.([]any)
+		if !ok || index < 0 || index >= len(list) {
+			return nil, false
+		}
+		return []any{list[index]}, true
+	}
+	return []any{value}, true
+}
+
+func splitJSONPathPart(part string) (string, int, bool, bool, bool) {
 	if !strings.Contains(part, "[") {
-		return part, 0, false, true
+		return part, 0, false, false, true
 	}
 	open := strings.Index(part, "[")
 	close := strings.Index(part, "]")
 	if open < 0 || close <= open+1 || close != len(part)-1 {
-		return "", 0, false, false
+		return "", 0, false, false, false
 	}
-	index, err := strconv.Atoi(part[open+1 : close])
+	indexToken := part[open+1 : close]
+	if indexToken == "*" {
+		return part[:open], 0, false, true, true
+	}
+	index, err := strconv.Atoi(indexToken)
 	if err != nil {
-		return "", 0, false, false
+		return "", 0, false, false, false
 	}
-	return part[:open], index, true, true
+	return part[:open], index, true, false, true
 }
 
 func coerceStructuredString(value any) string {
@@ -373,5 +512,30 @@ func coerceStructuredBool(value any) (bool, bool) {
 		return number != 0, true
 	default:
 		return false, false
+	}
+}
+
+func normalizeStructuredValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(typed))
+		for key, item := range typed {
+			out[key] = normalizeStructuredValue(item)
+		}
+		return out
+	case map[any]any:
+		out := make(map[string]any, len(typed))
+		for key, item := range typed {
+			out[coerceStructuredString(key)] = normalizeStructuredValue(item)
+		}
+		return out
+	case []any:
+		out := make([]any, 0, len(typed))
+		for _, item := range typed {
+			out = append(out, normalizeStructuredValue(item))
+		}
+		return out
+	default:
+		return value
 	}
 }

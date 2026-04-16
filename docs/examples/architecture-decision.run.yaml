@@ -1,0 +1,27 @@
+request_id: architecture-choice-001
+
+task_spec:
+  goal: 评估未来 6 个月内是否应该把当前单体服务演进成事件驱动架构
+  task_type: strategy
+  success_criteria:
+    - 结论必须说明推荐、不推荐或部分推荐
+    - 必须指出主要风险和前提
+
+roles:
+  proposers: [proposer-codex]
+  challengers: [challenger-claude]
+  arbiter: arbiter-claude
+  semantic_verifier: verifier-gemini
+  reporter: reporter-codex
+
+proposal_policy:
+  max_passes: 1
+  max_claims_per_worker: 6
+
+verification_policy:
+  allow_semantic_verifier: true
+  max_parallel_checks: 2
+
+arbiter_policy:
+  allow_undetermined: true
+  blind_review: true

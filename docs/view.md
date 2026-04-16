@@ -48,6 +48,8 @@ til-consensus view --config ./til-consensus.yaml --format text
 对所有 mode 都可用：
 
 - `overview`
+- `observations`
+- `followups`
 - `artifacts`
 
 示例：
@@ -56,11 +58,27 @@ til-consensus view --config ./til-consensus.yaml --format text
 til-consensus view --config ./til-consensus.yaml --section overview --section artifacts
 ```
 
+如果你要专门排查 reopen / follow-up 链路：
+
+```bash
+til-consensus view \
+  --config ./til-consensus.yaml \
+  --section observations \
+  --section followups \
+  --verbose
+```
+
 ## `adjudication` 专用 section
 
 - `claims`
 - `challenges`
 - `verifications`
+
+其中 `observations` / `followups` 在 `adjudication` 下最有价值，因为它们会明确显示：
+
+- 哪个 observation 导致 reopen
+- follow-up artifact 路径
+- parent/child request 关系
 
 示例：
 
@@ -161,3 +179,5 @@ til-consensus view \
 - `caveats`
 - 打开的 challenge
 - 失败或 inconclusive 的 verification
+- 哪个 observation 导致 reopen
+- parent/child request 关系

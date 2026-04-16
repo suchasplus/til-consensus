@@ -5,6 +5,7 @@
 1. [README](../README.md)
 2. [配置说明](config.md)
 3. [终端 `view` 用法](view.md)
+4. [配置与输入样例](examples.md)
 
 如果你已经跑通过一次，再继续：
 

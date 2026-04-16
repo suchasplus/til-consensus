@@ -1,0 +1,31 @@
+request_id: operational-observe-001
+
+task_spec:
+  goal: 判断这次变更是否应该继续保留在线上
+  task_type: operational
+  success_criteria:
+    - action 之后必须执行真实 observation
+    - 如果 observation 与 retained claims 矛盾，必须 reopen
+
+roles:
+  proposers: [proposer-a]
+  challengers: [challenger-a]
+  arbiter: arbiter-a
+  reporter: reporter-a
+  actor: actor-a
+
+observe_policy:
+  on_contradiction: reopen
+  sources:
+    - name: health
+      command: sh
+      args:
+        - -c
+        - printf '{"status":{"ok":false,"contradiction":true},"report":{"summary":"post-action health degraded","excerpt":"latency p99 > threshold"}}'
+      parsing:
+        mode: json
+        failure_path: status.contradiction
+        summary_path: report.summary
+        excerpt_path: report.excerpt
+
+action: 执行低风险变更并输出结果摘要

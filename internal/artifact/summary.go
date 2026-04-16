@@ -16,6 +16,14 @@ func BuildSummary(result *consensus.RunResult) string {
 		"- goal: " + result.TaskSpec.Goal,
 		"- elapsed: " + FormatDuration(time.Duration(result.Metrics.ElapsedMs)*time.Millisecond),
 	}
+	if result.Lineage != nil {
+		lines = append(lines,
+			"- parent request: "+firstNonEmpty(result.Lineage.ParentRequestID, "-"),
+			"- parent session: "+firstNonEmpty(result.Lineage.ParentSessionID, "-"),
+			"- parent case: "+firstNonEmpty(result.Lineage.ParentCaseID, "-"),
+			"- lineage trigger: "+firstNonEmpty(result.Lineage.Trigger, "-"),
+		)
+	}
 	if result.TerminalState != "" {
 		lines = append(lines, "- terminal state: "+string(result.TerminalState))
 	}

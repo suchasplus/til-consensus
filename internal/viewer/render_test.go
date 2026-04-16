@@ -81,15 +81,39 @@ func TestRenderDocumentSections(t *testing.T) {
 			contains: []string{"风险与未决项", "验证明细", "benchmark 样本不足"},
 			excludes: []string{"关键 Claims", "相关文件"},
 		},
+		{
+			name:     "observations only",
+			sections: []string{SectionObservations},
+			contains: []string{"Observations", "observe-1", "follow-up: case=child-case-1 request=child-request-1"},
+			excludes: []string{"关键 Claims", "相关文件"},
+		},
+		{
+			name:     "followups only",
+			sections: []string{SectionFollowups},
+			contains: []string{"Follow-ups", "child request=child-request-1", "triggered by observation=observe-1"},
+			excludes: []string{"关键 Claims", "相关文件"},
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			current := bundle
+			if tc.name == "observations only" || tc.name == "followups only" {
+				current = bundleWithObservationData(t)
+			}
 			doc := BuildDocument(bundle, RenderOptions{
 				Format:   FormatText,
 				Sections: tc.sections,
 				Limit:    20,
 				Verbose:  true,
 			})
+			if tc.name == "observations only" || tc.name == "followups only" {
+				doc = BuildDocument(current, RenderOptions{
+					Format:   FormatText,
+					Sections: tc.sections,
+					Limit:    20,
+					Verbose:  true,
+				})
+			}
 			got, err := RenderDocument(doc, RenderOptions{Format: FormatText, Verbose: true})
 			if err != nil {
 				t.Fatalf("RenderDocument failed: %v", err)
@@ -105,6 +129,19 @@ func TestRenderDocumentSections(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestBuildDocumentIncludesLineageAndFollowUps(t *testing.T) {
+	doc := BuildDocument(bundleWithObservationData(t), RenderOptions{Format: FormatJSON, Limit: 20})
+	if doc.Overview.ParentRequestID != "parent-request-1" || doc.Overview.ParentSessionID != "parent-session-1" {
+		t.Fatalf("unexpected overview lineage: %#v", doc.Overview)
+	}
+	if len(doc.Observations) != 1 || doc.Observations[0].FollowUpRequestID != "child-request-1" {
+		t.Fatalf("unexpected observations: %#v", doc.Observations)
+	}
+	if len(doc.FollowUps) < 2 {
+		t.Fatalf("expected parent and child follow-up views, got %#v", doc.FollowUps)
 	}
 }
 
@@ -190,6 +227,30 @@ func loadSampleBundle(t *testing.T) Bundle {
 	if err != nil {
 		t.Fatalf("LoadBundle failed: %v", err)
 	}
+	return bundle
+}
+
+func bundleWithObservationData(t *testing.T) Bundle {
+	t.Helper()
+	bundle := loadSampleBundle(t)
+	bundle.Result.Observations = []consensus.ObservationRecord{
+		{
+			ObservationID:     "observe-1",
+			Outcome:           consensus.ObservationOutcomeContradicted,
+			Summary:           "线上观测显示 patch 后延迟显著升高。",
+			FollowUpCaseID:    "child-case-1",
+			FollowUpRequestID: "child-request-1",
+			FollowUpArtifact:  &consensus.ArtifactRef{Path: filepath.Join(bundle.Files.RunDir, "artifacts", "followups", "child-case-1.json")},
+			Reopen:            true,
+		},
+	}
+	bundle.Result.Lineage = &consensus.RunLineage{
+		ParentRequestID: "parent-request-1",
+		ParentSessionID: "parent-session-1",
+		ParentCaseID:    "parent-case-1",
+		Trigger:         "observe_contradiction",
+	}
+	bundle.Result.CaseManifest = &consensus.CaseManifest{CaseID: "child-case-2"}
 	return bundle
 }
 

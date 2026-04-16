@@ -551,6 +551,7 @@ type RunResult struct {
 	Mode          WorkflowMode               `json:"mode"`
 	RequestID     string                     `json:"requestId"`
 	SessionID     string                     `json:"sessionId"`
+	Lineage       *RunLineage                `json:"lineage,omitempty"`
 	TaskSpec      TaskSpec                   `json:"taskSpec"`
 	CaseManifest  *CaseManifest              `json:"caseManifest,omitempty"`
 	TerminalState WorkflowTerminalState      `json:"terminalState,omitempty"`

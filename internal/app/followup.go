@@ -1,0 +1,56 @@
+package app
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	"github.com/suchasplus/til-consensus/internal/config"
+	"github.com/suchasplus/til-consensus/internal/consensus"
+	"github.com/urfave/cli/v3"
+)
+
+func newFollowUpCommand() *cli.Command {
+	return &cli.Command{
+		Name:  "followup",
+		Usage: "执行或检查 follow-up case artifact",
+		Commands: []*cli.Command{
+			{
+				Name:  "run",
+				Usage: "执行 follow-up case artifact",
+				Flags: []cli.Flag{
+					&cli.StringFlag{Name: "config", Usage: "配置文件路径"},
+					&cli.StringFlag{Name: "artifact", Usage: "follow-up case artifact 路径", Required: true},
+					&cli.BoolFlag{Name: "verbose", Usage: "输出详细事件"},
+				},
+				Action: func(ctx context.Context, cmd *cli.Command) error {
+					return runFollowUpCommand(ctx, cmd)
+				},
+			},
+		},
+	}
+}
+
+func runFollowUpCommand(ctx context.Context, cmd *cli.Command) error {
+	configPath, err := config.ResolveConfigPath(cmd.String("config"))
+	if err != nil {
+		return err
+	}
+	loaded, err := config.Load(configPath)
+	if err != nil {
+		return err
+	}
+	artifactPath := strings.TrimSpace(cmd.String("artifact"))
+	if artifactPath == "" {
+		return fmt.Errorf("artifact path is required")
+	}
+	followup, err := consensus.LoadFollowUpCaseArtifact(artifactPath)
+	if err != nil {
+		return err
+	}
+	plan, err := config.ResolveRunPlanForRequest(loaded, followup.Request, cmd.Bool("verbose"))
+	if err != nil {
+		return err
+	}
+	return executeResolvedPlan(ctx, loaded, plan, cmd.Writer)
+}

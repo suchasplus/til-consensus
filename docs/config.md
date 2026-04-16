@@ -108,7 +108,7 @@ til-consensus config init --preset delphi --config ./til-consensus.yaml --force
 - `failure_pattern`
 - `parsing`
 
-`parsing` 当前支持两种模式：
+`parsing` 当前支持四种模式：
 
 - `mode: text`
   - 默认模式
@@ -123,12 +123,40 @@ til-consensus config init --preset delphi --config ./til-consensus.yaml --force
     - `excerpt_path`
     - `notes_path`
     - `metadata_paths`
+- `mode: yaml`
+  - 把 stdout 解析成 YAML
+  - 然后复用和 JSON 相同的路径提取规则
+- `mode: xml`
+  - 把 stdout 解析成简单 XML 树
+  - 然后用点路径提取字段
 
 字段路径使用简单的点路径，支持数组下标，例如：
 
 - `status.ok`
 - `report.summary`
 - `items[0].name`
+
+如果要跨数组提取，也支持简单的 `[*]`：
+
+- `items[*].name`
+
+如果你希望先做最基础的 schema 校验，再继续处理外部源，可以加：
+
+- `required_paths`
+
+示例：
+
+```yaml
+parsing:
+  mode: yaml
+  required_paths:
+    - report.summary
+    - report.publishedAt
+  summary_path: report.summary
+  excerpt_path: report.excerpt
+  metadata_paths:
+    publishedAt: report.publishedAt
+```
 
 适用语义：
 
@@ -340,3 +368,20 @@ til-consensus config add-agent --help
 - `facilitator`
 
 这两个命令适合增量修改，不适合替代模板初始化。
+
+## follow-up 与 session store
+
+CLI 会把 session snapshot 持久化到输出目录同级的 `_sessions/` 下，例如：
+
+- `./out/_sessions/session_xxx.json`
+
+常用命令：
+
+```bash
+til-consensus followup run --config ./til-consensus.yaml --artifact ./out/parent-run/artifacts/followups/case.json
+til-consensus run --config ./til-consensus.yaml --followup ./out/parent-run/artifacts/followups/case.json
+til-consensus run --config ./til-consensus.yaml --resume-session session_xxx
+til-consensus run --config ./til-consensus.yaml --replay-session session_xxx
+til-consensus session list --config ./til-consensus.yaml --request-id tc_xxx
+til-consensus session show --config ./til-consensus.yaml --session-id session_xxx
+```

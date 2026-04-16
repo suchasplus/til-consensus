@@ -3,6 +3,7 @@ package consensus_test
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"os"
 	"path/filepath"
 	"strings"
@@ -225,12 +226,120 @@ func TestScenarioObserveNegatesAction(t *testing.T) {
 	assertSummaryFragments(t, artifact.BuildSummary(result), expected)
 }
 
+func TestScenarioCodingCompositeChecks(t *testing.T) {
+	request, artifactsDir, expected := loadScenarioRequest(t, "coding-composite")
+	ledger := &scenarioLedger{}
+	engine := consensus.NewEngine(consensus.EngineDeps{
+		TaskDelegate: &scenarioDelegate{},
+		Arbiter: &scenarioArbiter{reports: []consensus.ArbiterReport{{
+			TaskVerdict: consensus.TaskVerdictSupported,
+			Summary:     "coding composite checks passed",
+			Decisions: []consensus.ArbiterDecision{{
+				Verdict:    consensus.ClaimVerdictSupported,
+				Confidence: 0.86,
+				Rationale:  "git diff、tests 和 benchmark 都通过",
+			}},
+			Records: []consensus.AdjudicationRecord{{
+				Disposition:     consensus.ClaimDispositionKeep,
+				Rationale:       "git diff、tests 和 benchmark 都通过",
+				FinalConfidence: 0.86,
+				Actionability:   consensus.ActionabilityReady,
+			}},
+		}}},
+		Ledger:       ledger,
+		SessionStore: memorystore.New(),
+		ArtifactDir:  artifactsDir,
+	})
+	result, err := engine.Start(context.Background(), request)
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	if result.Adjudication == nil || result.Adjudication.TaskVerdict != consensus.TaskVerdictSupported {
+		t.Fatalf("expected supported result, got %#v", result)
+	}
+	var sawDiff, sawTest, sawBench bool
+	for _, item := range result.Adjudication.VerificationResults {
+		switch item.CheckName {
+		case "diff":
+			sawDiff = item.Status == consensus.VerificationStatusPassed
+		case "unit":
+			sawTest = item.Status == consensus.VerificationStatusPassed
+		case "perf":
+			sawBench = item.Status == consensus.VerificationStatusPassed
+		}
+	}
+	if !sawDiff || !sawTest || !sawBench {
+		t.Fatalf("expected diff/test/bench checks to pass, got %#v", result.Adjudication.VerificationResults)
+	}
+	assertSummaryFragments(t, artifact.BuildSummary(result), expected)
+}
+
+func TestScenarioFactualConflictAndFreshness(t *testing.T) {
+	request, artifactsDir, expected := loadScenarioRequest(t, "factual-conflict")
+	ledger := &scenarioLedger{}
+	engine := consensus.NewEngine(consensus.EngineDeps{
+		TaskDelegate: &scenarioDelegate{},
+		Arbiter: &scenarioArbiter{reports: []consensus.ArbiterReport{{
+			TaskVerdict: consensus.TaskVerdictUndetermined,
+			Summary:     "fresh source conflicts with older source",
+			Decisions: []consensus.ArbiterDecision{{
+				Verdict:    consensus.ClaimVerdictUndetermined,
+				Confidence: 0.42,
+				Rationale:  "来源相互冲突，且需要人工确认 freshness",
+			}},
+			Records: []consensus.AdjudicationRecord{{
+				Disposition:     consensus.ClaimDispositionUnresolved,
+				Rationale:       "来源相互冲突，且需要人工确认 freshness",
+				FinalConfidence: 0.42,
+				Actionability:   consensus.ActionabilityBlocked,
+			}},
+		}}},
+		Ledger:       ledger,
+		SessionStore: memorystore.New(),
+		ArtifactDir:  artifactsDir,
+	})
+	result, err := engine.Start(context.Background(), request)
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	if result.Adjudication == nil || result.Adjudication.TaskVerdict != consensus.TaskVerdictUndetermined {
+		t.Fatalf("expected undetermined adjudication, got %#v", result)
+	}
+	foundFreshMetadata := false
+	foundConflictFailure := false
+	for _, entry := range ledger.entries {
+		if entry.Kind != consensus.EvidenceKindSourceMaterial {
+			continue
+		}
+		switch publishedAt := entry.Metadata["publishedAt"].(type) {
+		case string:
+			if publishedAt == "2026-04-15T09:00:00Z" {
+				foundFreshMetadata = true
+			}
+		case time.Time:
+			if publishedAt.UTC().Format(time.RFC3339) == "2026-04-15T09:00:00Z" {
+				foundFreshMetadata = true
+			}
+		}
+		if failureClass, ok := entry.Metadata["failureClass"].(string); ok && failureClass == "structured_failure" {
+			foundConflictFailure = true
+		}
+	}
+	if !foundFreshMetadata || !foundConflictFailure {
+		t.Fatalf("expected freshness/conflict metadata in ledger, got %#v", ledger.entries)
+	}
+	assertSummaryFragments(t, artifact.BuildSummary(result), expected)
+}
+
 func loadScenarioRequest(t *testing.T, name string) (consensus.StartRequest, string, []string) {
 	t.Helper()
 	root := filepath.Join("..", "..", "testdata", "scenarios", name)
 	tmp := t.TempDir()
 	if err := copyDir(root, tmp); err != nil {
 		t.Fatalf("copy scenario fixture: %v", err)
+	}
+	if err := prepareScenarioWorkspace(tmp, name); err != nil {
+		t.Fatalf("prepare scenario workspace: %v", err)
 	}
 	input, err := config.LoadRunInput(filepath.Join(tmp, "run.yaml"))
 	if err != nil {
@@ -254,6 +363,43 @@ func loadScenarioRequest(t *testing.T, name string) (consensus.StartRequest, str
 		t.Fatalf("read expected summary: %v", err)
 	}
 	return plan.StartRequest, plan.ArtifactsDir, splitExpectedFragments(string(expectedBody))
+}
+
+func prepareScenarioWorkspace(root string, name string) error {
+	switch name {
+	case "coding-composite":
+		if err := runCmd(root, "git", "init"); err != nil {
+			return err
+		}
+		if err := runCmd(root, "git", "config", "user.email", "test@example.com"); err != nil {
+			return err
+		}
+		if err := runCmd(root, "git", "config", "user.name", "Test User"); err != nil {
+			return err
+		}
+		if err := runCmd(root, "git", "add", "."); err != nil {
+			return err
+		}
+		if err := runCmd(root, "git", "commit", "-m", "base"); err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(root, "internal", "service.go"), []byte("package internal\n\nconst Enabled = true\n"), 0o644); err != nil {
+			return err
+		}
+		return nil
+	default:
+		return nil
+	}
+}
+
+func runCmd(dir string, name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	cmd.Dir = dir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%s %s: %w (%s)", name, strings.Join(args, " "), err, strings.TrimSpace(string(output)))
+	}
+	return nil
 }
 
 func copyDir(src, dst string) error {

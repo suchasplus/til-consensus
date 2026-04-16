@@ -12,6 +12,7 @@
 - `mode`
 - `requestId`
 - `sessionId`
+- `lineage`
 - `taskSpec`
 - `caseManifest`
 - `terminalState`
@@ -124,3 +125,24 @@
   - 只在 `observe_policy.on_contradiction=reopen` 时出现
   - artifact 会指向真实生成的 follow-up case JSON
   - metadata 会带 `followUpRequestId`
+
+## session store
+
+除了 run 目录里的产物，CLI 还会把 session snapshot 持久化到 `_sessions/` 目录。
+
+单个 snapshot 至少包含：
+
+- `sessionId`
+- `requestId`
+- `request`
+- `phase`
+- `claimGraph`
+- `challengeTickets`
+- `result`
+
+这使得 CLI 可以支持：
+
+- `run --resume-session`
+- `run --replay-session`
+- `session list`
+- `session show`

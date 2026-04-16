@@ -61,6 +61,10 @@ til-consensus view --config ./til-consensus.yaml
 - `artifacts/`
   - 原始 worker 输出、命令日志、diff、benchmark 结果
 
+同时还会把 session snapshot 持久化到：
+
+- `./out/_sessions/`
+
 `adjudication` 结果里最关键的新对象有：
 
 - `caseManifest`
@@ -163,6 +167,10 @@ til-consensus config init --preset delphi --config ./til-consensus.yaml --force
   - 生成带注释的配置模板
 - `til-consensus config validate`
   - 校验配置是否可用
+- `til-consensus followup run`
+  - 执行 follow-up case artifact
+- `til-consensus session list`
+  - 按 request/session 查看持久化快照
 
 ## `run` 示例
 
@@ -215,6 +223,12 @@ til-consensus view --config ./til-consensus.yaml
 
 ```bash
 til-consensus view --config ./til-consensus.yaml --section claims --section verifications
+```
+
+看 observation / follow-up：
+
+```bash
+til-consensus view --config ./til-consensus.yaml --section observations --section followups --verbose
 ```
 
 - free_debate：
@@ -302,6 +316,52 @@ export PATH="$HOME/.local/bin:$PATH"
 ```bash
 make install INSTALL_DIR=/usr/local/bin
 ```
+
+## follow-up / observe / structured parsing
+
+如果 `observe_policy.sources` 发现新的矛盾证据，系统会：
+
+1. 把当前 run 的 terminal state 升级为 `requires_human_review`
+2. 在 `artifacts/followups/` 下生成真实的 follow-up case JSON
+3. 在 `observations` 和 `ledger.jsonl` 里挂上 child request / artifact 关系
+
+然后你可以直接执行：
+
+```bash
+til-consensus followup run --config ./til-consensus.yaml --artifact ./out/parent-run/artifacts/followups/case.json
+```
+
+或者：
+
+```bash
+til-consensus run --config ./til-consensus.yaml --followup ./out/parent-run/artifacts/followups/case.json
+```
+
+如果你想基于历史 session 继续处理：
+
+```bash
+til-consensus run --config ./til-consensus.yaml --resume-session session_xxx
+til-consensus run --config ./til-consensus.yaml --replay-session session_xxx
+til-consensus session list --config ./til-consensus.yaml --request-id tc_xxx
+til-consensus session show --config ./til-consensus.yaml --session-id session_xxx
+```
+
+外部源解析现在支持：
+
+- `text`
+- `json`
+- `yaml`
+- `xml`
+
+并支持：
+
+- `required_paths`
+- `items[0].name`
+- `items[*].name`
+
+更完整的 provider 配置和 `run.yaml` 样例见：
+
+- [配置与输入样例](docs/examples.md)
 
 ## 版本信息
 

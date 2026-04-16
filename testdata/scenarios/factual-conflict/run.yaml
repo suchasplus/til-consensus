@@ -1,0 +1,57 @@
+request_id: factual-conflict-001
+
+task_spec:
+  goal: 判断“供应商已经完成迁移”这一说法是否仍然可靠
+  task_type: factual
+  success_criteria:
+    - 必须暴露来源冲突
+    - 必须考虑 freshness
+  workspace_snapshot:
+    root: .
+
+roles:
+  proposers: [proposer-a]
+  challengers: [challenger-a]
+  arbiter: arbiter-a
+  reporter: reporter-a
+
+proposal_policy:
+  max_passes: 1
+  max_claims_per_worker: 1
+
+verification_policy:
+  allow_semantic_verifier: false
+  max_parallel_checks: 1
+
+ingest_policy:
+  sources:
+    - name: latest-yaml
+      command: sh
+      args: ["-c", "cat ./sources/latest.yaml"]
+      source_type: source_file
+      reference: ./sources/latest.yaml
+      parsing:
+        mode: yaml
+        required_paths: ["report.summary", "report.publishedAt"]
+        summary_path: report.summary
+        excerpt_path: report.excerpt
+        metadata_paths:
+          publishedAt: report.publishedAt
+          source: report.source
+    - name: conflicting-xml
+      command: sh
+      args: ["-c", "cat ./sources/conflict.xml"]
+      source_type: source_file
+      reference: ./sources/conflict.xml
+      parsing:
+        mode: xml
+        required_paths: ["report.status.conflict", "report.summary"]
+        failure_path: report.status.conflict
+        summary_path: report.summary
+        metadata_paths:
+          publishedAt: report.published_at
+          source: report.source
+
+arbiter_policy:
+  allow_undetermined: true
+  blind_review: true
