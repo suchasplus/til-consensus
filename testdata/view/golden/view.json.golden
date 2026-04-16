@@ -1,0 +1,236 @@
+{
+  "format": "json",
+  "requestedSections": [
+    "all"
+  ],
+  "overview": {
+    "requestId": "tc_1710000000000_abcd12",
+    "sessionId": "session-abc123",
+    "mode": "adjudication",
+    "primaryResult": "undetermined",
+    "terminalState": "completed",
+    "elapsed": "12.3s",
+    "runDir": "sample-run",
+    "goal": "判断 patch 是否真正修复了竞态问题并且没有引入性能回退",
+    "successCriteria": [
+      "给出 claim 级裁决",
+      "对 benchmark 证据不足的部分保持 undetermined"
+    ],
+    "workspaceRoot": ".",
+    "workspaceRevision": "abc1234",
+    "workspacePaths": [
+      "cmd",
+      "internal",
+      "go.mod"
+    ],
+    "claimCounts": {
+      "insufficient_evidence": 1,
+      "refuted": 0,
+      "supported": 2,
+      "undetermined": 1
+    },
+    "challengeCount": 2,
+    "verificationCount": 4,
+    "artifactCount": 3,
+    "roundCount": 0
+  },
+  "claims": [
+    {
+      "claimId": "claim-1",
+      "title": "Race fix",
+      "statement": "Patch 消除了共享 map 的并发写入。",
+      "verdict": "supported",
+      "confidence": 0.94,
+      "rationale": "单测与 diff 都支持该 claim。",
+      "evidenceRefs": [
+        "ledger-claim-1",
+        "ledger-verify-1"
+      ]
+    },
+    {
+      "claimId": "claim-3",
+      "title": "Regression tests stay green",
+      "statement": "现有回归测试全部通过。",
+      "verdict": "supported",
+      "confidence": 0.89,
+      "rationale": "go test ./... 通过。",
+      "evidenceRefs": [
+        "ledger-claim-3",
+        "ledger-verify-3"
+      ]
+    },
+    {
+      "claimId": "claim-4",
+      "title": "Simpler ownership model",
+      "statement": "新的所有权模型显著简化了调用方。",
+      "verdict": "undetermined",
+      "confidence": 0.51,
+      "rationale": "只有设计说明，没有足够运行证据。",
+      "evidenceRefs": [
+        "ledger-verify-4"
+      ],
+      "challengeRefs": [
+        "ticket-2"
+      ]
+    },
+    {
+      "claimId": "claim-2",
+      "title": "No perf regression",
+      "statement": "补丁没有引入可观测的性能回退。",
+      "verdict": "insufficient_evidence",
+      "confidence": 0.48,
+      "rationale": "benchmark 样本不足。",
+      "evidenceRefs": [
+        "ledger-claim-2",
+        "ledger-verify-2"
+      ],
+      "challengeRefs": [
+        "ticket-1"
+      ]
+    }
+  ],
+  "challenges": [
+    {
+      "ticketId": "ticket-1",
+      "claimId": "claim-2",
+      "kind": "evidence-gap",
+      "status": "open",
+      "statement": "需要更多 benchmark 证据验证没有性能回退。",
+      "requestedChecks": [
+        "benchmark-budget"
+      ]
+    },
+    {
+      "ticketId": "ticket-2",
+      "claimId": "claim-4",
+      "kind": "scope-risk",
+      "status": "closed",
+      "statement": "设计说明没有证明调用方的复杂度真的下降。",
+      "requestedChecks": [
+        "semantic"
+      ],
+      "resolutionSummary": "暂时保持 undetermined。"
+    }
+  ],
+  "verifications": [
+    {
+      "entryId": "ledger-verify-1",
+      "verificationId": "verify-1",
+      "claimId": "claim-1",
+      "kind": "command",
+      "status": "passed",
+      "summary": "go test ./... 通过，且 patch diff 仅触达允许路径。",
+      "verdictSuggestion": "supported",
+      "confidence": 0.94,
+      "artifactPath": "artifacts/unit-tests.log"
+    },
+    {
+      "entryId": "ledger-verify-2",
+      "verificationId": "verify-2",
+      "claimId": "claim-2",
+      "challengeId": "ticket-1",
+      "kind": "benchmark_threshold",
+      "status": "inconclusive",
+      "failureCode": "insufficient_samples",
+      "summary": "benchmark 样本不足，无法确认没有性能回退。",
+      "verdictSuggestion": "insufficient_evidence",
+      "confidence": 0.48,
+      "artifactPath": "artifacts/benchmark.txt"
+    },
+    {
+      "entryId": "ledger-verify-3",
+      "verificationId": "verify-3",
+      "claimId": "claim-3",
+      "kind": "command",
+      "status": "passed",
+      "summary": "回归测试通过。",
+      "verdictSuggestion": "supported",
+      "confidence": 0.89,
+      "artifactPath": "artifacts/regression.log"
+    },
+    {
+      "entryId": "ledger-verify-4",
+      "verificationId": "verify-4",
+      "claimId": "claim-4",
+      "challengeId": "ticket-2",
+      "kind": "semantic",
+      "status": "inconclusive",
+      "failureCode": "insufficient_context",
+      "summary": "设计说明没有给出足够上下文。",
+      "verdictSuggestion": "undetermined",
+      "confidence": 0.51
+    }
+  ],
+  "artifacts": [
+    {
+      "seq": 0,
+      "entryId": "ledger-verify-1",
+      "claimId": "claim-1",
+      "kind": "deterministic_check",
+      "producerRole": "verifier",
+      "path": "artifacts/unit-tests.log",
+      "hash": "hash-unit-tests",
+      "mediaType": "text/plain"
+    },
+    {
+      "seq": 1,
+      "entryId": "ledger-verify-2",
+      "claimId": "claim-2",
+      "challengeId": "ticket-1",
+      "kind": "deterministic_check",
+      "producerRole": "verifier",
+      "path": "artifacts/benchmark.txt",
+      "hash": "hash-benchmark",
+      "mediaType": "text/plain"
+    },
+    {
+      "seq": 2,
+      "entryId": "ledger-verify-3",
+      "claimId": "claim-3",
+      "kind": "deterministic_check",
+      "producerRole": "verifier",
+      "path": "artifacts/regression.log",
+      "hash": "hash-regression",
+      "mediaType": "text/plain"
+    }
+  ],
+  "risks": [
+    {
+      "category": "terminal_state",
+      "targetId": "tc_1710000000000_abcd12",
+      "summary": "completed"
+    },
+    {
+      "category": "open challenge",
+      "targetId": "claim-2",
+      "summary": "需要更多 benchmark 证据验证没有性能回退。"
+    },
+    {
+      "category": "insufficient evidence",
+      "targetId": "claim-2",
+      "summary": "补丁没有引入可观测的性能回退。"
+    },
+    {
+      "category": "undetermined",
+      "targetId": "claim-4",
+      "summary": "新的所有权模型显著简化了调用方。"
+    },
+    {
+      "category": "verification inconclusive",
+      "targetId": "claim-2",
+      "summary": "benchmark 样本不足，无法确认没有性能回退。"
+    },
+    {
+      "category": "verification inconclusive",
+      "targetId": "claim-4",
+      "summary": "设计说明没有给出足够上下文。"
+    }
+  ],
+  "files": {
+    "runDir": "sample-run",
+    "result": "./result.json",
+    "ledger": "./ledger.jsonl",
+    "summary": "./summary.md",
+    "manifest": "./artifacts/manifest.jsonl"
+  }
+}

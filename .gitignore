@@ -25,3 +25,5 @@ coverage.html
 *.coverprofile
 *.pprof
 *.prof
+
+logs/

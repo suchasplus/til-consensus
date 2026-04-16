@@ -29,21 +29,27 @@ func TestScenarioExpectedSummaryFragments(t *testing.T) {
 			}
 			expectedBody, err := os.ReadFile(filepath.Join(root, name, "expected-summary.txt"))
 			if err != nil {
+				if os.IsNotExist(err) {
+					t.Skip("no static expected-summary fixture")
+				}
 				t.Fatalf("read expected summary: %v", err)
 			}
-			summary := artifact.BuildSummary(&consensus.AdjudicationResult{
-				SchemaVersion: 1,
+			summary := artifact.BuildSummary(&consensus.RunResult{
+				SchemaVersion: 2,
+				Mode:          consensus.WorkflowModeAdjudication,
 				RequestID:     "req-1",
 				TaskSpec: consensus.TaskSpec{
 					Goal: input.TaskSpec.Goal,
 				},
-				TaskVerdict: consensus.TaskVerdictUndetermined,
-				ClaimGraph: []consensus.ClaimNode{
-					{
-						ClaimID:   "claim-1",
-						Title:     "Sample claim",
-						Statement: "Sample statement",
-						Verdict:   consensus.ClaimVerdictUndetermined,
+				Adjudication: &consensus.AdjudicationResultSection{
+					TaskVerdict: consensus.TaskVerdictUndetermined,
+					ClaimGraph: []consensus.ClaimNode{
+						{
+							ClaimID:   "claim-1",
+							Title:     "Sample claim",
+							Statement: "Sample statement",
+							Verdict:   consensus.ClaimVerdictUndetermined,
+						},
 					},
 				},
 				Report: consensus.AdjudicationReport{

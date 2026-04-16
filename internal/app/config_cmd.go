@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
+	"io"
 	"strconv"
 	"strings"
 
@@ -28,23 +28,15 @@ func newConfigCommand() *cli.Command {
 func newConfigInitCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "init",
-		Usage: "写入示例配置",
+		Usage: "写入首用友好的示例配置",
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "config", Usage: "配置文件路径"},
+			&cli.StringFlag{Name: "preset", Usage: "模板预设(quickstart|openai|coding|debate|delphi)", Value: config.TemplatePresetQuickstart},
+			&cli.BoolFlag{Name: "stdout", Usage: "只打印模板，不写入文件"},
+			&cli.BoolFlag{Name: "force", Usage: "允许覆盖已存在的配置文件"},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
-			path := cmd.String("config")
-			if path == "" {
-				defaultPath, err := config.DefaultConfigPath()
-				if err != nil {
-					return err
-				}
-				path = defaultPath
-			}
-			if _, err := os.Stat(path); err == nil {
-				return fmt.Errorf("config already exists: %s", path)
-			}
-			return config.WriteTemplate(path)
+			return runConfigInitCommand(cmd.Writer, cmd.String("config"), cmd.String("preset"), cmd.Bool("stdout"), cmd.Bool("force"))
 		},
 	}
 }
@@ -73,7 +65,7 @@ func newConfigValidateCommand() *cli.Command {
 func newConfigAddProviderCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "add-provider",
-		Usage: "向配置中新增 provider",
+		Usage: "在模板配置基础上增量新增 provider",
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "config", Usage: "配置文件路径"},
 			&cli.StringFlag{Name: "id", Usage: "provider id", Required: true},
@@ -162,7 +154,7 @@ func newConfigAddProviderCommand() *cli.Command {
 func newConfigAddAgentCommand() *cli.Command {
 	return &cli.Command{
 		Name:  "add-agent",
-		Usage: "向配置中新增 agent",
+		Usage: "在模板配置基础上增量新增 agent",
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "config", Usage: "配置文件路径"},
 			&cli.StringFlag{Name: "id", Usage: "agent id", Required: true},
@@ -173,7 +165,7 @@ func newConfigAddAgentCommand() *cli.Command {
 			&cli.DurationFlag{Name: "timeout", Usage: "agent 超时"},
 			&cli.Float64Flag{Name: "temperature", Usage: "agent temperature"},
 			&cli.StringFlag{Name: "reasoning", Usage: "agent reasoning"},
-			&cli.StringSliceFlag{Name: "assign", Usage: "分配到 proposer|challenger|arbiter|semantic-verifier|reporter|actor"},
+			&cli.StringSliceFlag{Name: "assign", Usage: "分配到 proposer|challenger|participant|arbiter|semantic-verifier|facilitator|reporter|actor"},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			path, err := config.ResolveConfigPath(cmd.String("config"))
@@ -209,6 +201,30 @@ func newConfigAddAgentCommand() *cli.Command {
 			return nil
 		},
 	}
+}
+
+func runConfigInitCommand(writer io.Writer, explicitPath string, preset string, stdout bool, force bool) error {
+	body, err := config.RenderTemplate(preset)
+	if err != nil {
+		return err
+	}
+	if stdout {
+		_, _ = io.WriteString(writer, body)
+		return nil
+	}
+	path := explicitPath
+	if path == "" {
+		defaultPath, err := config.DefaultConfigPath()
+		if err != nil {
+			return err
+		}
+		path = defaultPath
+	}
+	if err := config.WritePresetTemplate(path, preset, force); err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(writer, "config template written: %s (%s)\n", path, preset)
+	return nil
 }
 
 func parseStringAssignments(items []string) (map[string]string, error) {

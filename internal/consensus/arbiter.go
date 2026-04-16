@@ -3,6 +3,7 @@ package consensus
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 )
@@ -12,6 +13,7 @@ type DefaultArbiterDeps struct {
 	Clock          Clock
 	IDFactory      IDFactory
 	PerTaskTimeout time.Duration
+	RetryAttempts  int
 }
 
 type DefaultArbiter struct {
@@ -56,22 +58,25 @@ func (a *DefaultArbiter) tryDelegateArbiter(ctx context.Context, input ArbiterIn
 		Ledger:     input.Ledger,
 		Findings:   input.Findings,
 	}
-	dispatched, err := a.deps.TaskDelegate.Dispatch(ctx, task)
+	_, awaited, _, err := ExecuteTaskWithRetry(ctx, a.deps.TaskDelegate, task, timeout, a.deps.RetryAttempts, TaskRetryHooks{})
 	if err != nil {
-		return ArbiterReport{}, false, nil
+		return ArbiterReport{}, false, fmt.Errorf("delegated arbiter failed: %w", err)
 	}
-	awaited, err := a.deps.TaskDelegate.Await(ctx, dispatched.TaskID, timeout)
-	if err != nil || !awaited.OK {
-		return ArbiterReport{}, false, nil
+	if !awaited.OK {
+		return ArbiterReport{}, false, fmt.Errorf("delegated arbiter failed: %s", strings.TrimSpace(awaited.Error))
 	}
 	typed, ok := awaited.Output.(ArbiterTaskResult)
 	if !ok {
-		return ArbiterReport{}, false, nil
+		return ArbiterReport{}, false, fmt.Errorf("delegated arbiter returned unexpected result type")
 	}
 	report := ArbiterReport{
 		TaskVerdict: typed.Output.TaskVerdict,
 		Summary:     strings.TrimSpace(typed.Output.Summary),
 		Decisions:   typed.Output.Decisions,
+		Records:     typed.Output.Records,
+	}
+	if len(report.Records) == 0 {
+		report.Records = deriveRecordsFromDecisions(input.Request, input.Claims, report.Decisions)
 	}
 	if report.TaskVerdict == "" {
 		report.TaskVerdict = DetermineTaskVerdict(ApplyDecisions(append([]ClaimNode(nil), input.Claims...), report.Decisions))
@@ -88,83 +93,219 @@ func (a *DefaultArbiter) ruleBasedDecision(input ArbiterInput) ArbiterReport {
 	for _, ticket := range input.Challenges {
 		challengeMap[ticket.ClaimID] = append(challengeMap[ticket.ClaimID], ticket)
 	}
+	evidenceMap := map[string][]EvidenceRecord{}
+	for _, record := range input.Ledger {
+		if strings.TrimSpace(record.ClaimID) == "" {
+			continue
+		}
+		evidenceMap[record.ClaimID] = append(evidenceMap[record.ClaimID], record)
+	}
+	manifest := BuildCaseManifest(input.Request)
 	decisions := make([]ArbiterDecision, 0, len(input.Claims))
+	records := make([]AdjudicationRecord, 0, len(input.Claims))
 	for _, claim := range input.Claims {
-		decision := ArbiterDecision{
-			ClaimID: claim.ClaimID,
-		}
-		openChallenges := 0
-		for _, ticket := range challengeMap[claim.ClaimID] {
-			if ticket.Status == ChallengeStatusOpen {
-				openChallenges++
-			}
-			decision.EvidenceRefs = appendUnique(decision.EvidenceRefs, ticket.EvidenceRefs...)
-			decision.EvidenceRefs = appendUnique(decision.EvidenceRefs, ticket.VerificationRefs...)
-		}
-		passed := 0
-		failed := 0
-		inconclusive := 0
-		var confidence float64
-		for _, finding := range findingMap[claim.ClaimID] {
-			switch finding.Status {
-			case VerificationStatusPassed:
-				passed++
-			case VerificationStatusFailed:
-				failed++
-			default:
-				inconclusive++
-			}
-			if finding.Confidence > confidence {
-				confidence = finding.Confidence
-			}
-			if finding.EvidenceRef != "" {
-				decision.EvidenceRefs = appendUnique(decision.EvidenceRefs, finding.EvidenceRef)
-			}
-		}
-		decision.EvidenceRefs = appendUnique(decision.EvidenceRefs, claim.EvidenceRefs...)
-		switch {
-		case failed > 0:
-			decision.Verdict = ClaimVerdictRefuted
-			decision.Rationale = fmt.Sprintf("存在 %d 条失败的验证记录", failed)
-		case passed > 0 && openChallenges == 0:
-			decision.Verdict = ClaimVerdictSupported
-			decision.Rationale = fmt.Sprintf("存在 %d 条通过的验证记录且无未关闭 challenge", passed)
-		case passed == 0 && openChallenges > 0 && input.Request.ArbiterPolicy.AllowUndetermined:
-			decision.Verdict = ClaimVerdictUndetermined
-			decision.Rationale = fmt.Sprintf("仍有 %d 个未关闭 challenge，证据不足以裁决", openChallenges)
-		case passed == 0 && inconclusive > 0:
-			decision.Verdict = ClaimVerdictInsufficientEvidence
-			decision.Rationale = fmt.Sprintf("共有 %d 条验证记录，但都不足以形成支持", inconclusive)
-		case len(decision.EvidenceRefs) > 0:
-			decision.Verdict = ClaimVerdictInsufficientEvidence
-			decision.Rationale = "已有证据记录，但仍不足以形成支持或反驳"
-		default:
-			decision.Verdict = ClaimVerdictUndetermined
-			decision.Rationale = "缺少足够证据"
-		}
-		decision.Confidence = confidence
+		decision, record := adjudicateClaim(manifest, claim, challengeMap[claim.ClaimID], findingMap[claim.ClaimID], evidenceMap[claim.ClaimID], input.Request.ArbiterPolicy.AllowUndetermined)
 		decisions = append(decisions, decision)
+		records = append(records, record)
 	}
 	claims := ApplyDecisions(append([]ClaimNode(nil), input.Claims...), decisions)
+	claims = ApplyAdjudicationRecords(claims, records)
 	taskVerdict := DetermineTaskVerdict(claims)
 	return ArbiterReport{
 		TaskVerdict: taskVerdict,
-		Summary:     buildArbiterSummary(taskVerdict, decisions),
+		Summary:     buildArbiterSummary(taskVerdict, records),
 		Decisions:   decisions,
+		Records:     records,
 	}
 }
 
-func buildArbiterSummary(verdict TaskVerdict, decisions []ArbiterDecision) string {
-	counts := map[ClaimVerdict]int{}
+func adjudicateClaim(manifest CaseManifest, claim ClaimNode, tickets []ChallengeTicket, findings []VerificationResult, evidence []EvidenceRecord, allowUndetermined bool) (ArbiterDecision, AdjudicationRecord) {
+	openChallenges := 0
+	blockingRisks := make([]string, 0)
+	maxSeverity := AttackSeverityLow
+	evidenceRefs := append([]string(nil), claim.EvidenceRefs...)
+	for _, ticket := range tickets {
+		evidenceRefs = appendUnique(evidenceRefs, ticket.EvidenceRefs...)
+		evidenceRefs = appendUnique(evidenceRefs, ticket.VerificationRefs...)
+		if ticket.Status == ChallengeStatusOpen {
+			openChallenges++
+			blockingRisks = append(blockingRisks, firstNonEmpty(ticket.AttackText, ticket.Statement))
+			if severityRank(ticket.Severity) > severityRank(maxSeverity) {
+				maxSeverity = firstNonEmptySeverity(ticket.Severity)
+			}
+		}
+	}
+	passed := 0
+	failed := 0
+	inconclusive := 0
+	highQualityEvidence := 0
+	for _, item := range evidence {
+		evidenceRefs = appendUnique(evidenceRefs, item.EntryID)
+		switch item.ProvenanceQuality {
+		case ProvenanceQualityHigh:
+			highQualityEvidence++
+		}
+	}
+	confidence := claim.Confidence
+	if confidence <= 0 {
+		confidence = 0.5
+	}
+	for _, finding := range findings {
+		evidenceRefs = appendUnique(evidenceRefs, finding.EvidenceRef)
+		switch finding.Status {
+		case VerificationStatusPassed:
+			passed++
+		case VerificationStatusFailed:
+			failed++
+		default:
+			inconclusive++
+		}
+		if finding.Confidence > 0 {
+			confidence = math.Max(confidence, finding.Confidence)
+		}
+		confidence += finding.ConfidenceDelta
+		if finding.Status == VerificationStatusFailed {
+			blockingRisks = append(blockingRisks, firstNonEmpty(finding.Summary, finding.FailureCode))
+		}
+	}
+	confidence = clamp01(confidence + 0.05*float64(highQualityEvidence) - 0.08*float64(openChallenges))
+	boundaryClear := len(claim.BoundaryConditions) > 0 || claim.ClaimType == ClaimTypeFact
+	var disposition ClaimDisposition
+	var actionability Actionability
+	var rationale string
+	switch {
+	case failed > 0:
+		disposition = ClaimDispositionReject
+		actionability = ActionabilityBlocked
+		rationale = fmt.Sprintf("存在 %d 条失败验证，claim 未能通过证据检验", failed)
+		confidence = clamp01(confidence - 0.25)
+	case passed > 0 && openChallenges == 0 && boundaryClear:
+		disposition = ClaimDispositionKeep
+		actionability = ActionabilityReady
+		rationale = fmt.Sprintf("存在 %d 条通过验证，且无未关闭攻击记录", passed)
+	case passed > 0:
+		disposition = ClaimDispositionKeepWithCaveat
+		actionability = ActionabilityGated
+		rationale = fmt.Sprintf("存在 %d 条通过验证，但仍有 %d 个未完全解除的风险或边界条件", passed, openChallenges)
+	case openChallenges > 0 || inconclusive > 0:
+		disposition = ClaimDispositionUnresolved
+		actionability = ActionabilityBlocked
+		if !allowUndetermined && inconclusive > 0 {
+			rationale = fmt.Sprintf("共有 %d 条验证但均不具决定性，且 challenge 尚未消解", inconclusive)
+		} else {
+			rationale = fmt.Sprintf("challenge=%d，inconclusive=%d，保留 unresolved", openChallenges, inconclusive)
+		}
+	default:
+		disposition = ClaimDispositionUnresolved
+		actionability = ActionabilityBlocked
+		rationale = "缺少足够证据，不能仅凭表述保留 claim"
+	}
+	if manifest.RiskLevel == RiskLevelHigh && disposition == ClaimDispositionKeep {
+		actionability = ActionabilityGated
+		rationale += "；由于 case 风险较高，执行仍需 gate"
+	}
+	if maxSeverity == AttackSeverityHigh && disposition == ClaimDispositionKeep {
+		disposition = ClaimDispositionKeepWithCaveat
+		actionability = ActionabilityGated
+		rationale += "；存在高严重度攻击，保留 caveat"
+	}
+	decisionVerdict := ClaimVerdictUndetermined
+	switch disposition {
+	case ClaimDispositionKeep, ClaimDispositionKeepWithCaveat:
+		decisionVerdict = ClaimVerdictSupported
+	case ClaimDispositionReject:
+		decisionVerdict = ClaimVerdictRefuted
+	case ClaimDispositionUnresolved:
+		if len(evidenceRefs) > 0 && !allowUndetermined {
+			decisionVerdict = ClaimVerdictInsufficientEvidence
+		}
+	}
+	return ArbiterDecision{
+			ClaimID:      claim.ClaimID,
+			Verdict:      decisionVerdict,
+			Confidence:   confidence,
+			Rationale:    rationale,
+			EvidenceRefs: dedupeStrings(evidenceRefs),
+		}, AdjudicationRecord{
+			TargetClaimID:   claim.ClaimID,
+			Disposition:     disposition,
+			Rationale:       rationale,
+			FinalConfidence: confidence,
+			BlockingRisks:   dedupeStrings(blockingRisks),
+			Actionability:   actionability,
+			EvidenceRefs:    dedupeStrings(evidenceRefs),
+		}
+}
+
+func deriveRecordsFromDecisions(request StartRequest, claims []ClaimNode, decisions []ArbiterDecision) []AdjudicationRecord {
+	index := make(map[string]ClaimNode, len(claims))
+	for _, claim := range claims {
+		index[claim.ClaimID] = claim
+	}
+	out := make([]AdjudicationRecord, 0, len(decisions))
 	for _, decision := range decisions {
-		counts[decision.Verdict]++
+		disposition := ClaimDispositionUnresolved
+		actionability := ActionabilityBlocked
+		switch decision.Verdict {
+		case ClaimVerdictSupported:
+			disposition = ClaimDispositionKeep
+			actionability = ActionabilityReady
+		case ClaimVerdictRefuted:
+			disposition = ClaimDispositionReject
+		case ClaimVerdictInsufficientEvidence, ClaimVerdictUndetermined:
+			disposition = ClaimDispositionUnresolved
+		}
+		if claim, ok := index[decision.ClaimID]; ok && len(claim.Caveats) > 0 && disposition == ClaimDispositionKeep {
+			disposition = ClaimDispositionKeepWithCaveat
+			actionability = ActionabilityGated
+		}
+		if claim, ok := index[decision.ClaimID]; ok && request.TaskSpec.TaskType == CaseTaskTypeStrategy && claim.ClaimType == ClaimTypeRecommendation && actionability == ActionabilityReady {
+			actionability = ActionabilityGated
+		}
+		out = append(out, AdjudicationRecord{
+			TargetClaimID:   decision.ClaimID,
+			Disposition:     disposition,
+			Rationale:       decision.Rationale,
+			FinalConfidence: decision.Confidence,
+			Actionability:   actionability,
+			EvidenceRefs:    append([]string(nil), decision.EvidenceRefs...),
+		})
+	}
+	return out
+}
+
+func buildArbiterSummary(verdict TaskVerdict, records []AdjudicationRecord) string {
+	counts := map[ClaimDisposition]int{}
+	for _, record := range records {
+		counts[record.Disposition]++
 	}
 	return fmt.Sprintf(
-		"taskVerdict=%s supported=%d refuted=%d insufficient=%d undetermined=%d",
+		"taskVerdict=%s keep=%d keep_with_caveat=%d unresolved=%d reject=%d",
 		verdict,
-		counts[ClaimVerdictSupported],
-		counts[ClaimVerdictRefuted],
-		counts[ClaimVerdictInsufficientEvidence],
-		counts[ClaimVerdictUndetermined],
+		counts[ClaimDispositionKeep],
+		counts[ClaimDispositionKeepWithCaveat],
+		counts[ClaimDispositionUnresolved],
+		counts[ClaimDispositionReject],
 	)
+}
+
+func severityRank(value AttackSeverity) int {
+	switch value {
+	case AttackSeverityHigh:
+		return 3
+	case AttackSeverityMedium:
+		return 2
+	default:
+		return 1
+	}
+}
+
+func clamp01(value float64) float64 {
+	if value < 0 {
+		return 0
+	}
+	if value > 1 {
+		return 1
+	}
+	return value
 }

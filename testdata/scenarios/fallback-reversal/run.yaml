@@ -1,0 +1,35 @@
+request_id: fallback-reversal-001
+
+task_spec:
+  goal: 判断新增证据是否足以推翻上一轮证据不足结论
+  task_type: strategy
+  success_criteria:
+    - 如果新增证据足够，允许从 undetermined 翻成 supported
+    - 所有补抓证据必须写入 ledger
+
+roles:
+  proposers: [proposer-a]
+  challengers: [challenger-a]
+  arbiter: arbiter-a
+
+ingest_policy:
+  sources:
+    - name: evidence-refresh
+      command: sh
+      args:
+        - -c
+        - printf '{"status":{"ok":true},"report":{"summary":"captured fresh evidence","excerpt":"fresh benchmark and incident evidence","notes":["source refreshed"],"score":0.92}}'
+      source_type: external_command
+      reference: local-refresh
+      parsing:
+        mode: json
+        success_path: status.ok
+        summary_path: report.summary
+        excerpt_path: report.excerpt
+        notes_path: report.notes
+        metadata_paths:
+          score: report.score
+
+fallback_policy:
+  max_fallback_rounds: 1
+  on_insufficient_evidence: ingest

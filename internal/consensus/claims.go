@@ -22,8 +22,16 @@ func UpsertClaim(claims []ClaimNode, draft ClaimDraft, proposedBy string, eviden
 		if claims[idx].Scope == "" {
 			claims[idx].Scope = strings.TrimSpace(draft.Scope)
 		}
+		if claims[idx].ClaimType == "" {
+			claims[idx].ClaimType = draft.ClaimType
+		}
+		claims[idx].ParentClaimIDs = appendUnique(claims[idx].ParentClaimIDs, draft.ParentClaimIDs...)
+		claims[idx].BoundaryConditions = appendUnique(claims[idx].BoundaryConditions, draft.BoundaryConditions...)
 		if claims[idx].Applicability == "" {
 			claims[idx].Applicability = strings.TrimSpace(draft.Applicability)
+		}
+		if draft.Confidence > claims[idx].Confidence {
+			claims[idx].Confidence = draft.Confidence
 		}
 		if claims[idx].Metadata == nil && draft.Metadata != nil {
 			claims[idx].Metadata = maps.Clone(draft.Metadata)
@@ -32,16 +40,23 @@ func UpsertClaim(claims []ClaimNode, draft ClaimDraft, proposedBy string, eviden
 	}
 	claimID := idFactory.NewEntityID("claim")
 	claim := ClaimNode{
-		ClaimID:       claimID,
-		Title:         strings.TrimSpace(draft.Title),
-		Statement:     strings.TrimSpace(draft.Statement),
-		Scope:         strings.TrimSpace(draft.Scope),
-		Dependencies:  dedupeStrings(draft.Dependencies),
-		Applicability: strings.TrimSpace(draft.Applicability),
-		Status:        ClaimStatusProposed,
-		ProposedBy:    []string{proposedBy},
-		EvidenceRefs:  filterEmpty([]string{evidenceRef}),
-		Metadata:      maps.Clone(draft.Metadata),
+		ClaimID:               claimID,
+		Title:                 strings.TrimSpace(draft.Title),
+		Statement:             strings.TrimSpace(draft.Statement),
+		ClaimText:             strings.TrimSpace(draft.Statement),
+		ClaimType:             draft.ClaimType,
+		Scope:                 strings.TrimSpace(draft.Scope),
+		Dependencies:          dedupeStrings(draft.Dependencies),
+		ParentClaimIDs:        dedupeStrings(draft.ParentClaimIDs),
+		BoundaryConditions:    dedupeStrings(draft.BoundaryConditions),
+		Applicability:         strings.TrimSpace(draft.Applicability),
+		Status:                ClaimStatusProposed,
+		ProposedBy:            []string{proposedBy},
+		SourceProposalAgentID: proposedBy,
+		EvidenceRefs:          filterEmpty([]string{evidenceRef}),
+		SupportingEvidenceIDs: filterEmpty([]string{evidenceRef}),
+		Confidence:            draft.Confidence,
+		Metadata:              maps.Clone(draft.Metadata),
 	}
 	return append(claims, claim), claim, true
 }
@@ -75,14 +90,18 @@ func UpsertChallenge(tickets []ChallengeTicket, draft ChallengeDraft, claimID st
 		return tickets, tickets[idx], false
 	}
 	ticket := ChallengeTicket{
-		TicketID:        idFactory.NewEntityID("challenge"),
-		ClaimID:         claimID,
-		Kind:            strings.TrimSpace(draft.Kind),
-		OpenedBy:        openedBy,
-		Statement:       strings.TrimSpace(draft.Statement),
-		Status:          ChallengeStatusOpen,
-		EvidenceRefs:    filterEmpty([]string{evidenceRef}),
-		RequestedChecks: dedupeStrings(draft.RequestedChecks),
+		TicketID:                     idFactory.NewEntityID("challenge"),
+		ClaimID:                      claimID,
+		Kind:                         strings.TrimSpace(draft.Kind),
+		AttackType:                   firstNonEmpty(strings.TrimSpace(draft.AttackType), strings.TrimSpace(draft.Kind)),
+		Severity:                     firstNonEmptySeverity(draft.Severity),
+		OpenedBy:                     openedBy,
+		Statement:                    strings.TrimSpace(draft.Statement),
+		AttackText:                   strings.TrimSpace(draft.Statement),
+		Status:                       ChallengeStatusOpen,
+		EvidenceRefs:                 filterEmpty([]string{evidenceRef}),
+		RequestedChecks:              dedupeStrings(draft.RequestedChecks),
+		SuggestedFalsificationMethod: strings.TrimSpace(draft.SuggestedFalsificationMethod),
 	}
 	return append(tickets, ticket), ticket, true
 }
@@ -104,6 +123,27 @@ func AttachVerificationToClaim(claims []ClaimNode, claimID string, verificationR
 			continue
 		}
 		claims[idx].VerificationRefs = appendUnique(claims[idx].VerificationRefs, verificationRef)
+		claims[idx].Status = ClaimStatusVerified
+		return claims
+	}
+	return claims
+}
+
+func AttachVerificationOutcome(claims []ClaimNode, claimID string, finding VerificationResult) []ClaimNode {
+	for idx := range claims {
+		if claims[idx].ClaimID != claimID {
+			continue
+		}
+		claims[idx].VerificationRefs = appendUnique(claims[idx].VerificationRefs, finding.EvidenceRef)
+		if finding.EvidenceRef != "" {
+			claims[idx].EvidenceRefs = appendUnique(claims[idx].EvidenceRefs, finding.EvidenceRef)
+		}
+		switch finding.Status {
+		case VerificationStatusPassed:
+			claims[idx].SupportingEvidenceIDs = appendUnique(claims[idx].SupportingEvidenceIDs, finding.EvidenceRef)
+		case VerificationStatusFailed:
+			claims[idx].OpposingEvidenceIDs = appendUnique(claims[idx].OpposingEvidenceIDs, finding.EvidenceRef)
+		}
 		claims[idx].Status = ClaimStatusVerified
 		return claims
 	}
@@ -141,9 +181,122 @@ func ApplyDecisions(claims []ClaimNode, decisions []ArbiterDecision) []ClaimNode
 	return claims
 }
 
-func CloseChallenges(tickets []ChallengeTicket, claimID string, verificationRefs []string, resolution string) []ChallengeTicket {
+func ApplyAdjudicationRecords(claims []ClaimNode, records []AdjudicationRecord) []ClaimNode {
+	index := make(map[string]AdjudicationRecord, len(records))
+	for _, record := range records {
+		index[record.TargetClaimID] = record
+	}
+	for idx := range claims {
+		record, ok := index[claims[idx].ClaimID]
+		if !ok {
+			continue
+		}
+		claims[idx].Status = ClaimStatusAdjudicated
+		claims[idx].Disposition = record.Disposition
+		claims[idx].Confidence = record.FinalConfidence
+		claims[idx].Rationale = record.Rationale
+		claims[idx].EvidenceRefs = appendUnique(claims[idx].EvidenceRefs, record.EvidenceRefs...)
+		switch record.Disposition {
+		case ClaimDispositionKeep:
+			claims[idx].Verdict = ClaimVerdictSupported
+		case ClaimDispositionKeepWithCaveat:
+			claims[idx].Verdict = ClaimVerdictSupported
+		case ClaimDispositionReject:
+			claims[idx].Verdict = ClaimVerdictRefuted
+		default:
+			claims[idx].Verdict = ClaimVerdictUndetermined
+		}
+	}
+	return claims
+}
+
+func ApplyRevisionRecords(claims []ClaimNode, records []ClaimRevisionRecord, confidenceEpsilon float64) ([]ClaimNode, []string, bool) {
+	changedClaims := make([]string, 0, len(records))
+	materialChange := false
+	index := make(map[string]int, len(claims))
+	for idx, claim := range claims {
+		index[claim.ClaimID] = idx
+	}
+	for _, record := range records {
+		idx, ok := index[record.TargetClaimID]
+		if !ok {
+			continue
+		}
+		changedClaims = appendUnique(changedClaims, record.TargetClaimID)
+		claim := claims[idx]
+		claim.Status = ClaimStatusRevised
+		claim.LastRevisionRound = record.Round
+		claim.Caveats = appendUnique(claim.Caveats, record.Caveats...)
+		claim.BoundaryConditions = appendUnique(claim.BoundaryConditions, record.BoundaryConditions...)
+		if text := strings.TrimSpace(record.RevisedText); text != "" && text != claim.Statement {
+			claim.Statement = text
+			claim.ClaimText = text
+			materialChange = true
+		}
+		if delta := record.ConfidenceDelta; delta != 0 {
+			claim.Confidence += delta
+			if claim.Confidence < 0 {
+				claim.Confidence = 0
+			}
+			if claim.Confidence > 1 {
+				claim.Confidence = 1
+			}
+			if delta >= confidenceEpsilon || delta <= -confidenceEpsilon {
+				materialChange = true
+			}
+		}
+		if reason := strings.TrimSpace(record.Reason); reason != "" {
+			claim.Rationale = reason
+		}
+		switch record.Action {
+		case RevisionActionWithdraw:
+			claim.Status = ClaimStatusWithdrawn
+			claim.Verdict = ClaimVerdictRefuted
+			claim.Disposition = ClaimDispositionReject
+			materialChange = true
+		case RevisionActionUnresolved:
+			claim.Verdict = ClaimVerdictUndetermined
+			claim.Disposition = ClaimDispositionUnresolved
+		case RevisionActionDowngrade:
+			if claim.Verdict == ClaimVerdictSupported {
+				claim.Verdict = ClaimVerdictInsufficientEvidence
+			}
+		}
+		claims[idx] = claim
+	}
+	return claims, changedClaims, materialChange
+}
+
+func CloseChallenges(tickets []ChallengeTicket, claimID string, findings []VerificationResult, resolution string) []ChallengeTicket {
+	resolvedChecks := map[string]struct{}{}
+	verificationRefs := make([]string, 0, len(findings))
+	hasConclusiveFinding := false
+	for _, finding := range findings {
+		if finding.ClaimID != claimID {
+			continue
+		}
+		if finding.EvidenceRef != "" {
+			verificationRefs = appendUnique(verificationRefs, finding.EvidenceRef)
+		}
+		if finding.Status == VerificationStatusInconclusive {
+			continue
+		}
+		hasConclusiveFinding = true
+		if name := strings.TrimSpace(finding.CheckName); name != "" {
+			resolvedChecks[name] = struct{}{}
+		}
+		if kind := strings.TrimSpace(finding.Kind); kind != "" {
+			resolvedChecks[kind] = struct{}{}
+		}
+	}
 	for idx := range tickets {
 		if tickets[idx].ClaimID != claimID {
+			continue
+		}
+		if !hasConclusiveFinding {
+			continue
+		}
+		if !challengeChecksResolved(tickets[idx], resolvedChecks) {
 			continue
 		}
 		tickets[idx].Status = ChallengeStatusClosed
@@ -153,6 +306,18 @@ func CloseChallenges(tickets []ChallengeTicket, claimID string, verificationRefs
 		}
 	}
 	return tickets
+}
+
+func challengeChecksResolved(ticket ChallengeTicket, resolvedChecks map[string]struct{}) bool {
+	if len(ticket.RequestedChecks) == 0 {
+		return true
+	}
+	for _, requested := range dedupeStrings(ticket.RequestedChecks) {
+		if _, ok := resolvedChecks[requested]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func CountVerdicts(claims []ClaimNode) map[ClaimVerdict]int {
@@ -178,6 +343,36 @@ func DetermineTaskVerdict(claims []ClaimNode) TaskVerdict {
 	default:
 		return TaskVerdictUndetermined
 	}
+}
+
+func DetermineTerminalState(claims []ClaimNode, tickets []ChallengeTicket, manifest CaseManifest, action *ActionOutput) WorkflowTerminalState {
+	if action != nil && action.Status == string(TerminalStateActionBlockedByRisk) {
+		return TerminalStateActionBlockedByRisk
+	}
+	openTickets := 0
+	for _, ticket := range tickets {
+		if ticket.Status == ChallengeStatusOpen {
+			openTickets++
+		}
+	}
+	counts := CountVerdicts(claims)
+	switch {
+	case counts[ClaimVerdictSupported] == 0 && counts[ClaimVerdictUndetermined] > 0 && manifest.RequiredEvidenceLevel == EvidenceLevelHigh:
+		return TerminalStateInsufficientEvidence
+	case openTickets > 0 && manifest.RiskLevel == RiskLevelHigh:
+		return TerminalStateRequiresHumanReview
+	case openTickets > 0:
+		return TerminalStateUnresolvedConflict
+	default:
+		return TerminalStateCompleted
+	}
+}
+
+func firstNonEmptySeverity(value AttackSeverity) AttackSeverity {
+	if value == "" {
+		return AttackSeverityMedium
+	}
+	return value
 }
 
 func normalizedClaimKey(value string) string {

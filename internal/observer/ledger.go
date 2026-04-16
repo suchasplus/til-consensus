@@ -1,9 +1,11 @@
 package observer
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -17,6 +19,7 @@ type LedgerWriter struct {
 	mu           sync.Mutex
 	seq          int
 	manifestSeq  int
+	loaded       bool
 }
 
 func NewLedger(path string, manifestPath string) *LedgerWriter {
@@ -26,6 +29,10 @@ func NewLedger(path string, manifestPath string) *LedgerWriter {
 func (w *LedgerWriter) Append(_ context.Context, entry consensus.EvidenceRecord) (consensus.EvidenceRecord, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+
+	if err := w.loadExistingSeqLocked(); err != nil {
+		return consensus.EvidenceRecord{}, err
+	}
 
 	if err := os.MkdirAll(filepath.Dir(w.path), 0o755); err != nil {
 		return consensus.EvidenceRecord{}, fmt.Errorf("create ledger dir: %w", err)
@@ -67,6 +74,53 @@ func (w *LedgerWriter) Append(_ context.Context, entry consensus.EvidenceRecord)
 		w.manifestSeq++
 	}
 	return entry, nil
+}
+
+func (w *LedgerWriter) loadExistingSeqLocked() error {
+	if w.loaded {
+		return nil
+	}
+	seq, err := countJSONLLines(w.path)
+	if err != nil {
+		return fmt.Errorf("read existing ledger seq: %w", err)
+	}
+	manifestSeq, err := countJSONLLines(w.manifestPath)
+	if err != nil {
+		return fmt.Errorf("read existing manifest seq: %w", err)
+	}
+	w.seq = seq
+	w.manifestSeq = manifestSeq
+	w.loaded = true
+	return nil
+}
+
+func countJSONLLines(path string) (int, error) {
+	if path == "" {
+		return 0, nil
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	defer func() {
+		_ = file.Close()
+	}()
+
+	count := 0
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		if len(scanner.Bytes()) == 0 {
+			continue
+		}
+		count++
+	}
+	if err := scanner.Err(); err != nil && err != io.EOF {
+		return 0, err
+	}
+	return count, nil
 }
 
 func appendJSONL(path string, value any) error {

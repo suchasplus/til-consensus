@@ -7,10 +7,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
-	"github.com/suchasplus/til-consensus/internal/consensus"
 	"gopkg.in/yaml.v3"
+)
+
+const (
+	DefaultConfigFilename = "default.yaml"
+	LegacyConfigFilename  = "config.yaml"
 )
 
 func ResolveConfigPath(explicitPath string) (string, error) {
@@ -34,11 +37,15 @@ func ResolveConfigPath(explicitPath string) (string, error) {
 		}
 		configHome = filepath.Join(home, ".config")
 	}
-	globalPath := filepath.Join(configHome, "til-consensus", "config.yaml")
-	if _, err := os.Stat(globalPath); err == nil {
-		return globalPath, nil
+	defaultGlobalPath := filepath.Join(configHome, "til-consensus", DefaultConfigFilename)
+	if _, err := os.Stat(defaultGlobalPath); err == nil {
+		return defaultGlobalPath, nil
 	}
-	return "", fmt.Errorf("cannot find config file, tried %s and %s", projectPath, globalPath)
+	legacyGlobalPath := filepath.Join(configHome, "til-consensus", LegacyConfigFilename)
+	if _, err := os.Stat(legacyGlobalPath); err == nil {
+		return legacyGlobalPath, nil
+	}
+	return "", fmt.Errorf("cannot find config file, tried %s, %s and %s", projectPath, defaultGlobalPath, legacyGlobalPath)
 }
 
 func Load(path string) (LoadedConfig, error) {
@@ -86,76 +93,16 @@ func LoadRunInput(path string) (RunInput, error) {
 	return input, nil
 }
 
-func InitTemplate() Config {
-	return Config{
-		SchemaVersion: 1,
-		Defaults: DefaultsConfig{
-			SuccessCriteria: []string{"给出 claim 级裁决", "允许 undetermined"},
-			AllowedTools:    []string{"repo", "tests", "benchmarks"},
-			PerTaskTimeout:  Duration{Duration: 20 * time.Minute},
-			ProposalPolicy: ProposalPolicyConfig{
-				MaxPasses:          1,
-				MaxClaimsPerWorker: 3,
-				DedupeStrategy:     "normalized-statement",
-			},
-			VerificationPolicy: VerificationPolicyConfig{
-				AllowSemanticVerifier: true,
-				MaxParallelChecks:     4,
-				RequiredChecks: []consensus.VerificationCheck{
-					{Name: "allowed_paths", Kind: "allowed_paths"},
-				},
-			},
-			ArbiterPolicy: ArbiterPolicyConfig{
-				AllowUndetermined: true,
-				BlindReview:       true,
-			},
-		},
-		Output: OutputConfig{
-			Directory: "./out/{requestId}",
-		},
-		Providers: map[string]ProviderConfig{
-			"mock": {
-				Type:     ProviderTypeMock,
-				Behavior: "deterministic",
-				Models: map[string]ProviderModelConfig{
-					"default": {
-						ProviderModel: "mock-default",
-					},
-				},
-			},
-		},
-		Agents: []AgentConfig{
-			{ID: "proposer-a", Provider: "mock", Model: "default", Role: "proposer"},
-			{ID: "challenger-a", Provider: "mock", Model: "default", Role: "challenger"},
-			{ID: "arbiter-a", Provider: "mock", Model: "default", Role: "arbiter"},
-			{ID: "reporter-a", Provider: "mock", Model: "default", Role: "reporter"},
-		},
-		Roles: RolesConfig{
-			Proposers:   []string{"proposer-a"},
-			Challengers: []string{"challenger-a"},
-			Arbiter:     "arbiter-a",
-			Reporter:    "reporter-a",
-		},
-	}
-}
-
-func WriteTemplate(path string) error {
-	cfg := InitTemplate()
-	body, err := yaml.Marshal(cfg)
-	if err != nil {
-		return fmt.Errorf("marshal template config: %w", err)
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("create config dir: %w", err)
-	}
-	if err := os.WriteFile(path, body, 0o644); err != nil {
-		return fmt.Errorf("write template config: %w", err)
-	}
-	return nil
-}
-
 func DefaultConfigPath() (string, error) {
-	return filepath.Join(mustGetwd(), "til-consensus.yaml"), nil
+	configHome := os.Getenv("XDG_CONFIG_HOME")
+	if configHome == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("resolve home dir: %w", err)
+		}
+		configHome = filepath.Join(home, ".config")
+	}
+	return filepath.Join(configHome, "til-consensus", DefaultConfigFilename), nil
 }
 
 func toAbs(path, base string) string {

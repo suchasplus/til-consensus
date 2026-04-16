@@ -13,20 +13,23 @@ func TestWriteRunArtifacts(t *testing.T) {
 	tmp := t.TempDir()
 	resultPath := filepath.Join(tmp, "result.json")
 	summaryPath := filepath.Join(tmp, "summary.md")
-	result := &consensus.AdjudicationResult{
-		SchemaVersion: 1,
+	result := &consensus.RunResult{
+		SchemaVersion: 2,
+		Mode:          consensus.WorkflowModeAdjudication,
 		RequestID:     "req-1",
 		SessionID:     "session-1",
 		TaskSpec: consensus.TaskSpec{
 			Goal: "verify patch",
 		},
-		TaskVerdict: consensus.TaskVerdictSupported,
-		ClaimGraph: []consensus.ClaimNode{
-			{
-				ClaimID:   "claim-1",
-				Title:     "Race fix",
-				Statement: "Patch fixes the race",
-				Verdict:   consensus.ClaimVerdictSupported,
+		Adjudication: &consensus.AdjudicationResultSection{
+			TaskVerdict: consensus.TaskVerdictSupported,
+			ClaimGraph: []consensus.ClaimNode{
+				{
+					ClaimID:   "claim-1",
+					Title:     "Race fix",
+					Statement: "Patch fixes the race",
+					Verdict:   consensus.ClaimVerdictSupported,
+				},
 			},
 		},
 		Report: consensus.AdjudicationReport{

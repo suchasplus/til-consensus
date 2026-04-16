@@ -1,0 +1,342 @@
+# 配置说明
+
+`til-consensus` 的配置文件默认叫 `til-consensus.yaml`。
+
+查找顺序：
+
+1. `--config`
+2. 当前目录下的 `./til-consensus.yaml`
+3. `$XDG_CONFIG_HOME/til-consensus/default.yaml`
+4. `$XDG_CONFIG_HOME/til-consensus/config.yaml`
+
+## 推荐起步方式
+
+第一次上手时，直接生成模板：
+
+```bash
+til-consensus config init --preset quickstart --config ./til-consensus.yaml
+```
+
+常用 preset：
+
+- `quickstart`
+  - 默认 `adjudication`
+  - 先跑通一遍 CLI
+- `openai`
+  - 接真实 API provider
+- `coding`
+  - 做 patch / benchmark / code review 裁决
+- `debate`
+  - 使用 `free_debate`
+  - 适合多 CLI 交叉辩论
+- `delphi`
+  - 使用 `delphi`
+  - 适合匿名多轮收敛
+
+如果想先看看模板，不落盘：
+
+```bash
+til-consensus config init --preset debate --stdout
+```
+
+如果已有配置文件，需要覆盖：
+
+```bash
+til-consensus config init --preset delphi --config ./til-consensus.yaml --force
+```
+
+## 配置结构
+
+顶层固定包含：
+
+- `schema_version`
+- `defaults`
+- `output`
+- `providers`
+- `agents`
+- `roles`
+
+### `defaults`
+
+主要控制默认的 task 约束和 policy。
+
+通用字段：
+
+- `mode`
+- `task_type`
+- `success_criteria`
+- `allowed_tools`
+- `per_task_timeout`
+- `task_retry_attempts`
+- `global_deadline`
+- `loop_policy`
+- `ingest_policy`
+- `fallback_policy`
+- `observe_policy`
+- `workspace_snapshot`
+- `task_constraints`
+
+`adjudication` 专用：
+
+- `proposal_policy`
+- `verification_policy`
+- `arbiter_policy`
+
+其中：
+
+- `loop_policy.max_revision_rounds`
+- `loop_policy.max_verification_rounds`
+- `loop_policy.material_confidence_delta`
+- `fallback_policy.max_fallback_rounds`
+- `fallback_policy.on_insufficient_evidence`
+- `fallback_policy.on_unresolved_conflict`
+- `fallback_policy.on_unresolved_claims`
+- `fallback_policy.on_keep_with_caveat`
+
+用于限制 `verify -> revise -> challenge/verify` 以及 `adjudicate -> revise/ingest` 这样的受控闭环。
+
+`ingest_policy.sources` 和 `observe_policy.sources` 都是命令源列表，单个 source 支持：
+
+- `name`
+- `command`
+- `args`
+- `workdir`
+- `env`
+- `source_type`
+- `reference`
+- `success_pattern`
+- `failure_pattern`
+- `parsing`
+
+`parsing` 当前支持两种模式：
+
+- `mode: text`
+  - 默认模式
+  - 继续使用 `success_pattern` / `failure_pattern` 做文本匹配
+- `mode: json`
+  - 把 stdout 解析成 JSON
+  - 支持用字段路径提取结构化结果
+  - 可用字段：
+    - `success_path`
+    - `failure_path`
+    - `summary_path`
+    - `excerpt_path`
+    - `notes_path`
+    - `metadata_paths`
+
+字段路径使用简单的点路径，支持数组下标，例如：
+
+- `status.ok`
+- `report.summary`
+- `items[0].name`
+
+适用语义：
+
+- `ingest_policy`
+  - 在 `ingest` 阶段执行
+  - 适合补抓证据、归一化外部材料、追加 tool 输出
+- `observe_policy`
+  - 在 `observe` 阶段执行
+  - 适合健康检查、回归观察、外部状态确认
+
+`free_debate` 专用：
+
+- `debate_policy`
+  - `min_rounds`
+  - `max_rounds`
+  - `vote_threshold`
+  - `enable_early_stop`
+  - `peer_context_mode`
+
+`delphi` 专用：
+
+- `delphi_policy`
+  - `min_rounds`
+  - `max_rounds`
+  - `convergence_threshold`
+  - `rating_scale_min`
+  - `rating_scale_max`
+  - `anonymous`
+  - `facilitator_summary_style`
+
+### `providers`
+
+当前支持：
+
+- `type: mock`
+- `type: api`
+- `type: cli`
+- `type: sdk`
+
+常见字段：
+
+- `protocol`
+- `base_url`
+- `api_key_env`
+- `models`
+- `command`
+- `args`
+- `env`
+
+### `agents`
+
+每个 agent 至少要有：
+
+- `id`
+- `provider`
+- 可选 `model`
+- 可选 `role`
+- 可选 `system_prompt`
+
+### `roles`
+
+角色分配取决于当前 workflow。
+
+`adjudication`：
+
+- `proposers`
+- `challengers`
+- `arbiter`
+- `semantic_verifier`
+- `reporter`
+- `actor`
+
+`free_debate`：
+
+- `participants`
+- 可选 `reporter`
+- 可选 `actor`
+
+`delphi`：
+
+- `participants`
+- 可选 `facilitator`
+- 可选 `reporter`
+- 可选 `actor`
+
+## 命令行覆盖
+
+`run` 支持通过 CLI flags 覆盖配置和输入文件。
+
+当前最重要的 mode 相关 flags：
+
+- `--mode adjudication|free-debate|delphi`
+- `--participants`
+- `--facilitator`
+- `--min-rounds`
+- `--max-rounds`
+- `--vote-threshold`
+- `--convergence-threshold`
+
+`adjudication` 相关输入里还建议显式提供：
+
+- `task_spec.task_type`
+- `task_spec.out_of_scope`
+- `action_policy.risk_gate`
+
+优先级始终是：
+
+`CLI flags > input file > config defaults > built-in defaults`
+
+## 最小示例
+
+### 1. `adjudication`
+
+```yaml
+defaults:
+  mode: adjudication
+  fallback_policy:
+    max_fallback_rounds: 1
+    on_insufficient_evidence: ingest
+    on_unresolved_conflict: ingest
+    on_unresolved_claims: revise
+    on_keep_with_caveat: revise
+  observe_policy:
+    on_contradiction: reopen
+    sources:
+      - name: health
+        command: sh
+        args: ["-c", "printf HEALTHY"]
+        success_pattern: HEALTHY
+
+roles:
+  proposers: [proposer-a]
+  challengers: [challenger-a]
+  arbiter: arbiter-a
+  semantic_verifier: verifier-a
+```
+
+如果希望 `adjudicate` 自动补抓新证据，可以继续加：
+
+```yaml
+defaults:
+  ingest_policy:
+    sources:
+      - name: fresh-evidence
+        command: sh
+        args:
+          - -c
+          - printf '{"status":{"ok":true},"report":{"summary":"fresh evidence captured","excerpt":"fresh evidence excerpt","score":0.92}}'
+        source_type: external_command
+        reference: sh -c printf fresh-evidence
+        parsing:
+          mode: json
+          success_path: status.ok
+          summary_path: report.summary
+          excerpt_path: report.excerpt
+          metadata_paths:
+            score: report.score
+```
+
+### 2. `free_debate`
+
+```yaml
+defaults:
+  mode: free_debate
+  debate_policy:
+    min_rounds: 2
+    max_rounds: 3
+    vote_threshold: 0.75
+
+roles:
+  participants: [debater-a, debater-b, debater-c]
+  reporter: reporter-a
+```
+
+### 3. `delphi`
+
+```yaml
+defaults:
+  mode: delphi
+  delphi_policy:
+    min_rounds: 2
+    max_rounds: 4
+    convergence_threshold: 0.8
+
+roles:
+  participants: [participant-a, participant-b, participant-c]
+  facilitator: facilitator-a
+  reporter: reporter-a
+```
+
+## 增量编辑
+
+如果模板已经生成，后面只想补一个 provider 或 agent，可以用：
+
+```bash
+til-consensus config add-provider --help
+til-consensus config add-agent --help
+```
+
+`config add-agent --assign` 目前支持：
+
+- `proposer`
+- `challenger`
+- `arbiter`
+- `semantic-verifier`
+- `reporter`
+- `actor`
+- `participant`
+- `facilitator`
+
+这两个命令适合增量修改，不适合替代模板初始化。

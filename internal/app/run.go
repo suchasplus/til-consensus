@@ -22,15 +22,22 @@ func newRunCommand() *cli.Command {
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "config", Usage: "配置文件路径"},
 			&cli.StringFlag{Name: "input", Usage: "输入文件路径"},
+			&cli.StringFlag{Name: "mode", Usage: "工作流模式(adjudication|free-debate|delphi)"},
 			&cli.StringFlag{Name: "task", Usage: "任务目标"},
 			&cli.StringFlag{Name: "proposers", Usage: "逗号分隔的 proposer agent 列表"},
 			&cli.StringFlag{Name: "challengers", Usage: "逗号分隔的 challenger agent 列表"},
+			&cli.StringFlag{Name: "participants", Usage: "逗号分隔的 participant agent 列表"},
 			&cli.StringFlag{Name: "arbiter", Usage: "arbiter agent"},
 			&cli.StringFlag{Name: "semantic-verifier", Usage: "semantic verifier agent"},
+			&cli.StringFlag{Name: "facilitator", Usage: "delphi facilitator agent"},
 			&cli.StringFlag{Name: "reporter", Usage: "reporter agent"},
 			&cli.StringFlag{Name: "actor", Usage: "actor agent"},
 			&cli.StringSliceFlag{Name: "success-criteria", Usage: "重复传入成功标准"},
 			&cli.StringFlag{Name: "workspace-snapshot", Usage: "workspace 根目录或 snapshot 路径"},
+			&cli.IntFlag{Name: "min-rounds", Usage: "free_debate / delphi 的最小轮数"},
+			&cli.IntFlag{Name: "max-rounds", Usage: "free_debate / delphi 的最大轮数"},
+			&cli.Float64Flag{Name: "vote-threshold", Usage: "free_debate 的最终投票阈值"},
+			&cli.Float64Flag{Name: "convergence-threshold", Usage: "delphi 的收敛阈值"},
 			&cli.DurationFlag{Name: "timeout", Usage: "单任务超时"},
 			&cli.DurationFlag{Name: "global-deadline", Usage: "全局截止时间"},
 			&cli.StringFlag{Name: "action", Usage: "裁决后执行的 action"},
@@ -58,15 +65,22 @@ func runCommand(ctx context.Context, cmd *cli.Command) error {
 	overrides := config.RunOverrides{
 		ConfigPath:        cmd.String("config"),
 		InputPath:         cmd.String("input"),
+		Mode:              parseMode(cmd.String("mode")),
 		Task:              cmd.String("task"),
 		Proposers:         splitComma(cmd.String("proposers")),
 		Challengers:       splitComma(cmd.String("challengers")),
+		Participants:      splitComma(cmd.String("participants")),
 		Arbiter:           cmd.String("arbiter"),
 		SemanticVerifier:  cmd.String("semantic-verifier"),
+		Facilitator:       cmd.String("facilitator"),
 		Reporter:          cmd.String("reporter"),
 		Actor:             cmd.String("actor"),
 		SuccessCriteria:   cmd.StringSlice("success-criteria"),
 		WorkspaceSnapshot: cmd.String("workspace-snapshot"),
+		MinRounds:         cmd.Int("min-rounds"),
+		MaxRounds:         cmd.Int("max-rounds"),
+		VoteThreshold:     cmd.Float64("vote-threshold"),
+		ConvergenceThreshold: cmd.Float64("convergence-threshold"),
 		Timeout:           cmd.Duration("timeout"),
 		GlobalDeadline:    cmd.Duration("global-deadline"),
 		Action:            cmd.String("action"),
@@ -77,7 +91,7 @@ func runCommand(ctx context.Context, cmd *cli.Command) error {
 		return err
 	}
 	output := NewOutput(cmd.Writer, os.Stderr, plan.Verbose)
-	output.RunStarted(plan.RequestID, plan.Task, plan.Roles)
+	output.RunStarted(plan.RequestID, plan.Mode, plan.Task, plan.Roles)
 
 	delegate, err := runtime.NewDelegate(loaded.Config, plan.ArtifactsDir)
 	if err != nil {
@@ -103,6 +117,19 @@ func runCommand(ctx context.Context, cmd *cli.Command) error {
 	}
 	output.RunCompleted(plan.ResultPath, plan.SummaryPath)
 	return nil
+}
+
+func parseMode(value string) consensus.WorkflowMode {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "", string(consensus.WorkflowModeAdjudication):
+		return consensus.WorkflowModeAdjudication
+	case "free-debate", string(consensus.WorkflowModeFreeDebate):
+		return consensus.WorkflowModeFreeDebate
+	case string(consensus.WorkflowModeDelphi):
+		return consensus.WorkflowModeDelphi
+	default:
+		return consensus.WorkflowMode(value)
+	}
 }
 
 func splitComma(value string) []string {

@@ -2,11 +2,13 @@ package consensus
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestWorkspaceSnapshotCheckUsesConfiguredHash(t *testing.T) {
@@ -204,6 +206,255 @@ func TestBenchmarkThresholdCheckPassesAndFails(t *testing.T) {
 	})
 	if fail.Status != VerificationStatusFailed || fail.FailureCode != "benchmark_threshold_exceeded" {
 		t.Fatalf("expected failed benchmark threshold, got %#v", fail)
+	}
+}
+
+type semanticStubDelegate struct {
+	output      TaskResult
+	outputs     []TaskResult
+	awaitErr    error
+	awaitErrs   []error
+	dispatchErr error
+	awaited     bool
+}
+
+func (d *semanticStubDelegate) Dispatch(_ context.Context, task Task) (DispatchReceipt, error) {
+	if d.dispatchErr != nil {
+		return DispatchReceipt{}, d.dispatchErr
+	}
+	return DispatchReceipt{TaskID: "task-1", AgentID: task.Meta().AgentID, Kind: task.Kind()}, nil
+}
+
+func (d *semanticStubDelegate) Await(_ context.Context, _ string, _ time.Duration) (AwaitedTask, error) {
+	d.awaited = true
+	if len(d.awaitErrs) > 0 {
+		err := d.awaitErrs[0]
+		d.awaitErrs = d.awaitErrs[1:]
+		if err != nil {
+			return AwaitedTask{}, err
+		}
+	}
+	if d.awaitErr != nil {
+		return AwaitedTask{}, d.awaitErr
+	}
+	if len(d.outputs) > 0 {
+		output := d.outputs[0]
+		d.outputs = d.outputs[1:]
+		return AwaitedTask{
+			OK:       true,
+			Output:   output,
+			Artifact: &ArtifactRef{Path: "artifact.log"},
+		}, nil
+	}
+	return AwaitedTask{
+		OK:       true,
+		Output:   d.output,
+		Artifact: &ArtifactRef{Path: "artifact.log"},
+	}, nil
+}
+
+func (d *semanticStubDelegate) Cancel(_ context.Context, _ string) error { return nil }
+
+func TestVerifierRunIncludesUnsupportedAndSemanticChecks(t *testing.T) {
+	delegate := &semanticStubDelegate{
+		output: SemanticVerificationTaskResult{Output: SemanticVerificationOutput{
+			Results: []SemanticVerificationFinding{{
+				ClaimID:    "claim-1",
+				Verdict:    ClaimVerdictSupported,
+				Confidence: 0.8,
+				Rationale:  "semantic support",
+			}},
+		}},
+	}
+	verifier := NewCompositeVerifier(CompositeVerifierDeps{
+		TaskDelegate:   delegate,
+		IDFactory:      &deterministicIDs{},
+		PerTaskTimeout: time.Second,
+	})
+	req := VerificationRequest{
+		Request: StartRequest{
+			RequestID: "req-1",
+			TaskSpec:  TaskSpec{Goal: "verify"},
+			Roles: RoleAssignments{
+				SemanticVerifier: "verifier-a",
+			},
+			VerificationPolicy: VerificationPolicy{
+				AllowSemanticVerifier: true,
+				RequiredChecks: []VerificationCheck{
+					{Name: "unknown", Kind: "unknown"},
+				},
+			},
+		},
+		SessionID: "session-1",
+		Claim:     ClaimNode{ClaimID: "claim-1"},
+	}
+	results, err := verifier.Run(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("expected two verification results, got %#v", results)
+	}
+	if !strings.Contains(results[0].Summary, "unsupported verification check kind") || results[1].VerdictSuggestion != ClaimVerdictSupported || !delegate.awaited {
+		t.Fatalf("unexpected verification results: %#v", results)
+	}
+}
+
+func TestRunSemanticVerificationErrorPaths(t *testing.T) {
+	req := VerificationRequest{
+		Request: StartRequest{
+			RequestID: "req-1",
+			TaskSpec:  TaskSpec{Goal: "verify"},
+			Roles: RoleAssignments{
+				SemanticVerifier: "verifier-a",
+			},
+		},
+		SessionID: "session-1",
+		Claim:     ClaimNode{ClaimID: "claim-1"},
+	}
+	tests := []struct {
+		name        string
+		delegate    *semanticStubDelegate
+		failureCode string
+	}{
+		{
+			name: "dispatch failed",
+			delegate: &semanticStubDelegate{
+				dispatchErr: errors.New("dispatch boom"),
+			},
+			failureCode: "semantic_dispatch_failed",
+		},
+		{
+			name: "await failed",
+			delegate: &semanticStubDelegate{
+				awaitErr: errors.New("await boom"),
+			},
+			failureCode: "semantic_await_failed",
+		},
+		{
+			name: "type mismatch",
+			delegate: &semanticStubDelegate{
+				output: ProposalTaskResult{},
+			},
+			failureCode: "semantic_type_mismatch",
+		},
+		{
+			name: "empty result",
+			delegate: &semanticStubDelegate{
+				output: SemanticVerificationTaskResult{Output: SemanticVerificationOutput{}},
+			},
+			failureCode: "semantic_empty_result",
+		},
+		{
+			name: "claim mismatch",
+			delegate: &semanticStubDelegate{
+				output: SemanticVerificationTaskResult{Output: SemanticVerificationOutput{
+					Results: []SemanticVerificationFinding{{
+						ClaimID:   "claim-else",
+						Verdict:   ClaimVerdictSupported,
+						Rationale: "wrong claim",
+					}},
+				}},
+			},
+			failureCode: "semantic_claim_mismatch",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			verifier := NewCompositeVerifier(CompositeVerifierDeps{
+				TaskDelegate:   tc.delegate,
+				IDFactory:      &deterministicIDs{},
+				PerTaskTimeout: time.Second,
+			})
+			results := verifier.runSemanticVerification(context.Background(), req)
+			if len(results) != 1 || results[0].FailureCode != tc.failureCode {
+				t.Fatalf("unexpected semantic verification result: %#v", results)
+			}
+		})
+	}
+}
+
+func TestRunSemanticVerificationRetriesOnce(t *testing.T) {
+	delegate := &semanticStubDelegate{
+		awaitErrs: []error{errors.New("temporary failure"), nil},
+		outputs: []TaskResult{
+			SemanticVerificationTaskResult{Output: SemanticVerificationOutput{
+				Results: []SemanticVerificationFinding{{
+					ClaimID:    "claim-1",
+					Verdict:    ClaimVerdictSupported,
+					Rationale:  "retry succeeded",
+					Confidence: 0.9,
+				}},
+			}},
+		},
+	}
+	verifier := NewCompositeVerifier(CompositeVerifierDeps{
+		TaskDelegate:   delegate,
+		IDFactory:      &deterministicIDs{},
+		PerTaskTimeout: time.Second,
+		RetryAttempts:  1,
+	})
+	results := verifier.runSemanticVerification(context.Background(), VerificationRequest{
+		Request: StartRequest{
+			RequestID: "req-1",
+			TaskSpec:  TaskSpec{Goal: "verify"},
+			Roles: RoleAssignments{
+				SemanticVerifier: "verifier-a",
+			},
+		},
+		SessionID: "session-1",
+		Claim:     ClaimNode{ClaimID: "claim-1"},
+	})
+	if len(results) != 1 || results[0].Status != VerificationStatusPassed {
+		t.Fatalf("expected retry to succeed, got %#v", results)
+	}
+}
+
+func TestVerifierHelperFunctions(t *testing.T) {
+	verifier := NewCompositeVerifier(CompositeVerifierDeps{
+		IDFactory: &deterministicIDs{},
+	})
+	req := VerificationRequest{
+		Request: StartRequest{
+			RequestID: "req-1",
+			TaskSpec: TaskSpec{
+				Goal: "verify",
+				WorkspaceSnapshot: &WorkspaceSnapshot{
+					Root: "/tmp/work",
+				},
+			},
+		},
+		SessionID: "session-1",
+		Claim:     ClaimNode{ClaimID: "claim-1"},
+	}
+	result := verifier.runCheck(context.Background(), req, VerificationCheck{Name: "unknown", Kind: "unknown"})
+	if result.Status != VerificationStatusInconclusive {
+		t.Fatalf("expected unsupported check to be inconclusive, got %#v", result)
+	}
+
+	if got := classifyCommandFailure(&exec.ExitError{}); got != "command_exit_nonzero" {
+		t.Fatalf("unexpected exit error classification: %s", got)
+	}
+	if got := classifyCommandFailure(errors.New("boom")); got != "command_exec_failed" {
+		t.Fatalf("unexpected exec error classification: %s", got)
+	}
+
+	meta := MarshalVerificationMetadata(struct {
+		Name  string `json:"name"`
+		Count int    `json:"count"`
+	}{"bench", 2})
+	if meta["name"] != "bench" || meta["count"] != float64(2) {
+		t.Fatalf("unexpected marshaled metadata: %#v", meta)
+	}
+
+	if _, err := readArtifactBody(nil); err == nil {
+		t.Fatal("expected nil artifact to fail")
+	}
+
+	env := renderVerificationEnv(req, map[string]string{"EXTRA": "1"})
+	joined := strings.Join(env, "|")
+	if !strings.Contains(joined, "TIL_CONSENSUS_WORKSPACE_ROOT=/tmp/work") || !strings.Contains(joined, "EXTRA=1") {
+		t.Fatalf("unexpected rendered env: %v", env)
 	}
 }
 

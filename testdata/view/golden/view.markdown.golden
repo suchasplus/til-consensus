@@ -1,0 +1,39 @@
+# til-consensus 结果浏览
+
+- requestId: `tc_1710000000000_abcd12`
+- mode: `adjudication`
+- result: `undetermined`
+- terminal state: `completed`
+- elapsed: `12.3s`
+- result dir: `sample-run`
+
+## Task
+
+判断 patch 是否真正修复了竞态问题并且没有引入性能回退
+
+## Claims
+
+- `claim-1` | `supported` | 0.94 | Patch 消除了共享 map 的并发写入。
+  rationale: 单测与 diff 都支持该 claim。
+- `claim-3` | `supported` | 0.89 | 现有回归测试全部通过。
+  rationale: go test ./... 通过。
+- `claim-4` | `undetermined` | 0.51 | 新的所有权模型显著简化了调用方。
+  rationale: 只有设计说明，没有足够运行证据。
+- `claim-2` | `insufficient_evidence` | 0.48 | 补丁没有引入可观测的性能回退。
+  rationale: benchmark 样本不足。
+
+## 风险与未决项
+
+- terminal_state | `tc_1710000000000_abcd12` | completed
+- open challenge | `claim-2` | 需要更多 benchmark 证据验证没有性能回退。
+- insufficient evidence | `claim-2` | 补丁没有引入可观测的性能回退。
+- undetermined | `claim-4` | 新的所有权模型显著简化了调用方。
+- verification inconclusive | `claim-2` | benchmark 样本不足，无法确认没有性能回退。
+- verification inconclusive | `claim-4` | 设计说明没有给出足够上下文。
+
+## 相关文件
+
+- result.json: `./result.json`
+- ledger.jsonl: `./ledger.jsonl`
+- summary.md: `./summary.md`
+- artifacts/manifest.jsonl: `./artifacts/manifest.jsonl`

@@ -66,7 +66,7 @@ type SessionSnapshot struct {
 	StartedAt        string
 	FinishedAt       string
 	FailedAt         string
-	Result           *AdjudicationResult
+	Result           *RunResult
 	Error            *FailureInfo
 }
 
@@ -77,7 +77,7 @@ type SessionPatch struct {
 	LedgerCursor     *int
 	FinishedAt       *string
 	FailedAt         *string
-	Result           *AdjudicationResult
+	Result           *RunResult
 	Error            *FailureInfo
 }
 

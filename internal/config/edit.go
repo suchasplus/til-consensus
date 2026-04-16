@@ -130,10 +130,14 @@ func ApplyAddAgent(cfg Config, input AddAgentInput) (Config, error) {
 			cfg.Roles.Proposers = append(cfg.Roles.Proposers, input.ID)
 		case "challenger":
 			cfg.Roles.Challengers = append(cfg.Roles.Challengers, input.ID)
+		case "participant":
+			cfg.Roles.Participants = append(cfg.Roles.Participants, input.ID)
 		case "arbiter":
 			cfg.Roles.Arbiter = input.ID
 		case "semantic-verifier":
 			cfg.Roles.SemanticVerifier = input.ID
+		case "facilitator":
+			cfg.Roles.Facilitator = input.ID
 		case "reporter":
 			cfg.Roles.Reporter = input.ID
 		case "actor":

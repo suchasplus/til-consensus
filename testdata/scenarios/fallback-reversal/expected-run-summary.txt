@@ -1,0 +1,3 @@
+goal: 判断新增证据是否足以推翻上一轮证据不足结论
+task verdict: supported
+supported: 1

@@ -58,3 +58,47 @@ func TestUpsertChallengeDedupesSameClaimAndStatement(t *testing.T) {
 		t.Fatalf("expected merged evidence refs, got %#v", ticket.EvidenceRefs)
 	}
 }
+
+func TestCloseChallengesOnlyClosesResolvedRequestedChecks(t *testing.T) {
+	tickets := []ChallengeTicket{
+		{
+			TicketID:         "ticket-1",
+			ClaimID:          "claim-1",
+			Status:           ChallengeStatusOpen,
+			RequestedChecks:  []string{"workspace"},
+			VerificationRefs: nil,
+		},
+		{
+			TicketID:         "ticket-2",
+			ClaimID:          "claim-1",
+			Status:           ChallengeStatusOpen,
+			RequestedChecks:  []string{"semantic"},
+			VerificationRefs: nil,
+		},
+	}
+
+	findings := []VerificationResult{
+		{
+			ClaimID:     "claim-1",
+			CheckName:   "workspace",
+			Kind:        "workspace_snapshot",
+			Status:      VerificationStatusPassed,
+			EvidenceRef: "ledger-1",
+		},
+		{
+			ClaimID:     "claim-1",
+			CheckName:   "semantic",
+			Kind:        "semantic",
+			Status:      VerificationStatusInconclusive,
+			EvidenceRef: "ledger-2",
+		},
+	}
+
+	closed := CloseChallenges(tickets, "claim-1", findings, "resolved")
+	if closed[0].Status != ChallengeStatusClosed {
+		t.Fatalf("expected first ticket to close, got %#v", closed[0])
+	}
+	if closed[1].Status != ChallengeStatusOpen {
+		t.Fatalf("expected second ticket to remain open, got %#v", closed[1])
+	}
+}

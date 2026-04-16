@@ -1,0 +1,88 @@
+运行头部
+requestId: tc_1710000000000_abcd12
+mode: adjudication
+result: undetermined
+terminal state: completed
+elapsed: 12.3s
+result dir: sample-run
+
+任务摘要
+goal: 判断 patch 是否真正修复了竞态问题并且没有引入性能回退
+success criteria:
+  - 给出 claim 级裁决
+  - 对 benchmark 证据不足的部分保持 undetermined
+workspace:
+  root: .
+  revision: abc1234
+
+统计
+claims: 4
+supported: 2
+refuted: 0
+insufficient evidence: 1
+undetermined: 1
+challenges: 2
+verifications: 4
+artifacts: 3
+
+关键 Claims
+[supported/-] Race fix (0.94)
+  statement: Patch 消除了共享 map 的并发写入。
+  rationale: 单测与 diff 都支持该 claim。
+[supported/-] Regression tests stay green (0.89)
+  statement: 现有回归测试全部通过。
+  rationale: go test ./... 通过。
+[undetermined/-] Simpler ownership model (0.51)
+  statement: 新的所有权模型显著简化了调用方。
+  rationale: 只有设计说明，没有足够运行证据。
+[insufficient_evidence/-] No perf regression (0.48)
+  statement: 补丁没有引入可观测的性能回退。
+  rationale: benchmark 样本不足。
+
+挑战明细
+- ticket-1 | claim-2 | evidence-gap | open
+  需要更多 benchmark 证据验证没有性能回退。
+- ticket-2 | claim-4 | scope-risk | closed
+  设计说明没有证明调用方的复杂度真的下降。
+
+验证明细
+- claim-1 | command | passed
+  go test ./... 通过，且 patch diff 仅触达允许路径。
+  artifact: artifacts/unit-tests.log
+- claim-2 | benchmark_threshold | inconclusive
+  benchmark 样本不足，无法确认没有性能回退。
+  artifact: artifacts/benchmark.txt
+- claim-3 | command | passed
+  回归测试通过。
+  artifact: artifacts/regression.log
+- claim-4 | semantic | inconclusive
+  设计说明没有给出足够上下文。
+
+Rounds
+(无 round 数据)
+
+Votes
+(无 vote 数据)
+
+Statements
+(无 statement 数据)
+
+Convergence
+(无 convergence 数据)
+
+风险与未决项
+- terminal_state | tc_1710000000000_abcd12 | completed
+- open challenge | claim-2 | 需要更多 benchmark 证据验证没有性能回退。
+- insufficient evidence | claim-2 | 补丁没有引入可观测的性能回退。
+- undetermined | claim-4 | 新的所有权模型显著简化了调用方。
+- verification inconclusive | claim-2 | benchmark 样本不足，无法确认没有性能回退。
+- verification inconclusive | claim-4 | 设计说明没有给出足够上下文。
+
+相关文件
+- result.json: ./result.json
+- ledger.jsonl: ./ledger.jsonl
+- summary.md: ./summary.md
+- artifacts/manifest.jsonl: ./artifacts/manifest.jsonl
+- artifacts/unit-tests.log | deterministic_check
+- artifacts/benchmark.txt | deterministic_check
+- artifacts/regression.log | deterministic_check

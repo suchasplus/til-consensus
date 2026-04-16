@@ -1,0 +1,3 @@
+goal: 判断执行后的外部观测是否推翻原结论
+terminal state: requires_human_review
+follow-up case:

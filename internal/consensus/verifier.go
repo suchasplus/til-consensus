@@ -26,6 +26,7 @@ type CompositeVerifierDeps struct {
 	IDFactory      IDFactory
 	ArtifactDir    string
 	PerTaskTimeout time.Duration
+	RetryAttempts  int
 }
 
 type CompositeVerifier struct {
@@ -68,6 +69,7 @@ func (v *CompositeVerifier) runCheck(ctx context.Context, req VerificationReques
 		return VerificationResult{
 			VerificationID: v.deps.IDFactory.NewEntityID("verify"),
 			ClaimID:        req.Claim.ClaimID,
+			CheckName:      check.Name,
 			Kind:           check.Kind,
 			Status:         VerificationStatusInconclusive,
 			Summary:        "unsupported verification check kind: " + check.Kind,
@@ -79,6 +81,7 @@ func (v *CompositeVerifier) runWorkspaceSnapshotCheck(req VerificationRequest, c
 	result := VerificationResult{
 		VerificationID: v.deps.IDFactory.NewEntityID("verify"),
 		ClaimID:        req.Claim.ClaimID,
+		CheckName:      check.Name,
 		Kind:           check.Kind,
 	}
 	snapshot := req.Request.TaskSpec.WorkspaceSnapshot
@@ -142,6 +145,7 @@ func (v *CompositeVerifier) runAllowedPathsCheck(req VerificationRequest, check 
 	result := VerificationResult{
 		VerificationID: v.deps.IDFactory.NewEntityID("verify"),
 		ClaimID:        req.Claim.ClaimID,
+		CheckName:      check.Name,
 		Kind:           check.Kind,
 	}
 	allowed := req.Request.TaskSpec.Constraints.AllowedPaths
@@ -179,6 +183,7 @@ func (v *CompositeVerifier) runGitDiffPathsCheck(ctx context.Context, req Verifi
 	result := VerificationResult{
 		VerificationID: v.deps.IDFactory.NewEntityID("verify"),
 		ClaimID:        req.Claim.ClaimID,
+		CheckName:      check.Name,
 		Kind:           check.Kind,
 	}
 	snapshot := req.Request.TaskSpec.WorkspaceSnapshot
@@ -252,6 +257,7 @@ func (v *CompositeVerifier) runBenchmarkThresholdCheck(ctx context.Context, req 
 	result := VerificationResult{
 		VerificationID: v.deps.IDFactory.NewEntityID("verify"),
 		ClaimID:        req.Claim.ClaimID,
+		CheckName:      check.Name,
 		Kind:           check.Kind,
 	}
 	commandResult := v.runCommandCheck(ctx, req, check)
@@ -310,6 +316,7 @@ func (v *CompositeVerifier) runCommandCheck(ctx context.Context, req Verificatio
 	result := VerificationResult{
 		VerificationID: v.deps.IDFactory.NewEntityID("verify"),
 		ClaimID:        req.Claim.ClaimID,
+		CheckName:      check.Name,
 		Kind:           check.Kind,
 	}
 	workdir := check.Workdir
@@ -359,28 +366,34 @@ func (v *CompositeVerifier) runSemanticVerification(ctx context.Context, req Ver
 		Claim:      req.Claim,
 		Challenges: slices.Clone(req.Challenges),
 	}
-	dispatched, err := v.deps.TaskDelegate.Dispatch(ctx, task)
+	_, awaited, _, err := ExecuteTaskWithRetry(ctx, v.deps.TaskDelegate, task, timeout, v.deps.RetryAttempts, TaskRetryHooks{})
 	if err != nil {
+		failureCode := "semantic_await_failed"
+		summary := "semantic verifier 执行失败: " + err.Error()
+		var execErr *TaskExecutionError
+		if errors.As(err, &execErr) && execErr.Stage == TaskExecutionStageDispatch {
+			failureCode = "semantic_dispatch_failed"
+			summary = "semantic verifier dispatch 失败: " + err.Error()
+		}
 		return []VerificationResult{{
 			VerificationID: v.deps.IDFactory.NewEntityID("verify"),
 			ClaimID:        req.Claim.ClaimID,
+			CheckName:      "semantic",
 			Kind:           "semantic",
 			Status:         VerificationStatusInconclusive,
-			FailureCode:    "semantic_dispatch_failed",
-			Summary:        "semantic verifier dispatch 失败: " + err.Error(),
+			FailureCode:    failureCode,
+			Summary:        summary,
 		}}
 	}
-	awaited, err := v.deps.TaskDelegate.Await(ctx, dispatched.TaskID, timeout)
-	if err != nil || !awaited.OK {
+	if !awaited.OK {
 		message := "semantic verifier await 失败"
-		if err != nil {
-			message += ": " + err.Error()
-		} else if awaited.Error != "" {
+		if awaited.Error != "" {
 			message += ": " + awaited.Error
 		}
 		return []VerificationResult{{
 			VerificationID: v.deps.IDFactory.NewEntityID("verify"),
 			ClaimID:        req.Claim.ClaimID,
+			CheckName:      "semantic",
 			Kind:           "semantic",
 			Status:         VerificationStatusInconclusive,
 			FailureCode:    "semantic_await_failed",
@@ -393,6 +406,7 @@ func (v *CompositeVerifier) runSemanticVerification(ctx context.Context, req Ver
 		return []VerificationResult{{
 			VerificationID: v.deps.IDFactory.NewEntityID("verify"),
 			ClaimID:        req.Claim.ClaimID,
+			CheckName:      "semantic",
 			Kind:           "semantic",
 			Status:         VerificationStatusInconclusive,
 			FailureCode:    "semantic_type_mismatch",
@@ -401,7 +415,16 @@ func (v *CompositeVerifier) runSemanticVerification(ctx context.Context, req Ver
 		}}
 	}
 	results := make([]VerificationResult, 0, len(typed.Output.Results))
+	mismatchedClaim := false
 	for _, item := range typed.Output.Results {
+		itemClaimID := strings.TrimSpace(item.ClaimID)
+		if itemClaimID == "" {
+			itemClaimID = req.Claim.ClaimID
+		}
+		if itemClaimID != req.Claim.ClaimID {
+			mismatchedClaim = true
+			continue
+		}
 		status := VerificationStatusInconclusive
 		switch item.Verdict {
 		case ClaimVerdictSupported:
@@ -411,7 +434,8 @@ func (v *CompositeVerifier) runSemanticVerification(ctx context.Context, req Ver
 		}
 		results = append(results, VerificationResult{
 			VerificationID:    v.deps.IDFactory.NewEntityID("verify"),
-			ClaimID:           item.ClaimID,
+			ClaimID:           itemClaimID,
+			CheckName:         "semantic",
 			Kind:              "semantic",
 			Status:            status,
 			FailureCode:       "semantic_" + string(item.Verdict),
@@ -421,10 +445,23 @@ func (v *CompositeVerifier) runSemanticVerification(ctx context.Context, req Ver
 			Confidence:        item.Confidence,
 		})
 	}
+	if len(results) == 0 && mismatchedClaim {
+		results = append(results, VerificationResult{
+			VerificationID: v.deps.IDFactory.NewEntityID("verify"),
+			ClaimID:        req.Claim.ClaimID,
+			CheckName:      "semantic",
+			Kind:           "semantic",
+			Status:         VerificationStatusInconclusive,
+			FailureCode:    "semantic_claim_mismatch",
+			Summary:        "semantic verifier 返回了不属于当前 claim 的结果",
+			Artifact:       awaited.Artifact,
+		})
+	}
 	if len(results) == 0 {
 		results = append(results, VerificationResult{
 			VerificationID: v.deps.IDFactory.NewEntityID("verify"),
 			ClaimID:        req.Claim.ClaimID,
+			CheckName:      "semantic",
 			Kind:           "semantic",
 			Status:         VerificationStatusInconclusive,
 			FailureCode:    "semantic_empty_result",

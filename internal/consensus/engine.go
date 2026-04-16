@@ -6,11 +6,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 )
 
-const SchemaVersion = 1
+const SchemaVersion = 2
+
+var ErrGlobalDeadlineExceeded = errors.New("global deadline exceeded")
 
 type EngineDeps struct {
 	TaskDelegate TaskDelegate
@@ -44,7 +45,7 @@ func NewEngine(deps EngineDeps) *Engine {
 	}
 }
 
-func (e *Engine) Start(ctx context.Context, input StartRequest) (_ *AdjudicationResult, err error) {
+func (e *Engine) Start(ctx context.Context, input StartRequest) (_ *RunResult, err error) {
 	if e.deps.TaskDelegate == nil {
 		return nil, fmt.Errorf("task delegate is required")
 	}
@@ -55,482 +56,92 @@ func (e *Engine) Start(ctx context.Context, input StartRequest) (_ *Adjudication
 	if err != nil {
 		return nil, err
 	}
-
-	startedAt := e.clock.Now()
-	sessionID := e.ids.NewSessionID()
-	state := NewStateMachine()
-	ledgerEntries := make([]EvidenceRecord, 0, 32)
-	ledgerCursor := 0
-	claimGraph := make([]ClaimNode, 0)
-	challengeTickets := make([]ChallengeTicket, 0)
-	verificationResults := make([]VerificationResult, 0)
-	metrics := Metrics{}
-
-	if err := e.deps.SessionStore.Save(ctx, SessionSnapshot{
-		SessionID:    sessionID,
-		RequestID:    request.RequestID,
-		Phase:        state.Current(),
-		StartedAt:    startedAt.Format(time.RFC3339Nano),
-		ClaimGraph:   claimGraph,
-		LedgerCursor: ledgerCursor,
-	}); err != nil {
-		return nil, err
+	switch request.Mode {
+	case WorkflowModeAdjudication:
+		return e.startAdjudication(ctx, request)
+	case WorkflowModeFreeDebate:
+		return e.startFreeDebate(ctx, request)
+	case WorkflowModeDelphi:
+		return e.startDelphi(ctx, request)
+	default:
+		return nil, fmt.Errorf("unsupported mode: %s", request.Mode)
 	}
-
-	defer func() {
-		if err == nil {
-			return
-		}
-		_ = e.failSession(ctx, request, sessionID, state, claimGraph, challengeTickets, &ledgerCursor, startedAt, err)
-	}()
-
-	if err := e.emit(ctx, request, sessionID, RunEventSessionStarted, state.Current(), map[string]any{
-		"goal":        request.TaskSpec.Goal,
-		"proposers":   request.Roles.Proposers,
-		"challengers": request.Roles.Challengers,
-	}); err != nil {
-		return nil, err
-	}
-
-	if err := e.advancePhase(ctx, request, sessionID, state, SessionPhaseIngest, claimGraph, challengeTickets, ledgerCursor); err != nil {
-		return nil, err
-	}
-	if _, err := e.appendEvidence(ctx, request, sessionID, &ledgerEntries, &ledgerCursor, EvidenceRecord{
-		Kind:         EvidenceKindTaskIngested,
-		Source:       EvidenceSourceCoordinator,
-		ProducerRole: "coordinator",
-		Summary:      "task ingested",
-		Metadata: map[string]any{
-			"goal":              request.TaskSpec.Goal,
-			"successCriteria":   request.TaskSpec.SuccessCriteria,
-			"allowedTools":      request.TaskSpec.AllowedTools,
-			"workspaceSnapshot": request.TaskSpec.WorkspaceSnapshot,
-		},
-	}); err != nil {
-		return nil, err
-	}
-
-	if err := e.advancePhase(ctx, request, sessionID, state, SessionPhasePropose, claimGraph, challengeTickets, ledgerCursor); err != nil {
-		return nil, err
-	}
-	for pass := 0; pass < request.ProposalPolicy.MaxPasses; pass++ {
-		if e.isGlobalDeadlineHit(request, startedAt) {
-			metrics.GlobalDeadlineHit = true
-			break
-		}
-		for _, proposerID := range request.Roles.Proposers {
-			receipt, awaited, taskErr := e.executeTask(ctx, request, sessionID, ProposalTask{
-				TaskMeta: TaskMeta{
-					SessionID: sessionID,
-					RequestID: request.RequestID,
-					AgentID:   proposerID,
-					Role:      "proposer",
-					Metadata: map[string]any{
-						"pass": pass,
-					},
-				},
-				TaskSpec:       request.TaskSpec,
-				Scope:          fmt.Sprintf("proposal pass %d", pass+1),
-				MaxClaims:      request.ProposalPolicy.MaxClaimsPerWorker,
-				DedupeStrategy: request.ProposalPolicy.DedupeStrategy,
-			}, request.WaitingPolicy.PerTaskTimeout)
-			metrics.TasksDispatched++
-			if taskErr != nil {
-				if strings.Contains(taskErr.Error(), "__timeout__") {
-					metrics.WaitTimeouts++
-				}
-				continue
-			}
-			output, ok := awaited.Output.(ProposalTaskResult)
-			if !ok {
-				return nil, fmt.Errorf("proposal task returned unexpected result type")
-			}
-			workerEntry, err := e.appendEvidence(ctx, request, sessionID, &ledgerEntries, &ledgerCursor, EvidenceRecord{
-				Kind:         EvidenceKindWorkerOutput,
-				Source:       EvidenceSourceWorker,
-				ProducerID:   proposerID,
-				ProducerRole: "proposer",
-				Summary:      output.Output.Summary,
-				Artifact:     awaited.Artifact,
-				Metadata: map[string]any{
-					"taskId":   receipt.TaskID,
-					"taskKind": TaskKindPropose,
-				},
-			})
-			if err != nil {
-				return nil, err
-			}
-			for _, draft := range output.Output.Claims {
-				if strings.TrimSpace(draft.Statement) == "" {
-					continue
-				}
-				var created bool
-				claimGraph, _, created = UpsertClaim(claimGraph, draft, proposerID, workerEntry.EntryID, e.ids)
-				if !created {
-					continue
-				}
-				metrics.ClaimsProposed++
-				claim := claimGraph[len(claimGraph)-1]
-				entry, err := e.appendEvidence(ctx, request, sessionID, &ledgerEntries, &ledgerCursor, EvidenceRecord{
-					ClaimID:      claim.ClaimID,
-					Kind:         EvidenceKindClaimProposed,
-					Source:       EvidenceSourceCoordinator,
-					ProducerID:   proposerID,
-					ProducerRole: "proposer",
-					Summary:      claim.Statement,
-					Metadata: map[string]any{
-						"title":         claim.Title,
-						"scope":         claim.Scope,
-						"dependencies":  claim.Dependencies,
-						"applicability": claim.Applicability,
-					},
-				})
-				if err != nil {
-					return nil, err
-				}
-				claimGraph = AttachEvidenceToClaim(claimGraph, claim.ClaimID, entry.EntryID)
-			}
-		}
-	}
-	SortClaims(claimGraph)
-	if err := ValidateClaimDependencies(claimGraph); err != nil {
-		return nil, err
-	}
-	if len(claimGraph) == 0 {
-		result := e.buildResult(request, sessionID, claimGraph, challengeTickets, ArbiterReport{
-			TaskVerdict: TaskVerdictFailed,
-			Summary:     "未产生任何可裁决 claim",
-		}, AdjudicationReport{
-			Summary: "未产生任何可裁决 claim",
-		}, nil, metrics, startedAt, nil)
-		if err := e.finishSession(ctx, sessionID, state, result, claimGraph, challengeTickets, ledgerCursor); err != nil {
-			return nil, err
-		}
-		return result, nil
-	}
-
-	if err := e.advancePhase(ctx, request, sessionID, state, SessionPhaseChallenge, claimGraph, challengeTickets, ledgerCursor); err != nil {
-		return nil, err
-	}
-	for _, challengerID := range request.Roles.Challengers {
-		if e.isGlobalDeadlineHit(request, startedAt) {
-			metrics.GlobalDeadlineHit = true
-			break
-		}
-		receipt, awaited, taskErr := e.executeTask(ctx, request, sessionID, ChallengeTask{
-			TaskMeta: TaskMeta{
-				SessionID: sessionID,
-				RequestID: request.RequestID,
-				AgentID:   challengerID,
-				Role:      "challenger",
-			},
-			TaskSpec: request.TaskSpec,
-			Claims:   claimGraph,
-		}, request.WaitingPolicy.PerTaskTimeout)
-		metrics.TasksDispatched++
-		if taskErr != nil {
-			if strings.Contains(taskErr.Error(), "__timeout__") {
-				metrics.WaitTimeouts++
-			}
-			continue
-		}
-		output, ok := awaited.Output.(ChallengeTaskResult)
-		if !ok {
-			return nil, fmt.Errorf("challenge task returned unexpected result type")
-		}
-		workerEntry, err := e.appendEvidence(ctx, request, sessionID, &ledgerEntries, &ledgerCursor, EvidenceRecord{
-			Kind:         EvidenceKindWorkerOutput,
-			Source:       EvidenceSourceWorker,
-			ProducerID:   challengerID,
-			ProducerRole: "challenger",
-			Summary:      output.Output.Summary,
-			Artifact:     awaited.Artifact,
-			Metadata: map[string]any{
-				"taskId":   receipt.TaskID,
-				"taskKind": TaskKindChallenge,
-			},
-		})
-		if err != nil {
-			return nil, err
-		}
-		for _, draft := range output.Output.Tickets {
-			claim, ok := ResolveClaimRef(claimGraph, draft.ClaimID, draft.Statement)
-			if !ok {
-				continue
-			}
-			var created bool
-			challengeTickets, _, created = UpsertChallenge(challengeTickets, draft, claim.ClaimID, challengerID, workerEntry.EntryID, e.ids)
-			if !created {
-				continue
-			}
-			metrics.ChallengesOpened++
-			ticket := challengeTickets[len(challengeTickets)-1]
-			entry, err := e.appendEvidence(ctx, request, sessionID, &ledgerEntries, &ledgerCursor, EvidenceRecord{
-				ClaimID:      claim.ClaimID,
-				ChallengeID:  ticket.TicketID,
-				Kind:         EvidenceKindChallengeOpened,
-				Source:       EvidenceSourceCoordinator,
-				ProducerID:   challengerID,
-				ProducerRole: "challenger",
-				Summary:      ticket.Statement,
-				Metadata: map[string]any{
-					"kind":            ticket.Kind,
-					"requestedChecks": ticket.RequestedChecks,
-				},
-			})
-			if err != nil {
-				return nil, err
-			}
-			challengeTickets[len(challengeTickets)-1].EvidenceRefs = appendUnique(challengeTickets[len(challengeTickets)-1].EvidenceRefs, entry.EntryID)
-			claimGraph = AttachChallengeToClaim(claimGraph, claim.ClaimID, ticket.TicketID)
-		}
-	}
-	SortChallenges(challengeTickets)
-
-	if err := e.advancePhase(ctx, request, sessionID, state, SessionPhaseVerify, claimGraph, challengeTickets, ledgerCursor); err != nil {
-		return nil, err
-	}
-	verifier := e.deps.Verifier
-	if verifier == nil {
-		verifier = NewCompositeVerifier(CompositeVerifierDeps{
-			TaskDelegate:   e.deps.TaskDelegate,
-			Clock:          e.clock,
-			IDFactory:      e.ids,
-			ArtifactDir:    e.deps.ArtifactDir,
-			PerTaskTimeout: request.WaitingPolicy.PerTaskTimeout,
-		})
-	}
-	for _, claim := range claimGraph {
-		if e.isGlobalDeadlineHit(request, startedAt) {
-			metrics.GlobalDeadlineHit = true
-			break
-		}
-		findings, verifyErr := verifier.Run(ctx, VerificationRequest{
-			Request:    request,
-			SessionID:  sessionID,
-			Claim:      claim,
-			Challenges: selectChallenges(challengeTickets, claim.ClaimID),
-		})
-		if verifyErr != nil {
-			findings = []VerificationResult{{
-				VerificationID: e.ids.NewEntityID("verify"),
-				ClaimID:        claim.ClaimID,
-				Kind:           "verifier_error",
-				Status:         VerificationStatusInconclusive,
-				Summary:        verifyErr.Error(),
-			}}
-		}
-		claimVerificationRefs := make([]string, 0, len(findings))
-		for _, finding := range findings {
-			kind := EvidenceKindDeterministicCheck
-			if finding.Kind == "semantic" {
-				kind = EvidenceKindSemanticVerification
-			}
-			metadata := map[string]any{
-				"kind":              finding.Kind,
-				"status":            finding.Status,
-				"failureCode":       finding.FailureCode,
-				"verdictSuggestion": finding.VerdictSuggestion,
-				"confidence":        finding.Confidence,
-			}
-			for key, value := range finding.Metadata {
-				metadata[key] = value
-			}
-			entry, err := e.appendEvidence(ctx, request, sessionID, &ledgerEntries, &ledgerCursor, EvidenceRecord{
-				ClaimID:        claim.ClaimID,
-				ChallengeID:    finding.ChallengeID,
-				VerificationID: finding.VerificationID,
-				Kind:           kind,
-				Source:         EvidenceSourceVerifier,
-				ProducerRole:   "verifier",
-				Summary:        finding.Summary,
-				Artifact:       finding.Artifact,
-				Metadata:       metadata,
-			})
-			if err != nil {
-				return nil, err
-			}
-			finding.EvidenceRef = entry.EntryID
-			verificationResults = append(verificationResults, finding)
-			claimVerificationRefs = append(claimVerificationRefs, entry.EntryID)
-			metrics.VerificationsRun++
-		}
-		for _, verificationRef := range claimVerificationRefs {
-			claimGraph = AttachVerificationToClaim(claimGraph, claim.ClaimID, verificationRef)
-		}
-		challengeTickets = CloseChallenges(challengeTickets, claim.ClaimID, claimVerificationRefs, "verification completed")
-	}
-
-	if err := e.advancePhase(ctx, request, sessionID, state, SessionPhaseAdjudicate, claimGraph, challengeTickets, ledgerCursor); err != nil {
-		return nil, err
-	}
-	arbiter := e.deps.Arbiter
-	if arbiter == nil {
-		arbiter = NewDefaultArbiter(DefaultArbiterDeps{
-			TaskDelegate:   e.deps.TaskDelegate,
-			Clock:          e.clock,
-			IDFactory:      e.ids,
-			PerTaskTimeout: request.WaitingPolicy.PerTaskTimeout,
-		})
-	}
-	arbiterReport, err := arbiter.Decide(ctx, ArbiterInput{
-		Request:    request,
-		SessionID:  sessionID,
-		Claims:     claimGraph,
-		Challenges: challengeTickets,
-		Ledger:     ledgerEntries,
-		Findings:   verificationResults,
-	})
-	if err != nil {
-		return nil, err
-	}
-	for idx, decision := range arbiterReport.Decisions {
-		entry, err := e.appendEvidence(ctx, request, sessionID, &ledgerEntries, &ledgerCursor, EvidenceRecord{
-			ClaimID:      decision.ClaimID,
-			Kind:         EvidenceKindArbiterDecision,
-			Source:       EvidenceSourceArbiter,
-			ProducerID:   request.Roles.Arbiter,
-			ProducerRole: "arbiter",
-			Summary:      decision.Rationale,
-			Metadata: map[string]any{
-				"verdict":    decision.Verdict,
-				"confidence": decision.Confidence,
-			},
-		})
-		if err != nil {
-			return nil, err
-		}
-		arbiterReport.Decisions[idx].EvidenceRefs = appendUnique(decision.EvidenceRefs, entry.EntryID)
-	}
-	claimGraph = ApplyDecisions(claimGraph, arbiterReport.Decisions)
-
-	if err := e.advancePhase(ctx, request, sessionID, state, SessionPhaseReport, claimGraph, challengeTickets, ledgerCursor); err != nil {
-		return nil, err
-	}
-	report, reportArtifact, err := ComposeReport(ctx, e.deps.TaskDelegate, request, sessionID, arbiterReport, claimGraph, challengeTickets, request.WaitingPolicy)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := e.appendEvidence(ctx, request, sessionID, &ledgerEntries, &ledgerCursor, EvidenceRecord{
-		Kind:         EvidenceKindReportGenerated,
-		Source:       EvidenceSourceReporter,
-		ProducerID:   request.Roles.Reporter,
-		ProducerRole: "reporter",
-		Summary:      report.Summary,
-		Artifact:     reportArtifact,
-	}); err != nil {
-		return nil, err
-	}
-
-	var actionOutput *ActionOutput
-	if request.ActionPolicy != nil {
-		if err := e.advancePhase(ctx, request, sessionID, state, SessionPhaseAction, claimGraph, challengeTickets, ledgerCursor); err != nil {
-			return nil, err
-		}
-		actionResult, actionErr := e.executeAction(ctx, request, sessionID, claimGraph, challengeTickets, arbiterReport, report, startedAt)
-		if actionErr != nil {
-			actionOutput = &ActionOutput{
-				ActorID: firstNonEmpty(request.ActionPolicy.ActorID, request.Roles.Actor),
-				Status:  "failed",
-				Error:   actionErr.Error(),
-			}
-		} else {
-			actionOutput = actionResult
-		}
-		if actionOutput != nil {
-			if _, err := e.appendEvidence(ctx, request, sessionID, &ledgerEntries, &ledgerCursor, EvidenceRecord{
-				Kind:         EvidenceKindActionGenerated,
-				Source:       EvidenceSourceActor,
-				ProducerID:   actionOutput.ActorID,
-				ProducerRole: "actor",
-				Summary:      actionOutput.Summary,
-				Metadata: map[string]any{
-					"status": actionOutput.Status,
-				},
-			}); err != nil {
-				return nil, err
-			}
-		}
-	}
-
-	result := e.buildResult(request, sessionID, claimGraph, challengeTickets, arbiterReport, report, actionOutput, metrics, startedAt, nil)
-	if err := e.finishSession(ctx, sessionID, state, result, claimGraph, challengeTickets, ledgerCursor); err != nil {
-		return nil, err
-	}
-	return result, nil
 }
 
-func (e *Engine) executeTask(ctx context.Context, request StartRequest, sessionID string, task Task, timeout time.Duration) (DispatchReceipt, AwaitedTask, error) {
-	if err := e.emit(ctx, request, sessionID, RunEventTaskDispatched, SessionPhase(""), map[string]any{
-		"taskKind": task.Kind(),
-		"agentId":  task.Meta().AgentID,
-	}); err != nil {
-		return DispatchReceipt{}, AwaitedTask{}, err
+func (e *Engine) executeTask(ctx context.Context, request StartRequest, sessionID string, task Task, startedAt time.Time, timeout time.Duration) (DispatchReceipt, AwaitedTask, error) {
+	taskCtx, cancel, deadlineErr := e.withGlobalDeadline(ctx, request, startedAt)
+	if deadlineErr != nil {
+		return DispatchReceipt{}, AwaitedTask{}, ErrGlobalDeadlineExceeded
 	}
-	receipt, err := e.deps.TaskDelegate.Dispatch(ctx, task)
+	defer cancel()
+	receipt, awaited, _, err := ExecuteTaskWithRetry(taskCtx, e.deps.TaskDelegate, task, e.effectivePerTaskTimeout(request, startedAt, timeout), request.WaitingPolicy.RetryAttempts, TaskRetryHooks{
+		BeforeDispatch: func(attempt int, maxAttempts int) error {
+			return e.emit(ctx, request, sessionID, RunEventTaskDispatched, SessionPhase(""), map[string]any{
+				"taskKind":    task.Kind(),
+				"agentId":     task.Meta().AgentID,
+				"attempt":     attempt,
+				"maxAttempts": maxAttempts,
+			})
+		},
+		OnFailure: func(attempt int, maxAttempts int, reason string) error {
+			return e.emit(ctx, request, sessionID, RunEventTaskFailed, SessionPhase(""), map[string]any{
+				"taskKind":    task.Kind(),
+				"agentId":     task.Meta().AgentID,
+				"error":       reason,
+				"attempt":     attempt,
+				"maxAttempts": maxAttempts,
+			})
+		},
+		OnRetry: func(nextAttempt int, maxAttempts int, reason string) error {
+			return e.emit(ctx, request, sessionID, RunEventTaskRetrying, SessionPhase(""), map[string]any{
+				"taskKind":    task.Kind(),
+				"agentId":     task.Meta().AgentID,
+				"attempt":     nextAttempt,
+				"maxAttempts": maxAttempts,
+				"error":       reason,
+			})
+		},
+		OnSuccess: func(attempt int, maxAttempts int) error {
+			return e.emit(ctx, request, sessionID, RunEventTaskCompleted, SessionPhase(""), map[string]any{
+				"taskKind":    task.Kind(),
+				"agentId":     task.Meta().AgentID,
+				"attempt":     attempt,
+				"maxAttempts": maxAttempts,
+			})
+		},
+	})
 	if err != nil {
-		_ = e.emit(ctx, request, sessionID, RunEventTaskFailed, SessionPhase(""), map[string]any{
-			"taskKind": task.Kind(),
-			"agentId":  task.Meta().AgentID,
-			"error":    err.Error(),
-		})
-		return DispatchReceipt{}, AwaitedTask{}, err
-	}
-	awaited, err := e.deps.TaskDelegate.Await(ctx, receipt.TaskID, timeout)
-	if err != nil {
-		_ = e.emit(ctx, request, sessionID, RunEventTaskFailed, SessionPhase(""), map[string]any{
-			"taskKind": task.Kind(),
-			"agentId":  task.Meta().AgentID,
-			"error":    err.Error(),
-		})
-		return receipt, AwaitedTask{}, err
-	}
-	if !awaited.OK {
-		_ = e.emit(ctx, request, sessionID, RunEventTaskFailed, SessionPhase(""), map[string]any{
-			"taskKind": task.Kind(),
-			"agentId":  task.Meta().AgentID,
-			"error":    awaited.Error,
-		})
-		return receipt, awaited, errors.New(awaited.Error)
-	}
-	if err := e.emit(ctx, request, sessionID, RunEventTaskCompleted, SessionPhase(""), map[string]any{
-		"taskKind": task.Kind(),
-		"agentId":  task.Meta().AgentID,
-	}); err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			return receipt, AwaitedTask{}, ErrGlobalDeadlineExceeded
+		}
 		return receipt, awaited, err
 	}
 	return receipt, awaited, nil
 }
 
-func (e *Engine) executeAction(ctx context.Context, request StartRequest, sessionID string, claims []ClaimNode, tickets []ChallengeTicket, arbiter ArbiterReport, report AdjudicationReport, startedAt time.Time) (*ActionOutput, error) {
+func (e *Engine) executeAction(ctx context.Context, request StartRequest, input RunResult, startedAt time.Time) (*ActionOutput, error) {
+	if request.ActionPolicy == nil {
+		return nil, nil
+	}
 	actorID := firstNonEmpty(request.ActionPolicy.ActorID, request.Roles.Actor)
 	if actorID == "" {
 		return nil, fmt.Errorf("action requested but no actor configured")
 	}
-	input := AdjudicationResult{
-		SchemaVersion:    SchemaVersion,
-		RequestID:        request.RequestID,
-		SessionID:        sessionID,
-		TaskSpec:         request.TaskSpec,
-		TaskVerdict:      arbiter.TaskVerdict,
-		ClaimGraph:       claims,
-		ChallengeTickets: tickets,
-		ArbiterReport:    arbiter,
-		Report:           report,
-		Metrics: Metrics{
-			ElapsedMs: e.clock.Now().Sub(startedAt).Milliseconds(),
-		},
+	actionCtx, cancel, deadlineErr := e.withGlobalDeadline(ctx, request, startedAt)
+	if deadlineErr != nil {
+		return nil, ErrGlobalDeadlineExceeded
 	}
-	_, awaited, err := e.executeTask(ctx, request, sessionID, ActionTask{
+	defer cancel()
+	_, awaited, err := e.executeTask(actionCtx, request, input.SessionID, ActionTask{
 		TaskMeta: TaskMeta{
-			SessionID: sessionID,
+			SessionID: input.SessionID,
 			RequestID: request.RequestID,
 			AgentID:   actorID,
 			Role:      "actor",
 		},
 		Prompt: request.ActionPolicy.Prompt,
 		Input:  input,
-	}, request.WaitingPolicy.PerTaskTimeout)
+	}, startedAt, request.WaitingPolicy.PerTaskTimeout)
 	if err != nil {
 		return nil, err
 	}
@@ -546,32 +157,54 @@ func (e *Engine) executeAction(ctx context.Context, request StartRequest, sessio
 	}, nil
 }
 
-func (e *Engine) buildResult(request StartRequest, sessionID string, claims []ClaimNode, tickets []ChallengeTicket, arbiter ArbiterReport, report AdjudicationReport, action *ActionOutput, metrics Metrics, startedAt time.Time, failure *FailureInfo) *AdjudicationResult {
-	return &AdjudicationResult{
-		SchemaVersion:    SchemaVersion,
-		RequestID:        request.RequestID,
-		SessionID:        sessionID,
-		TaskSpec:         request.TaskSpec,
-		TaskVerdict:      arbiter.TaskVerdict,
-		ClaimGraph:       claims,
-		ChallengeTickets: tickets,
-		ArbiterReport:    arbiter,
-		Report:           report,
-		Action:           action,
-		Metrics: Metrics{
-			ElapsedMs:         e.clock.Now().Sub(startedAt).Milliseconds(),
-			ClaimsProposed:    metrics.ClaimsProposed,
-			ChallengesOpened:  metrics.ChallengesOpened,
-			VerificationsRun:  metrics.VerificationsRun,
-			TasksDispatched:   metrics.TasksDispatched,
-			WaitTimeouts:      metrics.WaitTimeouts,
-			GlobalDeadlineHit: metrics.GlobalDeadlineHit,
-		},
+func (e *Engine) buildAdjudicationResult(
+	request StartRequest,
+	sessionID string,
+	manifest CaseManifest,
+	claims []ClaimNode,
+	tickets []ChallengeTicket,
+	verificationResults []VerificationResult,
+	revisionRecords []ClaimRevisionRecord,
+	adjudicationRecords []AdjudicationRecord,
+	arbiter ArbiterReport,
+	report AdjudicationReport,
+	action *ActionOutput,
+	terminalState WorkflowTerminalState,
+	observations []ObservationRecord,
+	metrics Metrics,
+	startedAt time.Time,
+	failure *FailureInfo,
+) *RunResult {
+	if len(adjudicationRecords) == 0 && len(arbiter.Records) > 0 {
+		adjudicationRecords = append([]AdjudicationRecord(nil), arbiter.Records...)
+	}
+	return &RunResult{
+		SchemaVersion: SchemaVersion,
+		Mode:          WorkflowModeAdjudication,
+		RequestID:     request.RequestID,
+		SessionID:     sessionID,
+		TaskSpec:      request.TaskSpec,
+		CaseManifest:  &manifest,
+		TerminalState: terminalState,
+		Report:        report,
+		Action:        action,
+		Observations:  append([]ObservationRecord(nil), observations...),
+		Metrics:       finalizeMetrics(metrics, startedAt, e.clock),
 		Error: failure,
+		Adjudication: &AdjudicationResultSection{
+			TaskVerdict:         arbiter.TaskVerdict,
+			TerminalState:       terminalState,
+			ClaimGraph:          claims,
+			ChallengeTickets:    tickets,
+			VerificationResults: append([]VerificationResult(nil), verificationResults...),
+			RevisionRecords:     append([]ClaimRevisionRecord(nil), revisionRecords...),
+			AdjudicationRecords: append([]AdjudicationRecord(nil), adjudicationRecords...),
+			ArbiterReport:       arbiter,
+		},
 	}
 }
 
-func (e *Engine) finishSession(ctx context.Context, sessionID string, state *StateMachine, result *AdjudicationResult, claims []ClaimNode, tickets []ChallengeTicket, ledgerCursor int) error {
+func (e *Engine) finishSession(ctx context.Context, sessionID string, state *StateMachine, result *RunResult, claims []ClaimNode, tickets []ChallengeTicket, ledgerCursor int) error {
 	if err := state.Transition(SessionPhaseFinished); err != nil {
 		return err
 	}
@@ -586,8 +219,13 @@ func (e *Engine) finishSession(ctx context.Context, sessionID string, state *Sta
 	}); err != nil {
 		return err
 	}
+	taskVerdict := ""
+	if result.Adjudication != nil {
+		taskVerdict = string(result.Adjudication.TaskVerdict)
+	}
 	return e.emit(ctx, StartRequest{RequestID: result.RequestID}, sessionID, RunEventSessionFinalized, state.Current(), map[string]any{
-		"taskVerdict": result.TaskVerdict,
+		"mode":        result.Mode,
+		"taskVerdict": taskVerdict,
 	})
 }
 
@@ -597,12 +235,32 @@ func (e *Engine) failSession(ctx context.Context, request StartRequest, sessionI
 		Code:    "engine_failed",
 		Message: cause.Error(),
 	}
-	result := e.buildResult(request, sessionID, claims, tickets, ArbiterReport{
-		TaskVerdict: TaskVerdictFailed,
-		Summary:     cause.Error(),
-	}, AdjudicationReport{
-		Summary: cause.Error(),
-	}, nil, Metrics{}, startedAt, failure)
+	result := &RunResult{
+		SchemaVersion: SchemaVersion,
+		Mode:          request.Mode,
+		RequestID:     request.RequestID,
+		SessionID:     sessionID,
+		TaskSpec:      request.TaskSpec,
+		CaseManifest:  ptr(BuildCaseManifest(request)),
+		TerminalState: TerminalStateRequiresHumanReview,
+		Report: AdjudicationReport{
+			Summary: cause.Error(),
+		},
+		Metrics: finalizeMetrics(Metrics{}, startedAt, e.clock),
+		Error: failure,
+	}
+	if request.Mode == WorkflowModeAdjudication {
+		result.Adjudication = &AdjudicationResultSection{
+			TaskVerdict:      TaskVerdictFailed,
+			TerminalState:    TerminalStateRequiresHumanReview,
+			ClaimGraph:       claims,
+			ChallengeTickets: tickets,
+			ArbiterReport: ArbiterReport{
+				TaskVerdict: TaskVerdictFailed,
+				Summary:     cause.Error(),
+			},
+		}
+	}
 	failedAt := e.clock.Now().Format(time.RFC3339Nano)
 	if err := e.deps.SessionStore.Patch(ctx, sessionID, SessionPatch{
 		Phase:            ptr(state.Current()),
@@ -646,6 +304,90 @@ func (e *Engine) appendEvidence(ctx context.Context, request StartRequest, sessi
 		return EvidenceRecord{}, err
 	}
 	return entry, nil
+}
+
+func (e *Engine) effectivePerTaskTimeout(request StartRequest, startedAt time.Time, base time.Duration) time.Duration {
+	remaining, limited := e.remainingGlobalDeadline(request, startedAt)
+	if !limited {
+		return base
+	}
+	if remaining <= 0 {
+		return 0
+	}
+	if base <= 0 || remaining < base {
+		return remaining
+	}
+	return base
+}
+
+func (e *Engine) remainingGlobalDeadline(request StartRequest, startedAt time.Time) (time.Duration, bool) {
+	if request.WaitingPolicy.GlobalDeadline <= 0 {
+		return 0, false
+	}
+	return request.WaitingPolicy.GlobalDeadline - e.clock.Now().Sub(startedAt), true
+}
+
+func (e *Engine) withGlobalDeadline(ctx context.Context, request StartRequest, startedAt time.Time) (context.Context, context.CancelFunc, error) {
+	remaining, limited := e.remainingGlobalDeadline(request, startedAt)
+	if !limited {
+		return ctx, func() {}, nil
+	}
+	if remaining <= 0 {
+		return nil, func() {}, ErrGlobalDeadlineExceeded
+	}
+	deadlineCtx, cancel := context.WithTimeout(ctx, remaining)
+	return deadlineCtx, cancel, nil
+}
+
+func (e *Engine) decideArbiter(ctx context.Context, request StartRequest, startedAt time.Time, input ArbiterInput, metrics *Metrics) (ArbiterReport, error) {
+	deadlineCtx, cancel, deadlineErr := e.withGlobalDeadline(ctx, request, startedAt)
+	if deadlineErr != nil {
+		metrics.GlobalDeadlineHit = true
+		return NewDefaultArbiter(DefaultArbiterDeps{}).ruleBasedDecision(input), nil
+	}
+	defer cancel()
+
+	arbiter := e.deps.Arbiter
+	if arbiter == nil {
+		arbiter = NewDefaultArbiter(DefaultArbiterDeps{
+			TaskDelegate:   e.deps.TaskDelegate,
+			Clock:          e.clock,
+			IDFactory:      e.ids,
+			PerTaskTimeout: e.effectivePerTaskTimeout(request, startedAt, request.WaitingPolicy.PerTaskTimeout),
+			RetryAttempts:  request.WaitingPolicy.RetryAttempts,
+		})
+	}
+	report, err := arbiter.Decide(deadlineCtx, input)
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) || errors.Is(err, ErrGlobalDeadlineExceeded) {
+			metrics.GlobalDeadlineHit = true
+			return NewDefaultArbiter(DefaultArbiterDeps{}).ruleBasedDecision(input), nil
+		}
+		return ArbiterReport{}, err
+	}
+	return report, nil
+}
+
+func (e *Engine) composeReport(ctx context.Context, request StartRequest, sessionID string, startedAt time.Time, arbiter ArbiterReport, claims []ClaimNode, tickets []ChallengeTicket, metrics *Metrics) (AdjudicationReport, *ArtifactRef, error) {
+	reportCtx, cancel, deadlineErr := e.withGlobalDeadline(ctx, request, startedAt)
+	if deadlineErr != nil {
+		metrics.GlobalDeadlineHit = true
+		return BuildBuiltinReport(request, arbiter, claims, tickets), nil, nil
+	}
+	defer cancel()
+
+	report, artifact, err := ComposeReport(reportCtx, e.deps.TaskDelegate, request, sessionID, arbiter, claims, tickets, WaitingPolicy{
+		PerTaskTimeout: e.effectivePerTaskTimeout(request, startedAt, request.WaitingPolicy.PerTaskTimeout),
+		GlobalDeadline: request.WaitingPolicy.GlobalDeadline,
+	})
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) || errors.Is(err, ErrGlobalDeadlineExceeded) {
+			metrics.GlobalDeadlineHit = true
+			return BuildBuiltinReport(request, arbiter, claims, tickets), nil, nil
+		}
+		return AdjudicationReport{}, nil, err
+	}
+	return report, artifact, nil
 }
 
 func (e *Engine) advancePhase(ctx context.Context, request StartRequest, sessionID string, state *StateMachine, next SessionPhase, claims []ClaimNode, tickets []ChallengeTicket, ledgerCursor int) error {

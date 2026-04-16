@@ -15,10 +15,40 @@ func TaskOutputJSONSchema(task consensus.Task) map[string]any {
 			"type":     "object",
 			"required": []string{"summary", "claims"},
 		}
+	case consensus.InitialProposalTask:
+		return map[string]any{
+			"type":     "object",
+			"required": []string{"summary", "claims"},
+		}
 	case consensus.ChallengeTask:
 		return map[string]any{
 			"type":     "object",
 			"required": []string{"summary", "tickets"},
+		}
+	case consensus.ReviseTask:
+		return map[string]any{
+			"type":     "object",
+			"required": []string{"summary", "revisions"},
+		}
+	case consensus.DebateRoundTask:
+		return map[string]any{
+			"type":     "object",
+			"required": []string{"summary", "judgements"},
+		}
+	case consensus.FinalVoteTask:
+		return map[string]any{
+			"type":     "object",
+			"required": []string{"summary", "votes"},
+		}
+	case consensus.DelphiQuestionnaireTask, consensus.DelphiRevisionTask:
+		return map[string]any{
+			"type":     "object",
+			"required": []string{"summary", "responses"},
+		}
+	case consensus.DelphiFacilitatorSummaryTask:
+		return map[string]any{
+			"type":     "object",
+			"required": []string{"summary"},
 		}
 	case consensus.SemanticVerificationTask:
 		return map[string]any{
@@ -87,6 +117,15 @@ func normalizeTaskOutputFromJSON(task consensus.Task, payload []byte) (consensus
 			return nil, fmt.Errorf("proposal output missing summary")
 		}
 		return consensus.ProposalTaskResult{Output: output}, nil
+	case consensus.InitialProposalTask:
+		var output consensus.InitialProposalOutput
+		if err := json.Unmarshal(payload, &output); err != nil {
+			return nil, fmt.Errorf("decode initial proposal output: %w", err)
+		}
+		if strings.TrimSpace(output.Summary) == "" {
+			return nil, fmt.Errorf("initial proposal output missing summary")
+		}
+		return consensus.InitialProposalTaskResult{Output: output}, nil
 	case consensus.ChallengeTask:
 		var output consensus.ChallengeOutput
 		if err := json.Unmarshal(payload, &output); err != nil {
@@ -96,6 +135,33 @@ func normalizeTaskOutputFromJSON(task consensus.Task, payload []byte) (consensus
 			return nil, fmt.Errorf("challenge output missing summary")
 		}
 		return consensus.ChallengeTaskResult{Output: output}, nil
+	case consensus.ReviseTask:
+		var output consensus.ReviseOutput
+		if err := json.Unmarshal(payload, &output); err != nil {
+			return nil, fmt.Errorf("decode revise output: %w", err)
+		}
+		if strings.TrimSpace(output.Summary) == "" {
+			return nil, fmt.Errorf("revise output missing summary")
+		}
+		return consensus.ReviseTaskResult{Output: output}, nil
+	case consensus.DebateRoundTask:
+		var output consensus.DebateRoundOutput
+		if err := json.Unmarshal(payload, &output); err != nil {
+			return nil, fmt.Errorf("decode debate round output: %w", err)
+		}
+		if strings.TrimSpace(output.Summary) == "" {
+			return nil, fmt.Errorf("debate round output missing summary")
+		}
+		return consensus.DebateRoundTaskResult{Output: output}, nil
+	case consensus.FinalVoteTask:
+		var output consensus.FinalVoteOutput
+		if err := json.Unmarshal(payload, &output); err != nil {
+			return nil, fmt.Errorf("decode final vote output: %w", err)
+		}
+		if strings.TrimSpace(output.Summary) == "" {
+			return nil, fmt.Errorf("final vote output missing summary")
+		}
+		return consensus.FinalVoteTaskResult{Output: output}, nil
 	case consensus.SemanticVerificationTask:
 		var output consensus.SemanticVerificationOutput
 		if err := json.Unmarshal(payload, &output); err != nil {
@@ -105,6 +171,33 @@ func normalizeTaskOutputFromJSON(task consensus.Task, payload []byte) (consensus
 			return nil, fmt.Errorf("semantic verification output missing summary")
 		}
 		return consensus.SemanticVerificationTaskResult{Output: output}, nil
+	case consensus.DelphiQuestionnaireTask:
+		var output consensus.DelphiQuestionnaireOutput
+		if err := json.Unmarshal(payload, &output); err != nil {
+			return nil, fmt.Errorf("decode delphi questionnaire output: %w", err)
+		}
+		if strings.TrimSpace(output.Summary) == "" {
+			return nil, fmt.Errorf("delphi questionnaire output missing summary")
+		}
+		return consensus.DelphiQuestionnaireTaskResult{Output: output}, nil
+	case consensus.DelphiRevisionTask:
+		var output consensus.DelphiRevisionOutput
+		if err := json.Unmarshal(payload, &output); err != nil {
+			return nil, fmt.Errorf("decode delphi revision output: %w", err)
+		}
+		if strings.TrimSpace(output.Summary) == "" {
+			return nil, fmt.Errorf("delphi revision output missing summary")
+		}
+		return consensus.DelphiRevisionTaskResult{Output: output}, nil
+	case consensus.DelphiFacilitatorSummaryTask:
+		var output consensus.DelphiFacilitatorSummaryOutput
+		if err := json.Unmarshal(payload, &output); err != nil {
+			return nil, fmt.Errorf("decode delphi facilitator summary output: %w", err)
+		}
+		if strings.TrimSpace(output.Summary) == "" {
+			return nil, fmt.Errorf("delphi facilitator summary output missing summary")
+		}
+		return consensus.DelphiFacilitatorSummaryTaskResult{Output: output}, nil
 	case consensus.ArbiterTask:
 		var output consensus.ArbiterTaskOutput
 		if err := json.Unmarshal(payload, &output); err != nil {

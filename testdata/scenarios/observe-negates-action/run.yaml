@@ -1,0 +1,34 @@
+request_id: observe-negates-action-001
+
+task_spec:
+  goal: 判断执行后的外部观测是否推翻原结论
+  task_type: operational
+  success_criteria:
+    - action 执行后必须观测是否与 retained claims 一致
+    - 如果外部观测否定原结论，必须 reopen
+
+roles:
+  proposers: [proposer-a]
+  challengers: [challenger-a]
+  arbiter: arbiter-a
+  actor: actor-a
+
+action: 执行低风险发布动作
+
+observe_policy:
+  on_contradiction: reopen
+  sources:
+    - name: post-action-health
+      command: sh
+      args:
+        - -c
+        - printf '{"health":{"failed":true},"message":"post-action probe detected regression","details":{"service":"api","status":"broken"}}'
+      source_type: external_command
+      reference: local-postcheck
+      parsing:
+        mode: json
+        failure_path: health.failed
+        summary_path: message
+        metadata_paths:
+          service: details.service
+          status: details.status

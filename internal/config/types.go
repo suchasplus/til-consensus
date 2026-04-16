@@ -51,13 +51,22 @@ type Config struct {
 }
 
 type DefaultsConfig struct {
+	Mode               consensus.WorkflowMode       `yaml:"mode,omitempty"`
+	TaskType           consensus.CaseTaskType       `yaml:"task_type,omitempty"`
 	SuccessCriteria    []string                     `yaml:"success_criteria"`
+	OutOfScope         []string                     `yaml:"out_of_scope,omitempty"`
 	AllowedTools       []string                     `yaml:"allowed_tools"`
 	PerTaskTimeout     Duration                     `yaml:"per_task_timeout"`
+	TaskRetryAttempts  int                          `yaml:"task_retry_attempts,omitempty"`
 	GlobalDeadline     Duration                     `yaml:"global_deadline"`
 	ProposalPolicy     ProposalPolicyConfig         `yaml:"proposal_policy"`
 	VerificationPolicy VerificationPolicyConfig     `yaml:"verification_policy"`
 	ArbiterPolicy      ArbiterPolicyConfig          `yaml:"arbiter_policy"`
+	IngestPolicy       consensus.IngestPolicy       `yaml:"ingest_policy,omitempty"`
+	FallbackPolicy     consensus.AdjudicationFallbackPolicy `yaml:"fallback_policy,omitempty"`
+	ObservePolicy      consensus.ObservePolicy      `yaml:"observe_policy,omitempty"`
+	DebatePolicy       DebatePolicyConfig           `yaml:"debate_policy,omitempty"`
+	DelphiPolicy       DelphiPolicyConfig           `yaml:"delphi_policy,omitempty"`
 	WorkspaceSnapshot  *consensus.WorkspaceSnapshot `yaml:"workspace_snapshot,omitempty"`
 	TaskConstraints    consensus.TaskConstraints    `yaml:"task_constraints,omitempty"`
 }
@@ -65,8 +74,10 @@ type DefaultsConfig struct {
 type RolesConfig struct {
 	Proposers        []string `yaml:"proposers"`
 	Challengers      []string `yaml:"challengers"`
+	Participants     []string `yaml:"participants,omitempty"`
 	Arbiter          string   `yaml:"arbiter,omitempty"`
 	SemanticVerifier string   `yaml:"semantic_verifier,omitempty"`
+	Facilitator      string   `yaml:"facilitator,omitempty"`
 	Reporter         string   `yaml:"reporter,omitempty"`
 	Actor            string   `yaml:"actor,omitempty"`
 }
@@ -86,6 +97,24 @@ type VerificationPolicyConfig struct {
 type ArbiterPolicyConfig struct {
 	AllowUndetermined bool `yaml:"allow_undetermined"`
 	BlindReview       bool `yaml:"blind_review"`
+}
+
+type DebatePolicyConfig struct {
+	MinRounds       int     `yaml:"min_rounds,omitempty"`
+	MaxRounds       int     `yaml:"max_rounds,omitempty"`
+	VoteThreshold   float64 `yaml:"vote_threshold,omitempty"`
+	EnableEarlyStop bool    `yaml:"enable_early_stop"`
+	PeerContextMode string  `yaml:"peer_context_mode,omitempty"`
+}
+
+type DelphiPolicyConfig struct {
+	MinRounds               int     `yaml:"min_rounds,omitempty"`
+	MaxRounds               int     `yaml:"max_rounds,omitempty"`
+	ConvergenceThreshold    float64 `yaml:"convergence_threshold,omitempty"`
+	RatingScaleMin          int     `yaml:"rating_scale_min,omitempty"`
+	RatingScaleMax          int     `yaml:"rating_scale_max,omitempty"`
+	Anonymous               bool    `yaml:"anonymous"`
+	FacilitatorSummaryStyle string  `yaml:"facilitator_summary_style,omitempty"`
 }
 
 type OutputConfig struct {
@@ -159,39 +188,55 @@ type LoadedConfig struct {
 }
 
 type RunInput struct {
+	Mode               consensus.WorkflowMode   `yaml:"mode" json:"mode"`
 	RequestID          string                   `yaml:"request_id" json:"request_id"`
+	TaskRetryAttempts  int                      `yaml:"task_retry_attempts,omitempty" json:"task_retry_attempts,omitempty"`
 	TaskSpec           TaskSpecInput            `yaml:"task_spec" json:"task_spec"`
 	Roles              RolesConfig              `yaml:"roles" json:"roles"`
 	ProposalPolicy     ProposalPolicyConfig     `yaml:"proposal_policy" json:"proposal_policy"`
 	VerificationPolicy VerificationPolicyConfig `yaml:"verification_policy" json:"verification_policy"`
 	ArbiterPolicy      ArbiterPolicyConfig      `yaml:"arbiter_policy" json:"arbiter_policy"`
+	IngestPolicy       consensus.IngestPolicy   `yaml:"ingest_policy" json:"ingest_policy"`
+	FallbackPolicy     consensus.AdjudicationFallbackPolicy `yaml:"fallback_policy" json:"fallback_policy"`
+	ObservePolicy      consensus.ObservePolicy  `yaml:"observe_policy" json:"observe_policy"`
+	DebatePolicy       DebatePolicyConfig       `yaml:"debate_policy" json:"debate_policy"`
+	DelphiPolicy       DelphiPolicyConfig       `yaml:"delphi_policy" json:"delphi_policy"`
 	Action             string                   `yaml:"action" json:"action"`
 }
 
 type TaskSpecInput struct {
 	Goal              string                       `yaml:"goal" json:"goal"`
+	TaskType          consensus.CaseTaskType       `yaml:"task_type,omitempty" json:"task_type,omitempty"`
 	Materials         []consensus.MaterialRef      `yaml:"materials,omitempty" json:"materials,omitempty"`
 	Constraints       consensus.TaskConstraints    `yaml:"constraints,omitempty" json:"constraints,omitempty"`
 	SuccessCriteria   []string                     `yaml:"success_criteria,omitempty" json:"success_criteria,omitempty"`
+	OutOfScope        []string                     `yaml:"out_of_scope,omitempty" json:"out_of_scope,omitempty"`
 	AllowedTools      []string                     `yaml:"allowed_tools,omitempty" json:"allowed_tools,omitempty"`
 	WorkspaceSnapshot *consensus.WorkspaceSnapshot `yaml:"workspace_snapshot,omitempty" json:"workspace_snapshot,omitempty"`
 	Context           map[string]any               `yaml:"context,omitempty" json:"context,omitempty"`
 }
 
 type RunOverrides struct {
-	ConfigPath        string
-	InputPath         string
-	Task              string
-	Proposers         []string
-	Challengers       []string
-	Arbiter           string
-	SemanticVerifier  string
-	Reporter          string
-	Actor             string
-	SuccessCriteria   []string
-	WorkspaceSnapshot string
-	Timeout           time.Duration
-	GlobalDeadline    time.Duration
-	Action            string
-	Verbose           bool
+	ConfigPath           string
+	InputPath            string
+	Mode                 consensus.WorkflowMode
+	Task                 string
+	Proposers            []string
+	Challengers          []string
+	Participants         []string
+	Arbiter              string
+	SemanticVerifier     string
+	Facilitator          string
+	Reporter             string
+	Actor                string
+	SuccessCriteria      []string
+	WorkspaceSnapshot    string
+	Timeout              time.Duration
+	GlobalDeadline       time.Duration
+	MinRounds            int
+	MaxRounds            int
+	VoteThreshold        float64
+	ConvergenceThreshold float64
+	Action               string
+	Verbose              bool
 }

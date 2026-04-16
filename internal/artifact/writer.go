@@ -10,7 +10,7 @@ import (
 	"github.com/suchasplus/til-consensus/internal/consensus"
 )
 
-func WriteRunArtifacts(result *consensus.AdjudicationResult, resultPath, summaryPath string) error {
+func WriteRunArtifacts(result *consensus.RunResult, resultPath, summaryPath string) error {
 	if err := writeJSON(resultPath, result); err != nil {
 		return err
 	}

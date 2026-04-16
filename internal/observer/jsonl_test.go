@@ -121,3 +121,67 @@ func TestLedgerWriterWritesArtifactManifest(t *testing.T) {
 		t.Fatalf("unexpected manifest entry: %#v", entry)
 	}
 }
+
+func TestLedgerWriterPreservesSeqAcrossReopen(t *testing.T) {
+	tmp := t.TempDir()
+	ledgerPath := filepath.Join(tmp, "ledger.jsonl")
+	manifestPath := filepath.Join(tmp, "artifacts", "manifest.jsonl")
+
+	firstWriter := NewLedger(ledgerPath, manifestPath)
+	if _, err := firstWriter.Append(context.Background(), consensus.EvidenceRecord{
+		SchemaVersion: 1,
+		EntryID:       "entry-1",
+		RequestID:     "req-1",
+		SessionID:     "session-1",
+		Kind:          consensus.EvidenceKindClaimProposed,
+		Source:        consensus.EvidenceSourceCoordinator,
+		Summary:       "summary",
+		Artifact: &consensus.ArtifactRef{
+			Path:      "/tmp/one.log",
+			Hash:      "hash-1",
+			MediaType: "text/plain",
+		},
+		CreatedAt: time.Unix(1, 0).UTC().Format(time.RFC3339Nano),
+	}); err != nil {
+		t.Fatalf("append failed: %v", err)
+	}
+
+	secondWriter := NewLedger(ledgerPath, manifestPath)
+	second, err := secondWriter.Append(context.Background(), consensus.EvidenceRecord{
+		SchemaVersion: 1,
+		EntryID:       "entry-2",
+		RequestID:     "req-1",
+		SessionID:     "session-1",
+		Kind:          consensus.EvidenceKindClaimProposed,
+		Source:        consensus.EvidenceSourceCoordinator,
+		Summary:       "summary",
+		Artifact: &consensus.ArtifactRef{
+			Path:      "/tmp/two.log",
+			Hash:      "hash-2",
+			MediaType: "text/plain",
+		},
+		CreatedAt: time.Unix(2, 0).UTC().Format(time.RFC3339Nano),
+	})
+	if err != nil {
+		t.Fatalf("append failed: %v", err)
+	}
+	if second.Seq != 1 {
+		t.Fatalf("expected reopened writer to continue seq, got %d", second.Seq)
+	}
+
+	body, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(body)), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected two manifest entries, got %d", len(lines))
+	}
+	var manifestEntry consensus.ArtifactManifestEntry
+	if err := json.Unmarshal([]byte(lines[1]), &manifestEntry); err != nil {
+		t.Fatalf("decode manifest entry: %v", err)
+	}
+	if manifestEntry.Seq != 1 {
+		t.Fatalf("expected manifest seq to continue, got %d", manifestEntry.Seq)
+	}
+}

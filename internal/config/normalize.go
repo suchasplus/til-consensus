@@ -1,6 +1,11 @@
 package config
 
-import "sort"
+import (
+	"sort"
+	"strings"
+
+	"github.com/suchasplus/til-consensus/internal/consensus"
+)
 
 const (
 	ProviderTypeAPI     = "api"
@@ -22,6 +27,7 @@ const (
 
 func Normalize(cfg Config) Config {
 	out := cfg
+	out.Defaults.Mode = consensus.WorkflowMode(strings.TrimSpace(string(out.Defaults.Mode)))
 	out.Providers = make(map[string]ProviderConfig, len(cfg.Providers))
 	for name, provider := range cfg.Providers {
 		out.Providers[name] = normalizeProvider(provider)
@@ -88,6 +94,7 @@ func normalizeProvider(provider ProviderConfig) ProviderConfig {
 func normalizeRoles(roles RolesConfig) RolesConfig {
 	roles.Proposers = dedupe(roles.Proposers)
 	roles.Challengers = dedupe(roles.Challengers)
+	roles.Participants = dedupe(roles.Participants)
 	return roles
 }
 

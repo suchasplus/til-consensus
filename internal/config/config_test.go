@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/suchasplus/til-consensus/internal/consensus"
 )
 
 func TestResolveRunPlanPrecedence(t *testing.T) {
@@ -55,6 +57,9 @@ func TestResolveRunPlanPrecedence(t *testing.T) {
 	if got := plan.StartRequest.TaskSpec.SuccessCriteria; len(got) != 1 || got[0] != "from-flag" {
 		t.Fatalf("unexpected success criteria: %#v", got)
 	}
+	if plan.StartRequest.WaitingPolicy.RetryAttempts != consensus.DefaultTaskRetryAttempts {
+		t.Fatalf("unexpected retry attempts: %#v", plan.StartRequest.WaitingPolicy)
+	}
 	if plan.ResultPath != filepath.Join(tmp, "out", plan.RequestID, "result.json") {
 		t.Fatalf("unexpected result path: %s", plan.ResultPath)
 	}
@@ -77,5 +82,124 @@ func TestValidateRejectsUnknownRoleReference(t *testing.T) {
 	})
 	if err := Validate(cfg); err == nil {
 		t.Fatal("expected unknown role reference to fail validation")
+	}
+}
+
+func TestResolveRunPlanSupportsDebateAndDelphiModes(t *testing.T) {
+	tmp := t.TempDir()
+	loaded := LoadedConfig{
+		ConfigDir: tmp,
+		Config: Normalize(Config{
+			SchemaVersion: 1,
+			Defaults: DefaultsConfig{
+				Mode: consensus.WorkflowModeFreeDebate,
+			},
+			Output: OutputConfig{Directory: "./out/{requestId}"},
+			Providers: map[string]ProviderConfig{
+				"mock": {Type: ProviderTypeMock, Models: map[string]ProviderModelConfig{"default": {ProviderModel: "mock"}}},
+			},
+			Agents: []AgentConfig{
+				{ID: "p1", Provider: "mock", Model: "default"},
+				{ID: "p2", Provider: "mock", Model: "default"},
+				{ID: "f1", Provider: "mock", Model: "default"},
+			},
+			Roles: RolesConfig{
+				Participants: []string{"p1", "p2"},
+				Facilitator:  "f1",
+			},
+		}),
+	}
+
+	debatePlan, err := ResolveRunPlan(loaded, RunInput{
+		TaskSpec: TaskSpecInput{Goal: "debate goal"},
+	}, RunOverrides{}, time.Unix(1700000000, 0))
+	if err != nil {
+		t.Fatalf("ResolveRunPlan debate failed: %v", err)
+	}
+	if debatePlan.Mode != consensus.WorkflowModeFreeDebate || len(debatePlan.StartRequest.Roles.Participants) != 2 {
+		t.Fatalf("unexpected debate plan: %#v", debatePlan)
+	}
+
+	delphiPlan, err := ResolveRunPlan(loaded, RunInput{
+		Mode:     consensus.WorkflowModeDelphi,
+		TaskSpec: TaskSpecInput{Goal: "delphi goal"},
+	}, RunOverrides{}, time.Unix(1700000000, 0))
+	if err != nil {
+		t.Fatalf("ResolveRunPlan delphi failed: %v", err)
+	}
+	if delphiPlan.Mode != consensus.WorkflowModeDelphi || delphiPlan.StartRequest.Roles.Facilitator != "f1" {
+		t.Fatalf("unexpected delphi plan: %#v", delphiPlan)
+	}
+}
+
+func TestResolveRunPlanCarriesAdjudicationFallbackAndObservationPolicies(t *testing.T) {
+	tmp := t.TempDir()
+	loaded := LoadedConfig{
+		ConfigDir: tmp,
+		Config: Normalize(Config{
+			SchemaVersion: 1,
+			Defaults: DefaultsConfig{
+				TaskType:   consensus.CaseTaskTypeStrategy,
+				OutOfScope: []string{"不讨论组织架构重组"},
+				IngestPolicy: consensus.IngestPolicy{
+					Sources: []consensus.ExternalCommandSource{{
+						Name:    "ingest-a",
+						Command: "sh",
+						Args:    []string{"-c", "printf ingest"},
+					}},
+				},
+				FallbackPolicy: consensus.AdjudicationFallbackPolicy{
+					MaxFallbackRounds:      2,
+					OnInsufficientEvidence: consensus.FallbackTargetIngest,
+					OnUnresolvedConflict:   consensus.FallbackTargetIngest,
+					OnUnresolvedClaims:     consensus.FallbackTargetRevise,
+					OnKeepWithCaveat:       consensus.FallbackTargetRevise,
+				},
+				ObservePolicy: consensus.ObservePolicy{
+					OnContradiction: consensus.ObserveContradictionReopen,
+					Sources: []consensus.ExternalCommandSource{{
+						Name:    "observe-a",
+						Command: "sh",
+						Args:    []string{"-c", "printf observe"},
+					}},
+				},
+			},
+			Output: OutputConfig{Directory: "./out/{requestId}"},
+			Providers: map[string]ProviderConfig{
+				"mock": {Type: ProviderTypeMock, Models: map[string]ProviderModelConfig{"default": {ProviderModel: "mock"}}},
+			},
+			Agents: []AgentConfig{
+				{ID: "p1", Provider: "mock", Model: "default"},
+				{ID: "c1", Provider: "mock", Model: "default"},
+				{ID: "a1", Provider: "mock", Model: "default"},
+			},
+			Roles: RolesConfig{
+				Proposers:   []string{"p1"},
+				Challengers: []string{"c1"},
+				Arbiter:     "a1",
+			},
+		}),
+	}
+
+	plan, err := ResolveRunPlan(loaded, RunInput{
+		TaskSpec: TaskSpecInput{Goal: "评估 monorepo 还是 polyrepo"},
+	}, RunOverrides{}, time.Unix(1700000000, 0))
+	if err != nil {
+		t.Fatalf("ResolveRunPlan failed: %v", err)
+	}
+	if plan.StartRequest.TaskSpec.TaskType != consensus.CaseTaskTypeStrategy {
+		t.Fatalf("expected task type to propagate, got %#v", plan.StartRequest.TaskSpec.TaskType)
+	}
+	if len(plan.StartRequest.TaskSpec.OutOfScope) != 1 || plan.StartRequest.TaskSpec.OutOfScope[0] != "不讨论组织架构重组" {
+		t.Fatalf("unexpected out_of_scope: %#v", plan.StartRequest.TaskSpec.OutOfScope)
+	}
+	if len(plan.StartRequest.IngestPolicy.Sources) != 1 || plan.StartRequest.IngestPolicy.Sources[0].Name != "ingest-a" {
+		t.Fatalf("unexpected ingest policy: %#v", plan.StartRequest.IngestPolicy)
+	}
+	if plan.StartRequest.FallbackPolicy.MaxFallbackRounds != 2 || plan.StartRequest.FallbackPolicy.OnInsufficientEvidence != consensus.FallbackTargetIngest {
+		t.Fatalf("unexpected fallback policy: %#v", plan.StartRequest.FallbackPolicy)
+	}
+	if len(plan.StartRequest.ObservePolicy.Sources) != 1 || plan.StartRequest.ObservePolicy.OnContradiction != consensus.ObserveContradictionReopen {
+		t.Fatalf("unexpected observe policy: %#v", plan.StartRequest.ObservePolicy)
 	}
 }

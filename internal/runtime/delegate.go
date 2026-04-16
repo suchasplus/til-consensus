@@ -121,6 +121,10 @@ func (d *Delegate) Await(ctx context.Context, taskID string, timeout time.Durati
 	defer timer.Stop()
 	select {
 	case <-ctx.Done():
+		entry.cancel()
+		d.mu.Lock()
+		delete(d.tasks, taskID)
+		d.mu.Unlock()
 		return consensus.AwaitedTask{}, ctx.Err()
 	case <-timer.C:
 		entry.cancel()

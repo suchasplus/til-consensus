@@ -3,6 +3,8 @@ package config
 import (
 	"fmt"
 	"strings"
+
+	"github.com/suchasplus/til-consensus/internal/consensus"
 )
 
 func Validate(cfg Config) error {
@@ -92,7 +94,12 @@ func Validate(cfg Config) error {
 			return fmt.Errorf("roles.challengers references unknown agent %s", id)
 		}
 	}
-	for _, id := range []string{cfg.Roles.Arbiter, cfg.Roles.SemanticVerifier, cfg.Roles.Reporter, cfg.Roles.Actor} {
+	for _, id := range cfg.Roles.Participants {
+		if _, ok := knownAgents[id]; !ok {
+			return fmt.Errorf("roles.participants references unknown agent %s", id)
+		}
+	}
+	for _, id := range []string{cfg.Roles.Arbiter, cfg.Roles.SemanticVerifier, cfg.Roles.Facilitator, cfg.Roles.Reporter, cfg.Roles.Actor} {
 		if id == "" {
 			continue
 		}
@@ -100,11 +107,22 @@ func Validate(cfg Config) error {
 			return fmt.Errorf("roles references unknown agent %s", id)
 		}
 	}
-	if len(cfg.Roles.Proposers) == 0 {
-		return fmt.Errorf("roles.proposers must not be empty")
+	mode := cfg.Defaults.Mode
+	if mode == "" {
+		mode = consensus.WorkflowModeAdjudication
 	}
-	if len(cfg.Roles.Challengers) == 0 {
-		return fmt.Errorf("roles.challengers must not be empty")
+	switch mode {
+	case consensus.WorkflowModeFreeDebate, consensus.WorkflowModeDelphi:
+		if len(cfg.Roles.Participants) == 0 {
+			return fmt.Errorf("roles.participants must not be empty for mode %s", cfg.Defaults.Mode)
+		}
+	default:
+		if len(cfg.Roles.Proposers) == 0 {
+			return fmt.Errorf("roles.proposers must not be empty")
+		}
+		if len(cfg.Roles.Challengers) == 0 {
+			return fmt.Errorf("roles.challengers must not be empty")
+		}
 	}
 	if cfg.Defaults.ProposalPolicy.MaxPasses < 0 {
 		return fmt.Errorf("defaults.proposal_policy.max_passes must be >= 0")
@@ -114,6 +132,37 @@ func Validate(cfg Config) error {
 	}
 	if cfg.Defaults.VerificationPolicy.MaxParallelChecks < 0 {
 		return fmt.Errorf("defaults.verification_policy.max_parallel_checks must be >= 0")
+	}
+	for _, source := range append(append([]consensus.ExternalCommandSource(nil), cfg.Defaults.IngestPolicy.Sources...), cfg.Defaults.ObservePolicy.Sources...) {
+		if strings.TrimSpace(source.Name) == "" {
+			return fmt.Errorf("defaults external source name is required")
+		}
+		if strings.TrimSpace(source.Command) == "" {
+			return fmt.Errorf("defaults external source %s: command is required", source.Name)
+		}
+	}
+	switch cfg.Defaults.ObservePolicy.OnContradiction {
+	case "", consensus.ObserveContradictionReopen, consensus.ObserveContradictionRecordOnly:
+	default:
+		return fmt.Errorf("defaults.observe_policy.on_contradiction is invalid: %s", cfg.Defaults.ObservePolicy.OnContradiction)
+	}
+	for _, target := range []consensus.FallbackTarget{
+		cfg.Defaults.FallbackPolicy.OnInsufficientEvidence,
+		cfg.Defaults.FallbackPolicy.OnUnresolvedConflict,
+		cfg.Defaults.FallbackPolicy.OnUnresolvedClaims,
+		cfg.Defaults.FallbackPolicy.OnKeepWithCaveat,
+	} {
+		switch target {
+		case "", consensus.FallbackTargetStop, consensus.FallbackTargetRevise, consensus.FallbackTargetIngest:
+		default:
+			return fmt.Errorf("defaults.fallback_policy contains invalid target: %s", target)
+		}
+	}
+	if cfg.Defaults.FallbackPolicy.MaxFallbackRounds < 0 {
+		return fmt.Errorf("defaults.fallback_policy.max_fallback_rounds must be >= 0")
+	}
+	if cfg.Defaults.TaskRetryAttempts < 0 {
+		return fmt.Errorf("defaults.task_retry_attempts must be >= 0")
 	}
 	return nil
 }

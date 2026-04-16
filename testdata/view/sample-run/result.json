@@ -1,0 +1,199 @@
+{
+  "schemaVersion": 1,
+  "requestId": "tc_1710000000000_abcd12",
+  "sessionId": "session-abc123",
+  "taskSpec": {
+    "goal": "判断 patch 是否真正修复了竞态问题并且没有引入性能回退",
+    "successCriteria": [
+      "给出 claim 级裁决",
+      "对 benchmark 证据不足的部分保持 undetermined"
+    ],
+    "allowedTools": [
+      "repo",
+      "tests",
+      "benchmarks"
+    ],
+    "workspaceSnapshot": {
+      "root": ".",
+      "revision": "abc1234",
+      "paths": [
+        "cmd",
+        "internal",
+        "go.mod"
+      ]
+    }
+  },
+  "taskVerdict": "undetermined",
+  "claimGraph": [
+    {
+      "claimId": "claim-1",
+      "title": "Race fix",
+      "statement": "Patch 消除了共享 map 的并发写入。",
+      "status": "adjudicated",
+      "proposedBy": [
+        "proposer-a"
+      ],
+      "evidenceRefs": [
+        "ledger-claim-1",
+        "ledger-verify-1"
+      ],
+      "challengeRefs": [],
+      "verificationRefs": [
+        "ledger-verify-1"
+      ],
+      "verdict": "supported",
+      "confidence": 0.94,
+      "rationale": "单测与 diff 都支持该 claim。"
+    },
+    {
+      "claimId": "claim-2",
+      "title": "No perf regression",
+      "statement": "补丁没有引入可观测的性能回退。",
+      "status": "adjudicated",
+      "proposedBy": [
+        "proposer-a"
+      ],
+      "evidenceRefs": [
+        "ledger-claim-2",
+        "ledger-verify-2"
+      ],
+      "challengeRefs": [
+        "ticket-1"
+      ],
+      "verificationRefs": [
+        "ledger-verify-2"
+      ],
+      "verdict": "insufficient_evidence",
+      "confidence": 0.48,
+      "rationale": "benchmark 样本不足。"
+    },
+    {
+      "claimId": "claim-3",
+      "title": "Regression tests stay green",
+      "statement": "现有回归测试全部通过。",
+      "status": "adjudicated",
+      "proposedBy": [
+        "proposer-a"
+      ],
+      "evidenceRefs": [
+        "ledger-claim-3",
+        "ledger-verify-3"
+      ],
+      "challengeRefs": [],
+      "verificationRefs": [
+        "ledger-verify-3"
+      ],
+      "verdict": "supported",
+      "confidence": 0.89,
+      "rationale": "go test ./... 通过。"
+    },
+    {
+      "claimId": "claim-4",
+      "title": "Simpler ownership model",
+      "statement": "新的所有权模型显著简化了调用方。",
+      "status": "adjudicated",
+      "proposedBy": [
+        "proposer-a"
+      ],
+      "evidenceRefs": [
+        "ledger-verify-4"
+      ],
+      "challengeRefs": [
+        "ticket-2"
+      ],
+      "verificationRefs": [
+        "ledger-verify-4"
+      ],
+      "verdict": "undetermined",
+      "confidence": 0.51,
+      "rationale": "只有设计说明，没有足够运行证据。"
+    }
+  ],
+  "challengeTickets": [
+    {
+      "ticketId": "ticket-1",
+      "claimId": "claim-2",
+      "kind": "evidence-gap",
+      "openedBy": "challenger-a",
+      "statement": "需要更多 benchmark 证据验证没有性能回退。",
+      "status": "open",
+      "requestedChecks": [
+        "benchmark-budget"
+      ]
+    },
+    {
+      "ticketId": "ticket-2",
+      "claimId": "claim-4",
+      "kind": "scope-risk",
+      "openedBy": "challenger-a",
+      "statement": "设计说明没有证明调用方的复杂度真的下降。",
+      "status": "closed",
+      "requestedChecks": [
+        "semantic"
+      ],
+      "resolutionSummary": "暂时保持 undetermined。"
+    }
+  ],
+  "arbiterReport": {
+    "taskVerdict": "undetermined",
+    "summary": "2 个 claim 得到支持，1 个 claim 证据不足，1 个 claim 保持 undetermined。",
+    "decisions": [
+      {
+        "claimId": "claim-1",
+        "verdict": "supported",
+        "confidence": 0.94,
+        "rationale": "单测与 diff 都支持该 claim。",
+        "evidenceRefs": [
+          "ledger-verify-1"
+        ]
+      },
+      {
+        "claimId": "claim-2",
+        "verdict": "insufficient_evidence",
+        "confidence": 0.48,
+        "rationale": "benchmark 样本不足。",
+        "evidenceRefs": [
+          "ledger-verify-2"
+        ]
+      },
+      {
+        "claimId": "claim-3",
+        "verdict": "supported",
+        "confidence": 0.89,
+        "rationale": "回归测试通过。",
+        "evidenceRefs": [
+          "ledger-verify-3"
+        ]
+      },
+      {
+        "claimId": "claim-4",
+        "verdict": "undetermined",
+        "confidence": 0.51,
+        "rationale": "设计说明证据不足。",
+        "evidenceRefs": [
+          "ledger-verify-4"
+        ]
+      }
+    ]
+  },
+  "report": {
+    "summary": "补丁大概率修复了竞态问题，但性能与调用方复杂度的结论仍需要更多证据。",
+    "highlights": [
+      "竞态 claim 已获支持",
+      "benchmark claim 证据不足"
+    ],
+    "nextActions": [
+      "补更多 benchmark 样本",
+      "补调用方侧对比示例"
+    ]
+  },
+  "metrics": {
+    "elapsedMs": 12345,
+    "claimsProposed": 4,
+    "challengesOpened": 2,
+    "verificationsRun": 4,
+    "tasksDispatched": 5,
+    "waitTimeouts": 0,
+    "globalDeadlineHit": false
+  }
+}

@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -45,12 +44,9 @@ func runActCommand(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return fmt.Errorf("read result file: %w", err)
 	}
-	var result consensus.AdjudicationResult
-	if err := json.Unmarshal(body, &result); err != nil {
+	result, err := consensus.DecodeRunResult(body)
+	if err != nil {
 		return fmt.Errorf("decode result file: %w", err)
-	}
-	if result.SchemaVersion != consensus.SchemaVersion {
-		return fmt.Errorf("unsupported result schema version: %d", result.SchemaVersion)
 	}
 	actorID := cmd.String("agent")
 	if actorID == "" {
@@ -73,15 +69,11 @@ func runActCommand(ctx context.Context, cmd *cli.Command) error {
 		Prompt: cmd.String("task"),
 		Input:  result,
 	}
-	dispatched, err := delegate.Dispatch(ctx, actionTask)
-	if err != nil {
-		return err
-	}
 	timeout := cmd.Duration("timeout")
 	if timeout <= 0 {
 		timeout = 20 * time.Minute
 	}
-	awaited, err := delegate.Await(ctx, dispatched.TaskID, timeout)
+	_, awaited, _, err := consensus.ExecuteTaskWithRetry(ctx, delegate, actionTask, timeout, consensus.DefaultTaskRetryAttempts, consensus.TaskRetryHooks{})
 	if err != nil {
 		return err
 	}

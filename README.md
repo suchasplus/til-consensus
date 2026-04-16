@@ -1,0 +1,342 @@
+# til-consensus
+
+`til-consensus` 是一个面向一次性论证、架构选择和代码裁决任务的 CLI。它用确定性的 coordinator 编排多种工作流，把过程和结论落成可审计的本地产物。
+
+对默认 `adjudication` 而言，系统现在是 claim-centric 的：先生成 `CaseManifest`，再把材料写入 `EvidenceLedger`，随后围绕 claim 做 challenge、verification、revision，最后为每条 claim 生成 disposition，而不是只选“哪篇完整答案更像对的”。
+
+默认 `adjudication` 现在还支持两条更严格的闭环能力：
+
+- `adjudicate -> revise/ingest`
+  - 如果 claim 仍是 `unresolved` 或 `keep_with_caveat`，系统可以按 `fallback_policy` 自动回退继续修订或补抓证据
+- `observe -> real external sources`
+  - 可以通过 `observe_policy.sources` 执行真实外部命令，把 post-action 观测写入账本
+  - 如果观测与 retained claims 矛盾，terminal state 会升级为 `requires_human_review`
+  - 同时会在 `artifacts/followups/` 下生成真实的 follow-up case JSON
+
+当前支持 3 种 workflow：
+
+- `adjudication`
+  - 裁决式流程
+  - `frame -> ingest -> propose -> challenge -> verify -> revise -> adjudicate -> report -> action -> observe`
+  - 适合 patch、benchmark、设计结论是否成立
+- `free_debate`
+  - 多轮自由辩论
+  - `initial -> debate* -> final_vote -> report -> action`
+  - 适合多 CLI 交叉讨论，再做最终投票
+- `delphi`
+  - 匿名 Delphi
+  - 多轮匿名问卷、聚合摘要、修订评分，直到收敛或达到轮数上限
+  - 适合架构选择、方案取舍、文档结论收敛
+
+## 5 分钟快速开始
+
+1. 生成一份可直接运行的配置：
+
+```bash
+til-consensus config init --preset quickstart --config ./til-consensus.yaml
+```
+
+2. 运行一次默认 `adjudication`：
+
+```bash
+til-consensus run \
+  --config ./til-consensus.yaml \
+  --task "判断这个 patch 是否真正修复了竞态问题"
+```
+
+3. 查看最新一次结果：
+
+```bash
+til-consensus view --config ./til-consensus.yaml
+```
+
+默认输出会写到 `./out/{requestId}/`。最重要的文件是：
+
+- `result.json`
+  - 统一结果壳，包含 `mode` 和对应的 mode-specific section
+- `ledger.jsonl`
+  - append-only 证据账本
+- `summary.md`
+  - 适合快速阅读的摘要
+- `artifacts/`
+  - 原始 worker 输出、命令日志、diff、benchmark 结果
+
+`adjudication` 结果里最关键的新对象有：
+
+- `caseManifest`
+- `claimGraph`
+- `challengeTickets`
+- `verificationResults`
+- `revisionRecords`
+- `adjudicationRecords`
+- `observations`
+
+默认情况下，单个 task 在超时或失败后会自动重试 1 次。
+
+如果你希望裁决后自动补抓新证据或做真实外部观测，可以在配置里加入：
+
+```yaml
+defaults:
+  fallback_policy:
+    max_fallback_rounds: 1
+    on_insufficient_evidence: ingest
+    on_unresolved_claims: revise
+    on_keep_with_caveat: revise
+  ingest_policy:
+    sources:
+      - name: fresh-evidence
+        command: sh
+        args: ["-c", "printf fresh-evidence"]
+  observe_policy:
+    on_contradiction: reopen
+    sources:
+      - name: health
+        command: sh
+        args:
+          - -c
+          - printf '{"status":{"ok":true},"report":{"summary":"healthy","excerpt":"post-action checks are healthy"}}'
+        parsing:
+          mode: json
+          success_path: status.ok
+          summary_path: report.summary
+          excerpt_path: report.excerpt
+```
+
+## 三种模式怎么选
+
+- `adjudication`
+  - 目标是高置信度裁决
+  - 支持 verifier、revise 和 claim-level arbiter
+  - 默认 mode
+- `free_debate`
+  - 目标是让多个 participant 先充分讨论，再对 active claims 做 final vote
+  - 不走当前 verifier / arbiter
+- `delphi`
+  - 目标是匿名多轮收敛
+  - 不暴露 participant 身份给其他 participant
+  - 不走 arbiter，最终结论来自 Delphi 汇总结果
+
+## 配置模板
+
+`config init` 内置 5 个 preset：
+
+- `quickstart`
+  - 零凭证，使用 `mock`
+  - 适合第一次跑通 CLI
+- `openai`
+  - 最小 API provider 模板
+  - 适合接真实模型
+- `coding`
+  - 代码裁决模板
+  - 预置 `workspace_snapshot`、`allowed_paths`、`command`、`git_diff_paths`、`benchmark_threshold`
+- `debate`
+  - `free_debate` 模板
+  - 预置 `participants`、`debate_policy`
+- `delphi`
+  - `delphi` 模板
+  - 预置 `participants`、`facilitator`、`delphi_policy`
+
+最常用的初始化方式：
+
+```bash
+til-consensus config init --preset quickstart --config ./til-consensus.yaml
+til-consensus config init --preset debate --stdout
+til-consensus config init --preset delphi --config ./til-consensus.yaml --force
+```
+
+如果模板起步不够用，再用下面两个命令做增量修改：
+
+- `til-consensus config add-provider`
+- `til-consensus config add-agent`
+
+它们的定位是“在模板基础上补 provider / agent”，不是第一次上手的首选入口。
+
+## 常用命令
+
+- `til-consensus run`
+  - 运行一次 workflow
+- `til-consensus view`
+  - 用终端友好的方式阅读结果
+- `til-consensus act`
+  - 基于现有 `result.json` 继续执行 action
+- `til-consensus config init`
+  - 生成带注释的配置模板
+- `til-consensus config validate`
+  - 校验配置是否可用
+
+## `run` 示例
+
+默认 `adjudication`：
+
+```bash
+til-consensus run \
+  --config ./til-consensus.yaml \
+  --task "判断这个 patch 是否真正修复了竞态问题"
+```
+
+运行 `free_debate`：
+
+```bash
+til-consensus run \
+  --config ./til-consensus.yaml \
+  --mode free-debate \
+  --participants debater-a,debater-b,debater-c \
+  --min-rounds 2 \
+  --max-rounds 3 \
+  --vote-threshold 0.75 \
+  --task "Should we use a monorepo or polyrepo for our microservices?"
+```
+
+运行 `delphi`：
+
+```bash
+til-consensus run \
+  --config ./til-consensus.yaml \
+  --mode delphi \
+  --participants participant-a,participant-b,participant-c \
+  --facilitator facilitator-a \
+  --min-rounds 2 \
+  --max-rounds 4 \
+  --convergence-threshold 0.8 \
+  --task "评估未来 6 个月内是否应将当前单体服务演进为事件驱动架构"
+```
+
+## `view` 示例
+
+查看最新一次：
+
+```bash
+til-consensus view --config ./til-consensus.yaml
+```
+
+按模式常用 section：
+
+- adjudication：
+
+```bash
+til-consensus view --config ./til-consensus.yaml --section claims --section verifications
+```
+
+- free_debate：
+
+```bash
+til-consensus view --config ./til-consensus.yaml --section rounds --section votes
+```
+
+- delphi：
+
+```bash
+til-consensus view --config ./til-consensus.yaml --section rounds --section convergence
+```
+
+## 输出产物
+
+一次完整运行默认会写出：
+
+- `result.json`
+  - 顶层统一字段：
+    - `schemaVersion`
+    - `mode`
+    - `requestId`
+    - `sessionId`
+    - `taskSpec`
+    - `caseManifest`
+    - `terminalState`
+    - `report`
+    - `action`
+    - `observations`
+    - `metrics`
+    - `error`
+  - 并按 `mode` 挂载：
+    - `adjudication`
+    - `freeDebate`
+    - `delphi`
+- `ledger.jsonl`
+  - 证据账本
+  - 每条记录单调递增，便于审计
+- `summary.md`
+  - 人可读摘要
+- `artifacts/manifest.jsonl`
+  - artifact 与 ledger entry 的反向索引
+
+## 构建与安装
+
+仓库根目录已经带了常用 `Makefile` target：
+
+- `make build`
+  - 本地构建到 `./bin/til-consensus`
+- `make build-debug`
+  - 生成便于调试的 `./bin/til-consensus-debug`
+- `make build-release`
+  - 生成发布版 `./dist/til-consensus`
+- `make install`
+  - 安装到本机
+  - 在 macOS 下默认安装到 `~/.local/bin/til-consensus`
+- `make run ARGS="..."`
+  - 直接运行 CLI
+- `make cover`
+  - 生成并打印单元测试覆盖率
+
+第一次本地安装常用命令：
+
+```bash
+make install
+```
+
+如果运行命令时不显式传 `--config`，当前默认查找顺序是：
+
+1. 当前目录下的 `./til-consensus.yaml`
+2. `~/.config/til-consensus/default.yaml`
+3. `~/.config/til-consensus/config.yaml`
+
+`til-consensus config init` 在不传 `--config` 时，也会默认写到 `~/.config/til-consensus/default.yaml`。
+
+如果 `~/.local/bin` 还没进 `PATH`，可以在 shell 配置里补上：
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+也可以指定自定义安装目录：
+
+```bash
+make install INSTALL_DIR=/usr/local/bin
+```
+
+## 版本信息
+
+构建时会通过 `ldflags` 注入：
+
+- `version`
+- `commit`
+- `build time`
+- `dirty`
+
+## 深入阅读
+
+- [文档首页](docs/index.md)
+- [工作流与状态机](docs/workflow.md)
+- [多工作流技术设计](docs/rewrite.md)
+
+查看方式：
+
+```bash
+til-consensus --version
+til-consensus version
+```
+
+其中：
+
+- `--version`
+  - 适合快速看版本号
+- `version`
+  - 会输出完整构建信息，包括 commit、构建时间和 dirty 状态
+
+## 深入阅读
+
+- [文档首页](docs/index.md)
+- [配置说明](docs/config.md)
+- [输出产物说明](docs/output.md)
+- [终端 view 用法](docs/view.md)
+- [浏览器 Viewer 二期规划](docs/viewer.md)
+- [多工作流技术设计](docs/rewrite.md)

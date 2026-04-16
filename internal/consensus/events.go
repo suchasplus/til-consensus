@@ -6,6 +6,7 @@ const (
 	RunEventSessionStarted   RunEventType = "session_started"
 	RunEventPhaseChanged     RunEventType = "phase_changed"
 	RunEventTaskDispatched   RunEventType = "task_dispatched"
+	RunEventTaskRetrying     RunEventType = "task_retrying"
 	RunEventTaskCompleted    RunEventType = "task_completed"
 	RunEventTaskFailed       RunEventType = "task_failed"
 	RunEventLedgerAppended   RunEventType = "ledger_appended"
