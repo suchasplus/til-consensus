@@ -1,8 +1,11 @@
 package runtime
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
+	"strconv"
 	"strings"
 
 	"github.com/suchasplus/til-consensus/internal/consensus"
@@ -107,10 +110,14 @@ func NormalizeTaskOutputFromText(task consensus.Task, text string) (consensus.Ta
 }
 
 func normalizeTaskOutputFromJSON(task consensus.Task, payload []byte) (consensus.TaskResult, error) {
+	normalizedPayload, err := coerceTaskOutputNumericStrings(payload)
+	if err != nil {
+		return nil, fmt.Errorf("normalize task output payload: %w", err)
+	}
 	switch task.(type) {
 	case consensus.ProposalTask:
 		var output consensus.ProposalOutput
-		if err := json.Unmarshal(payload, &output); err != nil {
+		if err := json.Unmarshal(normalizedPayload, &output); err != nil {
 			return nil, fmt.Errorf("decode proposal output: %w", err)
 		}
 		if strings.TrimSpace(output.Summary) == "" {
@@ -119,7 +126,7 @@ func normalizeTaskOutputFromJSON(task consensus.Task, payload []byte) (consensus
 		return consensus.ProposalTaskResult{Output: output}, nil
 	case consensus.InitialProposalTask:
 		var output consensus.InitialProposalOutput
-		if err := json.Unmarshal(payload, &output); err != nil {
+		if err := json.Unmarshal(normalizedPayload, &output); err != nil {
 			return nil, fmt.Errorf("decode initial proposal output: %w", err)
 		}
 		if strings.TrimSpace(output.Summary) == "" {
@@ -128,7 +135,7 @@ func normalizeTaskOutputFromJSON(task consensus.Task, payload []byte) (consensus
 		return consensus.InitialProposalTaskResult{Output: output}, nil
 	case consensus.ChallengeTask:
 		var output consensus.ChallengeOutput
-		if err := json.Unmarshal(payload, &output); err != nil {
+		if err := json.Unmarshal(normalizedPayload, &output); err != nil {
 			return nil, fmt.Errorf("decode challenge output: %w", err)
 		}
 		if strings.TrimSpace(output.Summary) == "" {
@@ -137,7 +144,7 @@ func normalizeTaskOutputFromJSON(task consensus.Task, payload []byte) (consensus
 		return consensus.ChallengeTaskResult{Output: output}, nil
 	case consensus.ReviseTask:
 		var output consensus.ReviseOutput
-		if err := json.Unmarshal(payload, &output); err != nil {
+		if err := json.Unmarshal(normalizedPayload, &output); err != nil {
 			return nil, fmt.Errorf("decode revise output: %w", err)
 		}
 		if strings.TrimSpace(output.Summary) == "" {
@@ -146,7 +153,7 @@ func normalizeTaskOutputFromJSON(task consensus.Task, payload []byte) (consensus
 		return consensus.ReviseTaskResult{Output: output}, nil
 	case consensus.DebateRoundTask:
 		var output consensus.DebateRoundOutput
-		if err := json.Unmarshal(payload, &output); err != nil {
+		if err := json.Unmarshal(normalizedPayload, &output); err != nil {
 			return nil, fmt.Errorf("decode debate round output: %w", err)
 		}
 		if strings.TrimSpace(output.Summary) == "" {
@@ -155,7 +162,7 @@ func normalizeTaskOutputFromJSON(task consensus.Task, payload []byte) (consensus
 		return consensus.DebateRoundTaskResult{Output: output}, nil
 	case consensus.FinalVoteTask:
 		var output consensus.FinalVoteOutput
-		if err := json.Unmarshal(payload, &output); err != nil {
+		if err := json.Unmarshal(normalizedPayload, &output); err != nil {
 			return nil, fmt.Errorf("decode final vote output: %w", err)
 		}
 		if strings.TrimSpace(output.Summary) == "" {
@@ -164,7 +171,7 @@ func normalizeTaskOutputFromJSON(task consensus.Task, payload []byte) (consensus
 		return consensus.FinalVoteTaskResult{Output: output}, nil
 	case consensus.SemanticVerificationTask:
 		var output consensus.SemanticVerificationOutput
-		if err := json.Unmarshal(payload, &output); err != nil {
+		if err := json.Unmarshal(normalizedPayload, &output); err != nil {
 			return nil, fmt.Errorf("decode semantic verification output: %w", err)
 		}
 		if strings.TrimSpace(output.Summary) == "" {
@@ -173,7 +180,7 @@ func normalizeTaskOutputFromJSON(task consensus.Task, payload []byte) (consensus
 		return consensus.SemanticVerificationTaskResult{Output: output}, nil
 	case consensus.DelphiQuestionnaireTask:
 		var output consensus.DelphiQuestionnaireOutput
-		if err := json.Unmarshal(payload, &output); err != nil {
+		if err := json.Unmarshal(normalizedPayload, &output); err != nil {
 			return nil, fmt.Errorf("decode delphi questionnaire output: %w", err)
 		}
 		if strings.TrimSpace(output.Summary) == "" {
@@ -182,7 +189,7 @@ func normalizeTaskOutputFromJSON(task consensus.Task, payload []byte) (consensus
 		return consensus.DelphiQuestionnaireTaskResult{Output: output}, nil
 	case consensus.DelphiRevisionTask:
 		var output consensus.DelphiRevisionOutput
-		if err := json.Unmarshal(payload, &output); err != nil {
+		if err := json.Unmarshal(normalizedPayload, &output); err != nil {
 			return nil, fmt.Errorf("decode delphi revision output: %w", err)
 		}
 		if strings.TrimSpace(output.Summary) == "" {
@@ -191,7 +198,7 @@ func normalizeTaskOutputFromJSON(task consensus.Task, payload []byte) (consensus
 		return consensus.DelphiRevisionTaskResult{Output: output}, nil
 	case consensus.DelphiFacilitatorSummaryTask:
 		var output consensus.DelphiFacilitatorSummaryOutput
-		if err := json.Unmarshal(payload, &output); err != nil {
+		if err := json.Unmarshal(normalizedPayload, &output); err != nil {
 			return nil, fmt.Errorf("decode delphi facilitator summary output: %w", err)
 		}
 		if strings.TrimSpace(output.Summary) == "" {
@@ -200,7 +207,7 @@ func normalizeTaskOutputFromJSON(task consensus.Task, payload []byte) (consensus
 		return consensus.DelphiFacilitatorSummaryTaskResult{Output: output}, nil
 	case consensus.ArbiterTask:
 		var output consensus.ArbiterTaskOutput
-		if err := json.Unmarshal(payload, &output); err != nil {
+		if err := json.Unmarshal(normalizedPayload, &output); err != nil {
 			return nil, fmt.Errorf("decode arbiter output: %w", err)
 		}
 		if output.TaskVerdict == "" {
@@ -209,7 +216,7 @@ func normalizeTaskOutputFromJSON(task consensus.Task, payload []byte) (consensus
 		return consensus.ArbiterTaskResult{Output: output}, nil
 	case consensus.ReportTask:
 		var output consensus.AdjudicationReport
-		if err := json.Unmarshal(payload, &output); err != nil {
+		if err := json.Unmarshal(normalizedPayload, &output); err != nil {
 			return nil, fmt.Errorf("decode report output: %w", err)
 		}
 		if strings.TrimSpace(output.Summary) == "" {
@@ -218,7 +225,7 @@ func normalizeTaskOutputFromJSON(task consensus.Task, payload []byte) (consensus
 		return consensus.ReportTaskResult{Output: output}, nil
 	case consensus.ActionTask:
 		var output consensus.ActionExecution
-		if err := json.Unmarshal(payload, &output); err == nil && strings.TrimSpace(output.FullResponse) != "" {
+		if err := json.Unmarshal(normalizedPayload, &output); err == nil && strings.TrimSpace(output.FullResponse) != "" {
 			if output.Summary == "" {
 				output.Summary = output.FullResponse
 			}
@@ -242,4 +249,101 @@ func truncateSummary(text string) string {
 		return text
 	}
 	return text[:200] + "..."
+}
+
+var (
+	floatOutputKeys = map[string]struct{}{
+		"confidence":      {},
+		"confidenceDelta": {},
+		"finalConfidence": {},
+		"rating":          {},
+		"meanRating":      {},
+		"consensusLevel":  {},
+		"supportRatio":    {},
+	}
+	intOutputKeys = map[string]struct{}{
+		"responseCount": {},
+		"lastRound":     {},
+		"round":         {},
+	}
+)
+
+func coerceTaskOutputNumericStrings(payload []byte) ([]byte, error) {
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	decoder.UseNumber()
+
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return nil, err
+	}
+	if err := decoder.Decode(&struct{}{}); err != nil && err != io.EOF {
+		return nil, fmt.Errorf("unexpected trailing data: %w", err)
+	}
+
+	coerceNumericStrings(value)
+
+	normalized, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	return normalized, nil
+}
+
+func coerceNumericStrings(value any) {
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, item := range typed {
+			switch raw := item.(type) {
+			case string:
+				if _, ok := floatOutputKeys[key]; ok {
+					if parsed, ok := parseFlexibleFloat(raw); ok {
+						typed[key] = parsed
+						continue
+					}
+				}
+				if _, ok := intOutputKeys[key]; ok {
+					if parsed, ok := parseFlexibleInt(raw); ok {
+						typed[key] = parsed
+						continue
+					}
+				}
+			}
+			coerceNumericStrings(item)
+		}
+	case []any:
+		for _, item := range typed {
+			coerceNumericStrings(item)
+		}
+	}
+}
+
+func parseFlexibleFloat(raw string) (float64, bool) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return 0, false
+	}
+	value, err := strconv.ParseFloat(trimmed, 64)
+	if err != nil {
+		return 0, false
+	}
+	return value, true
+}
+
+func parseFlexibleInt(raw string) (int64, bool) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return 0, false
+	}
+	if value, err := strconv.ParseInt(trimmed, 10, 64); err == nil {
+		return value, true
+	}
+	floatValue, err := strconv.ParseFloat(trimmed, 64)
+	if err != nil {
+		return 0, false
+	}
+	intValue := int64(floatValue)
+	if float64(intValue) != floatValue {
+		return 0, false
+	}
+	return intValue, true
 }

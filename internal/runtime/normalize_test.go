@@ -22,6 +22,22 @@ func TestNormalizeProposalOutputFromText(t *testing.T) {
 	}
 }
 
+func TestNormalizeProposalOutputCoercesStringConfidence(t *testing.T) {
+	result, err := NormalizeTaskOutputFromText(consensus.ProposalTask{
+		TaskMeta: consensus.TaskMeta{AgentID: "proposer-1"},
+	}, `{"summary":"proposal","claims":[{"title":"A","statement":"claim","confidence":"0.8"}]}`)
+	if err != nil {
+		t.Fatalf("NormalizeTaskOutputFromText failed: %v", err)
+	}
+	typed, ok := result.(consensus.ProposalTaskResult)
+	if !ok {
+		t.Fatalf("unexpected result type: %T", result)
+	}
+	if typed.Output.Claims[0].Confidence != 0.8 {
+		t.Fatalf("unexpected coerced confidence: %#v", typed.Output.Claims[0])
+	}
+}
+
 func TestNormalizeSemanticVerificationOutput(t *testing.T) {
 	result, err := NormalizeTaskOutput(consensus.SemanticVerificationTask{
 		TaskMeta: consensus.TaskMeta{AgentID: "verifier-1"},
@@ -55,5 +71,21 @@ func TestNormalizeArbiterOutputRejectsMissingVerdict(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected missing task verdict to fail")
+	}
+}
+
+func TestNormalizeDelphiQuestionnaireOutputCoercesStringRating(t *testing.T) {
+	result, err := NormalizeTaskOutputFromText(consensus.DelphiQuestionnaireTask{
+		TaskMeta: consensus.TaskMeta{AgentID: "participant-1"},
+	}, `{"summary":"responses","responses":[{"statement":"Use monorepo","rating":"4"}]}`)
+	if err != nil {
+		t.Fatalf("NormalizeTaskOutputFromText failed: %v", err)
+	}
+	typed, ok := result.(consensus.DelphiQuestionnaireTaskResult)
+	if !ok {
+		t.Fatalf("unexpected result type: %T", result)
+	}
+	if typed.Output.Responses[0].Rating != 4 {
+		t.Fatalf("unexpected coerced rating: %#v", typed.Output.Responses[0])
 	}
 }
