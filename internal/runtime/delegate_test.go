@@ -498,3 +498,69 @@ printf 'not json'
 		}
 	}
 }
+
+func TestDelegatePersistsDecodeErrorArtifactSeparatelyFromRawParseError(t *testing.T) {
+	tmp := t.TempDir()
+	scriptPath := filepath.Join(tmp, "runner.sh")
+	script := `#!/bin/sh
+printf '{"summary":"proposal","claims":[{"claim":"alias field","confidence":"0.8"}]}'
+`
+	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
+
+	delegate, err := NewDelegate(config.Normalize(config.Config{
+		SchemaVersion: 1,
+		Providers: map[string]config.ProviderConfig{
+			"cli": {
+				Type:    config.ProviderTypeCLI,
+				CLIType: config.CLITypeGeneric,
+				Command: "sh",
+				Args:    []string{scriptPath},
+				Models:  map[string]config.ProviderModelConfig{"default": {ProviderModel: "mock"}},
+			},
+		},
+		Agents: []config.AgentConfig{
+			{ID: "proposer-a", Provider: "cli", Model: "default"},
+		},
+	}), tmp)
+	if err != nil {
+		t.Fatalf("NewDelegate failed: %v", err)
+	}
+
+	receipt, err := delegate.Dispatch(context.Background(), consensus.ProposalTask{
+		TaskMeta: consensus.TaskMeta{
+			RequestID: "req-1",
+			SessionID: "session-1",
+			AgentID:   "proposer-a",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Dispatch failed: %v", err)
+	}
+	awaited, err := delegate.Await(context.Background(), receipt.TaskID, 5*time.Second)
+	if err != nil {
+		t.Fatalf("Await failed: %v", err)
+	}
+	if awaited.OK {
+		t.Fatalf("expected schema-invalid output to fail, got %#v", awaited)
+	}
+	if awaited.Artifact == nil {
+		t.Fatalf("expected decode error artifact, got %#v", awaited)
+	}
+	if !strings.Contains(filepath.Base(awaited.Artifact.Path), "decode-error-") {
+		t.Fatalf("expected decode-error artifact, got %s", awaited.Artifact.Path)
+	}
+	initialDecodePath := filepath.Join(tmp, buildDecodeErrorFilename(consensus.ProposalTask{
+		TaskMeta: consensus.TaskMeta{AgentID: "proposer-a"},
+	}, receipt.TaskID))
+	if _, statErr := os.Stat(initialDecodePath); statErr != nil {
+		t.Fatalf("expected initial decode error artifact: %v", statErr)
+	}
+	initialRawParsePath := filepath.Join(tmp, buildParseErrorFilename(consensus.ProposalTask{
+		TaskMeta: consensus.TaskMeta{AgentID: "proposer-a"},
+	}, receipt.TaskID))
+	if _, statErr := os.Stat(initialRawParsePath); !os.IsNotExist(statErr) {
+		t.Fatalf("expected no raw parse artifact for schema error, got err=%v", statErr)
+	}
+}

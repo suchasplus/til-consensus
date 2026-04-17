@@ -63,8 +63,8 @@ func BuildRepairPrompt(task consensus.Task, agent ResolvedAgentRuntime, rawOutpu
 		"Repair instructions:",
 		"- Keep the same semantic meaning as much as possible.",
 		"- Do not invent new evidence, rationale, or fields unless required to satisfy the schema using the information already present.",
-		"- If a field used the wrong alias, rename it to the canonical schema field.",
-		"- If an enum value was invalid, replace it with the closest canonical schema value without changing the underlying intent.",
+		"- If a field used the wrong alias but the canonical target is exact and unambiguous, rename it to the canonical schema field.",
+		"- Do not broaden, narrow, or reinterpret verdict strength just to satisfy the schema.",
 		"- If a required field is missing but the value is clearly present under another key, move it instead of rewriting the content.",
 	)
 	return strings.Join(sections, "\n")

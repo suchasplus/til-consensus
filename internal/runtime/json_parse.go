@@ -2,6 +2,8 @@ package runtime
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
 	"strings"
 )
 
@@ -15,6 +17,8 @@ func (e *JSONParseError) Error() string {
 	return e.Message
 }
 
+// StripCodeFences removes one outer markdown code fence when present. It does
+// not inspect task schema or field names.
 func StripCodeFences(text string) string {
 	trimmed := strings.TrimSpace(text)
 	if strings.HasPrefix(trimmed, "```") && strings.HasSuffix(trimmed, "```") {
@@ -26,6 +30,9 @@ func StripCodeFences(text string) string {
 	return trimmed
 }
 
+// ExtractJSONObject returns the first balanced JSON object candidate from text.
+// It is intentionally syntax-oriented only: wrapper text is trimmed, but task
+// schema enforcement happens later during typed decode/validation.
 func ExtractJSONObject(text string) string {
 	cleaned := StripCodeFences(text)
 	if cleaned == "" {
@@ -71,27 +78,54 @@ func ExtractJSONObject(text string) string {
 	return ""
 }
 
+// StrictJSONObjectBytes accepts exactly one JSON object with no wrapper text and
+// no trailing data. This is the "strict schema first" path used by strict
+// compliance telemetry before any syntax recovery is attempted.
+func StrictJSONObjectBytes(text string) ([]byte, error) {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return nil, fmt.Errorf("strict JSON object required: output is empty")
+	}
+	if !strings.HasPrefix(trimmed, "{") || !strings.HasSuffix(trimmed, "}") {
+		return nil, fmt.Errorf("strict JSON object required: output must contain exactly one JSON object and no wrapper text")
+	}
+	decoder := json.NewDecoder(strings.NewReader(trimmed))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return nil, fmt.Errorf("strict JSON decode failed: %w", err)
+	}
+	if err := decoder.Decode(&struct{}{}); err != nil && err != io.EOF {
+		return nil, fmt.Errorf("strict JSON object required: unexpected trailing data: %w", err)
+	}
+	return json.Marshal(value)
+}
+
+// ParseJSONObject performs syntax-only recovery for cooperative-but-imperfect
+// model output. It may strip code fences, extract the first object, remove
+// trailing commas, or escape stray quotes. It never applies task-specific alias
+// or enum mappings; schema enforcement stays in typed decode/validation.
 func ParseJSONObject(text string) (any, error) {
 	candidate := ExtractJSONObject(text)
 	if candidate == "" {
 		return nil, &JSONParseError{Message: "no JSON object found in output", RawText: text}
 	}
-	var value any
-	if err := json.Unmarshal([]byte(candidate), &value); err == nil {
+	value, err := decodeJSONValue(candidate)
+	if err == nil {
 		return value, nil
 	}
 	if repaired := removeTrailingCommas(candidate); repaired != candidate {
-		if err := json.Unmarshal([]byte(repaired), &value); err == nil {
+		if value, err := decodeJSONValue(repaired); err == nil {
 			return value, nil
 		}
 	}
 	if repaired := repairInnerQuotes(candidate); repaired != candidate {
-		if err := json.Unmarshal([]byte(repaired), &value); err == nil {
+		if value, err := decodeJSONValue(repaired); err == nil {
 			return value, nil
 		}
 	}
 	if repaired, ok := escapeStrayQuotes(candidate); ok {
-		if err := json.Unmarshal([]byte(repaired), &value); err == nil {
+		if value, err := decodeJSONValue(repaired); err == nil {
 			return value, nil
 		}
 	}
@@ -100,6 +134,19 @@ func ParseJSONObject(text string) (any, error) {
 		RawText:            text,
 		ExtractedCandidate: candidate,
 	}
+}
+
+func decodeJSONValue(text string) (any, error) {
+	decoder := json.NewDecoder(strings.NewReader(text))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return nil, err
+	}
+	if err := decoder.Decode(&struct{}{}); err != nil && err != io.EOF {
+		return nil, fmt.Errorf("unexpected trailing data: %w", err)
+	}
+	return value, nil
 }
 
 func removeTrailingCommas(input string) string {

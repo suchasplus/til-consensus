@@ -92,7 +92,7 @@ func NormalizeTaskOutput(task consensus.Task, raw any) (consensus.TaskResult, er
 func StrictDecodeTaskOutput(task consensus.Task, raw any) (consensus.TaskResult, error) {
 	switch value := raw.(type) {
 	case string:
-		payload, err := strictJSONObjectBytes(value)
+		payload, err := StrictJSONObjectBytes(value)
 		if err != nil {
 			return nil, err
 		}
@@ -315,30 +315,6 @@ var (
 		"round":         {},
 	}
 )
-
-func strictJSONObjectBytes(text string) ([]byte, error) {
-	trimmed := strings.TrimSpace(text)
-	if trimmed == "" {
-		return nil, fmt.Errorf("strict JSON object required: output is empty")
-	}
-	if !strings.HasPrefix(trimmed, "{") || !strings.HasSuffix(trimmed, "}") {
-		return nil, fmt.Errorf("strict JSON object required: output must contain exactly one JSON object and no wrapper text")
-	}
-	decoder := json.NewDecoder(strings.NewReader(trimmed))
-	decoder.UseNumber()
-	var value any
-	if err := decoder.Decode(&value); err != nil {
-		return nil, fmt.Errorf("strict JSON decode failed: %w", err)
-	}
-	if err := decoder.Decode(&struct{}{}); err != nil && err != io.EOF {
-		return nil, fmt.Errorf("strict JSON object required: unexpected trailing data: %w", err)
-	}
-	payload, err := json.Marshal(value)
-	if err != nil {
-		return nil, fmt.Errorf("marshal strict JSON object: %w", err)
-	}
-	return payload, nil
-}
 
 func normalizeTaskOutputPayload(payload []byte) ([]byte, error) {
 	decoder := json.NewDecoder(bytes.NewReader(payload))

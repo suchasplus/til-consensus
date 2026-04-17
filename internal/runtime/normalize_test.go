@@ -47,6 +47,15 @@ func TestNormalizeProposalOutputRejectsConfidenceLabelsAndClaimAlias(t *testing.
 	}
 }
 
+func TestNormalizeProposalOutputEnforcesSchemaAfterSyntaxRecovery(t *testing.T) {
+	_, err := NormalizeTaskOutputFromText(consensus.ProposalTask{
+		TaskMeta: consensus.TaskMeta{AgentID: "proposer-1"},
+	}, "```json\n{\"summary\":\"proposal\",\"claims\":[{\"claim\":\"alias field\",\"confidence\":\"0.8\"}]}\n```")
+	if err == nil {
+		t.Fatal("expected syntax recovery to succeed but schema enforcement to reject alias field")
+	}
+}
+
 func TestNormalizeSemanticVerificationOutput(t *testing.T) {
 	result, err := NormalizeTaskOutput(consensus.SemanticVerificationTask{
 		TaskMeta: consensus.TaskMeta{AgentID: "verifier-1"},
