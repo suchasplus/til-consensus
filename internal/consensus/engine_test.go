@@ -76,14 +76,53 @@ func (s *stubStore) Patch(_ context.Context, _ string, patch SessionPatch) error
 	if patch.Phase != nil {
 		s.snapshot.Phase = *patch.Phase
 	}
+	if patch.Checkpoint != nil {
+		s.snapshot.Checkpoint = patch.Checkpoint
+	}
+	if patch.CaseManifest != nil {
+		s.snapshot.CaseManifest = patch.CaseManifest
+	}
 	if patch.ClaimGraph != nil {
 		s.snapshot.ClaimGraph = append([]ClaimNode(nil), patch.ClaimGraph...)
 	}
 	if patch.ChallengeTickets != nil {
 		s.snapshot.ChallengeTickets = append([]ChallengeTicket(nil), patch.ChallengeTickets...)
 	}
+	if patch.LedgerEntries != nil {
+		s.snapshot.LedgerEntries = append([]EvidenceRecord(nil), patch.LedgerEntries...)
+	}
 	if patch.LedgerCursor != nil {
 		s.snapshot.LedgerCursor = *patch.LedgerCursor
+	}
+	if patch.VerificationResults != nil {
+		s.snapshot.VerificationResults = append([]VerificationResult(nil), patch.VerificationResults...)
+	}
+	if patch.RevisionRecords != nil {
+		s.snapshot.RevisionRecords = append([]ClaimRevisionRecord(nil), patch.RevisionRecords...)
+	}
+	if patch.AdjudicationRecords != nil {
+		s.snapshot.AdjudicationRecords = append([]AdjudicationRecord(nil), patch.AdjudicationRecords...)
+	}
+	if patch.Observations != nil {
+		s.snapshot.Observations = append([]ObservationRecord(nil), patch.Observations...)
+	}
+	if patch.Metrics != nil {
+		s.snapshot.Metrics = *patch.Metrics
+	}
+	if patch.ResumeCount != nil {
+		s.snapshot.ResumeCount = *patch.ResumeCount
+	}
+	if patch.LastResumedAt != nil {
+		s.snapshot.LastResumedAt = *patch.LastResumedAt
+	}
+	if patch.ArbiterReport != nil {
+		s.snapshot.ArbiterReport = patch.ArbiterReport
+	}
+	if patch.Report != nil {
+		s.snapshot.Report = patch.Report
+	}
+	if patch.Action != nil {
+		s.snapshot.Action = patch.Action
 	}
 	if patch.Result != nil {
 		s.snapshot.Result = patch.Result
@@ -100,6 +139,7 @@ type stubDelegate struct {
 	failActionType  bool
 	challengeDrafts []ChallengeDraft
 	revisionDrafts  []ClaimRevisionDraft
+	failKinds       map[TaskKind]int
 }
 
 func (d *stubDelegate) Dispatch(_ context.Context, task Task) (DispatchReceipt, error) {
@@ -114,6 +154,12 @@ func (d *stubDelegate) Dispatch(_ context.Context, task Task) (DispatchReceipt, 
 
 func (d *stubDelegate) Await(_ context.Context, taskID string, _ time.Duration) (AwaitedTask, error) {
 	task := d.tasks[taskID]
+	if d.failKinds != nil {
+		if remaining := d.failKinds[task.Kind()]; remaining > 0 {
+			d.failKinds[task.Kind()] = remaining - 1
+			return AwaitedTask{OK: false, Error: "forced failure"}, nil
+		}
+	}
 	switch value := task.(type) {
 	case ProposalTask:
 		return AwaitedTask{OK: true, Output: ProposalTaskResult{Output: ProposalOutput{
@@ -203,6 +249,30 @@ func (d *stubDelegate) Await(_ context.Context, taskID string, _ time.Duration) 
 		return AwaitedTask{OK: true, Output: FinalVoteTaskResult{Output: FinalVoteOutput{
 			Summary: "final vote",
 			Votes:   votes,
+		}}}, nil
+	case ArbiterTask:
+		decisions := make([]ArbiterDecision, 0, len(value.Claims))
+		records := make([]AdjudicationRecord, 0, len(value.Claims))
+		for _, claim := range value.Claims {
+			decisions = append(decisions, ArbiterDecision{
+				ClaimID:    claim.ClaimID,
+				Verdict:    ClaimVerdictSupported,
+				Confidence: claim.Confidence,
+				Rationale:  "supported by stub arbiter",
+			})
+			records = append(records, AdjudicationRecord{
+				TargetClaimID:   claim.ClaimID,
+				Disposition:     ClaimDispositionKeep,
+				Rationale:       "kept by stub arbiter",
+				FinalConfidence: claim.Confidence,
+				Actionability:   ActionabilityReady,
+			})
+		}
+		return AwaitedTask{OK: true, Output: ArbiterTaskResult{Output: ArbiterTaskOutput{
+			Summary:     "arbiter",
+			TaskVerdict: TaskVerdictSupported,
+			Decisions:   decisions,
+			Records:     records,
 		}}}, nil
 	case ReportTask:
 		return AwaitedTask{OK: true, Output: ReportTaskResult{Output: AdjudicationReport{Summary: "report"}}}, nil
@@ -1015,6 +1085,44 @@ func TestEngineVerificationLoopHonorsLimit(t *testing.T) {
 	section := requireAdjudicationSection(t, result)
 	if len(section.VerificationResults) != 1 {
 		t.Fatalf("expected exactly one verification round, got %#v", section.VerificationResults)
+	}
+}
+
+func TestEngineResumeFromSavedCheckpoint(t *testing.T) {
+	store := &stubStore{}
+	delegate := &stubDelegate{
+		failKinds: map[TaskKind]int{
+			TaskKindArbitrate: 2,
+		},
+	}
+	engine := NewEngine(EngineDeps{
+		TaskDelegate: delegate,
+		Verifier:     stubVerifier{status: VerificationStatusPassed},
+		SessionStore: store,
+		Clock:        fixedClock{now: time.Unix(1, 0).UTC()},
+		IDFactory:    &deterministicIDs{},
+	})
+	request := baseRequest()
+	request.Roles.Arbiter = "arbiter-1"
+	if _, err := engine.Start(context.Background(), request); err == nil {
+		t.Fatal("expected initial run to fail at arbiter after retries")
+	}
+	if store.snapshot.Checkpoint == nil || store.snapshot.Checkpoint.LastCompletedPhase != SessionPhaseVerify {
+		t.Fatalf("expected verify checkpoint, got %#v", store.snapshot.Checkpoint)
+	}
+	resumed, err := engine.Resume(context.Background(), store.snapshot)
+	if err != nil {
+		t.Fatalf("Resume failed: %v", err)
+	}
+	if resumed.SessionID != store.snapshot.SessionID {
+		t.Fatalf("expected same session id on resume, got %s vs %s", resumed.SessionID, store.snapshot.SessionID)
+	}
+	if store.snapshot.ResumeCount != 1 {
+		t.Fatalf("expected resume count to increment, got %#v", store.snapshot.ResumeCount)
+	}
+	section := requireAdjudicationSection(t, resumed)
+	if len(section.ChallengeTickets) == 0 || len(section.AdjudicationRecords) == 0 {
+		t.Fatalf("expected resumed run to continue from checkpoint, got %#v", section)
 	}
 }
 

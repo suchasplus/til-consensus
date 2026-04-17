@@ -1,0 +1,38 @@
+# 搭配 claude.config.yaml
+request_id: claude-architecture-001
+
+task_spec:
+  goal: 评估未来 6 个月内是否应该把当前单体服务演进成事件驱动架构
+  task_type: strategy
+  success_criteria:
+    - 结论必须说明推荐、不推荐或部分推荐
+    - 必须指出主要风险和前提
+    - 证据不足时允许 undetermined
+  materials:
+    - id: current-state
+      title: 当前服务状态
+      kind: text
+      content: |
+        当前系统是一个单体 Go 服务，负责用户、订单、支付、通知四个域。
+        主要问题是发布耦合、支付链路拖慢订单处理，以及通知模块故障影响主流程。
+    - id: constraints
+      title: 决策约束
+      kind: text
+      content: |
+        团队 6 人，未来半年人数基本不变。
+        不能显著增加运维复杂度，也不能为了先进架构牺牲交付速度。
+
+roles:
+  proposers: [proposer-claude]
+  challengers: [challenger-claude]
+  arbiter: arbiter-claude
+  semantic_verifier: verifier-claude
+  reporter: reporter-claude
+
+proposal_policy:
+  max_passes: 1
+  max_claims_per_worker: 6
+
+verification_policy:
+  allow_semantic_verifier: true
+  max_parallel_checks: 2

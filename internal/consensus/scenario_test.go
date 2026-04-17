@@ -3,8 +3,8 @@ package consensus_test
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"

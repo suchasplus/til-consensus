@@ -210,7 +210,7 @@ func TestResolveRunPlanForRequestAndSessionStoreDir(t *testing.T) {
 		ConfigDir: tmp,
 		Config: Normalize(Config{
 			SchemaVersion: 1,
-			Output: OutputConfig{Directory: "./out/{requestId}"},
+			Output:        OutputConfig{Directory: "./out/{requestId}"},
 		}),
 	}
 	request, err := consensus.NormalizeStartRequest(consensus.StartRequest{

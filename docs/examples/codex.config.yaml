@@ -1,0 +1,60 @@
+schema_version: 1
+
+defaults:
+  success_criteria:
+    - 给出 claim 级裁决
+    - 对证据不足的部分明确标成 undetermined
+  per_task_timeout: 20m
+  task_retry_attempts: 1
+  proposal_policy:
+    max_passes: 1
+    max_claims_per_worker: 4
+    dedupe_strategy: normalized-statement
+  verification_policy:
+    allow_semantic_verifier: true
+    max_parallel_checks: 2
+  arbiter_policy:
+    allow_undetermined: true
+    blind_review: true
+
+output:
+  directory: ./out/{requestId}
+
+providers:
+  codex-cli:
+    type: cli
+    cli_type: codex
+    command: codex
+    models:
+      default:
+        provider_model: gpt-5
+        reasoning: medium
+
+agents:
+  - id: proposer-codex
+    provider: codex-cli
+    model: default
+    role: proposer
+  - id: challenger-codex
+    provider: codex-cli
+    model: default
+    role: challenger
+  - id: verifier-codex
+    provider: codex-cli
+    model: default
+    role: semantic-verifier
+  - id: arbiter-codex
+    provider: codex-cli
+    model: default
+    role: arbiter
+  - id: reporter-codex
+    provider: codex-cli
+    model: default
+    role: reporter
+
+roles:
+  proposers: [proposer-codex]
+  challengers: [challenger-codex]
+  semantic_verifier: verifier-codex
+  arbiter: arbiter-codex
+  reporter: reporter-codex

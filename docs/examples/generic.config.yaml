@@ -1,0 +1,67 @@
+schema_version: 1
+
+defaults:
+  success_criteria:
+    - 给出 claim 级裁决
+    - 证据不足时允许 undetermined
+  per_task_timeout: 20m
+  task_retry_attempts: 1
+  proposal_policy:
+    max_passes: 1
+    max_claims_per_worker: 4
+    dedupe_strategy: normalized-statement
+  verification_policy:
+    allow_semantic_verifier: true
+    max_parallel_checks: 2
+  arbiter_policy:
+    allow_undetermined: true
+    blind_review: true
+
+output:
+  directory: ./out/{requestId}
+
+providers:
+  generic-local:
+    type: cli
+    cli_type: generic
+    command: python3
+    args:
+      - ./scripts/generic_adapter.py
+    env:
+      ADAPTER_MODEL: "{providerModel}"
+      ADAPTER_ROLE: "{role}"
+      ADAPTER_REQUEST_ID: "{requestId}"
+      ADAPTER_SESSION_ID: "{sessionId}"
+    models:
+      default:
+        provider_model: local-generic
+        reasoning: medium
+
+agents:
+  - id: proposer-generic
+    provider: generic-local
+    model: default
+    role: proposer
+  - id: challenger-generic
+    provider: generic-local
+    model: default
+    role: challenger
+  - id: verifier-generic
+    provider: generic-local
+    model: default
+    role: semantic-verifier
+  - id: arbiter-generic
+    provider: generic-local
+    model: default
+    role: arbiter
+  - id: reporter-generic
+    provider: generic-local
+    model: default
+    role: reporter
+
+roles:
+  proposers: [proposer-generic]
+  challengers: [challenger-generic]
+  semantic_verifier: verifier-generic
+  arbiter: arbiter-generic
+  reporter: reporter-generic

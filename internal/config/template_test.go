@@ -53,6 +53,38 @@ func TestRenderTemplatePresetsAreValidYAML(t *testing.T) {
 				"convergence_threshold",
 			},
 		},
+		{
+			name:   "generic",
+			preset: TemplatePresetGeneric,
+			needles: []string{
+				"cli_type: generic",
+				"./scripts/generic_adapter.py",
+			},
+		},
+		{
+			name:   "codex",
+			preset: TemplatePresetCodex,
+			needles: []string{
+				"cli_type: codex",
+				"provider_model: gpt-5",
+			},
+		},
+		{
+			name:   "claude",
+			preset: TemplatePresetClaude,
+			needles: []string{
+				"cli_type: claude",
+				"provider_model: claude-sonnet-4",
+			},
+		},
+		{
+			name:   "gemini",
+			preset: TemplatePresetGemini,
+			needles: []string{
+				"cli_type: gemini",
+				"provider_model: gemini-2.5-pro",
+			},
+		},
 	}
 
 	for _, tc := range tests {

@@ -11,20 +11,20 @@ import (
 )
 
 type ResolvedRunPlan struct {
-	RequestID    string
-	Task         string
-	Mode         consensus.WorkflowMode
-	Roles        consensus.RoleAssignments
+	RequestID       string
+	Task            string
+	Mode            consensus.WorkflowMode
+	Roles           consensus.RoleAssignments
 	SessionStoreDir string
-	LedgerPath   string
-	ManifestPath string
-	EventsPath   string
-	ResultPath   string
-	SummaryPath  string
-	ErrorPath    string
-	ArtifactsDir string
-	Verbose      bool
-	StartRequest consensus.StartRequest
+	LedgerPath      string
+	ManifestPath    string
+	EventsPath      string
+	ResultPath      string
+	SummaryPath     string
+	ErrorPath       string
+	ArtifactsDir    string
+	Verbose         bool
+	StartRequest    consensus.StartRequest
 }
 
 type RunArtifactPaths struct {

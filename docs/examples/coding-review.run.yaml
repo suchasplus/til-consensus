@@ -1,0 +1,55 @@
+request_id: coding-review-001
+
+task_spec:
+  goal: 审查这次 Go patch 是否真的修复竞态问题，并且没有扩大修改范围
+  task_type: coding
+  success_criteria:
+    - 必须给出 claim 级裁决
+    - 必须显式引用测试、diff 或命令输出
+    - 证据不足时允许 undetermined
+  workspace_snapshot:
+    root: .
+    revision: HEAD
+  constraints:
+    allowed_paths:
+      - cmd/
+      - internal/
+      - go.mod
+      - go.sum
+    required_commands:
+      - go
+      - git
+
+roles:
+  proposers: [proposer-a]
+  challengers: [challenger-a]
+  arbiter: arbiter-a
+  semantic_verifier: verifier-a
+  reporter: reporter-a
+
+verification_policy:
+  allow_semantic_verifier: true
+  max_parallel_checks: 3
+  required_checks:
+    - name: workspace-snapshot
+      kind: workspace_snapshot
+    - name: allowed-paths
+      kind: allowed_paths
+      paths:
+        - cmd/
+        - internal/
+        - go.mod
+        - go.sum
+    - name: changed-files
+      kind: git_diff_paths
+      base_revision: origin/main
+      paths:
+        - cmd/
+        - internal/
+    - name: unit-tests
+      kind: command
+      command: go
+      args:
+        - test
+        - ./...
+      workdir: .

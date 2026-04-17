@@ -26,6 +26,14 @@ til-consensus config init --preset quickstart --config ./til-consensus.yaml
   - 接真实 API provider
 - `coding`
   - 做 patch / benchmark / code review 裁决
+- `generic`
+  - 接你自己的脚本、本地代理或内部 CLI
+- `codex`
+  - 直接生成 Codex CLI 配置
+- `claude`
+  - 直接生成 Claude CLI 配置
+- `gemini`
+  - 直接生成 Gemini CLI 配置
 - `debate`
   - 使用 `free_debate`
   - 适合多 CLI 交叉辩论
@@ -37,6 +45,15 @@ til-consensus config init --preset quickstart --config ./til-consensus.yaml
 
 ```bash
 til-consensus config init --preset debate --stdout
+```
+
+直接生成 provider 导向模板：
+
+```bash
+til-consensus config init --preset generic --config ./til-consensus.yaml
+til-consensus config init --preset codex --config ./til-consensus.yaml
+til-consensus config init --preset claude --config ./til-consensus.yaml
+til-consensus config init --preset gemini --config ./til-consensus.yaml
 ```
 
 如果已有配置文件，需要覆盖：
@@ -385,3 +402,12 @@ til-consensus run --config ./til-consensus.yaml --replay-session session_xxx
 til-consensus session list --config ./til-consensus.yaml --request-id tc_xxx
 til-consensus session show --config ./til-consensus.yaml --session-id session_xxx
 ```
+
+行为区别：
+
+- `run --resume-session`
+  - 当前会对 `adjudication` workflow 执行 checkpoint 级恢复
+  - 也就是从最近一次已完成 phase 继续，而不是从 `frame` 重新开始
+- `run --replay-session`
+  - 不复用旧 session 的 phase 进度
+  - 会生成新的 request id，并把旧 session 挂成 lineage 父节点

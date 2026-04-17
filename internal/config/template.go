@@ -16,6 +16,10 @@ const (
 	TemplatePresetCoding     = "coding"
 	TemplatePresetDebate     = "debate"
 	TemplatePresetDelphi     = "delphi"
+	TemplatePresetGeneric    = "generic"
+	TemplatePresetCodex      = "codex"
+	TemplatePresetClaude     = "claude"
+	TemplatePresetGemini     = "gemini"
 )
 
 func InitTemplate() Config {
@@ -88,6 +92,14 @@ func RenderTemplate(preset string) (string, error) {
 		return debateTemplate, nil
 	case TemplatePresetDelphi:
 		return delphiTemplate, nil
+	case TemplatePresetGeneric:
+		return genericTemplate, nil
+	case TemplatePresetCodex:
+		return codexTemplate, nil
+	case TemplatePresetClaude:
+		return claudeTemplate, nil
+	case TemplatePresetGemini:
+		return geminiTemplate, nil
 	default:
 		return "", fmt.Errorf("unsupported config preset: %s", preset)
 	}
@@ -312,6 +324,288 @@ roles:
     - participant-b
   facilitator: facilitator-a
   reporter: reporter-a
+`
+
+const genericTemplate = `# til-consensus generic CLI 配置
+# 适合接自己的脚本、本地模型代理或公司内部 CLI
+# 推荐修改顺序：先改 command/args/env，再改 agent 分工，再改 run.yaml
+schema_version: 1
+
+defaults:
+  success_criteria:
+    - 给出 claim 级裁决
+    - 对证据不足的部分明确标成 undetermined
+  allowed_tools:
+    - docs
+    - compare
+    - summarize
+  per_task_timeout: 20m
+  task_retry_attempts: 1
+  proposal_policy:
+    max_passes: 1
+    max_claims_per_worker: 4
+    dedupe_strategy: normalized-statement
+  verification_policy:
+    allow_semantic_verifier: true
+    max_parallel_checks: 2
+  arbiter_policy:
+    allow_undetermined: true
+    blind_review: true
+
+output:
+  directory: ./out/{requestId}
+
+providers:
+  generic-local:
+    type: cli
+    cli_type: generic
+    command: python3
+    args:
+      - ./scripts/generic_adapter.py
+    env:
+      ADAPTER_MODEL: "{providerModel}"
+      ADAPTER_ROLE: "{role}"
+      ADAPTER_REQUEST_ID: "{requestId}"
+      ADAPTER_SESSION_ID: "{sessionId}"
+    models:
+      default:
+        provider_model: local-generic
+        reasoning: medium
+
+agents:
+  - id: proposer-generic
+    provider: generic-local
+    model: default
+    role: proposer
+  - id: challenger-generic
+    provider: generic-local
+    model: default
+    role: challenger
+  - id: verifier-generic
+    provider: generic-local
+    model: default
+    role: semantic-verifier
+  - id: arbiter-generic
+    provider: generic-local
+    model: default
+    role: arbiter
+  - id: reporter-generic
+    provider: generic-local
+    model: default
+    role: reporter
+
+roles:
+  proposers:
+    - proposer-generic
+  challengers:
+    - challenger-generic
+  semantic_verifier: verifier-generic
+  arbiter: arbiter-generic
+  reporter: reporter-generic
+`
+
+const codexTemplate = `# til-consensus Codex CLI 配置
+# 适合文档完善、架构选择和 coding review
+schema_version: 1
+
+defaults:
+  success_criteria:
+    - 给出 claim 级裁决
+    - 对证据不足的部分明确标成 undetermined
+  allowed_tools:
+    - repo
+    - docs
+    - tests
+  per_task_timeout: 20m
+  task_retry_attempts: 1
+  proposal_policy:
+    max_passes: 1
+    max_claims_per_worker: 4
+    dedupe_strategy: normalized-statement
+  verification_policy:
+    allow_semantic_verifier: true
+    max_parallel_checks: 2
+  arbiter_policy:
+    allow_undetermined: true
+    blind_review: true
+
+output:
+  directory: ./out/{requestId}
+
+providers:
+  codex-cli:
+    type: cli
+    cli_type: codex
+    command: codex
+    models:
+      default:
+        provider_model: gpt-5
+        reasoning: medium
+
+agents:
+  - id: proposer-codex
+    provider: codex-cli
+    model: default
+    role: proposer
+  - id: challenger-codex
+    provider: codex-cli
+    model: default
+    role: challenger
+  - id: verifier-codex
+    provider: codex-cli
+    model: default
+    role: semantic-verifier
+  - id: arbiter-codex
+    provider: codex-cli
+    model: default
+    role: arbiter
+  - id: reporter-codex
+    provider: codex-cli
+    model: default
+    role: reporter
+
+roles:
+  proposers: [proposer-codex]
+  challengers: [challenger-codex]
+  semantic_verifier: verifier-codex
+  arbiter: arbiter-codex
+  reporter: reporter-codex
+`
+
+const claudeTemplate = `# til-consensus Claude CLI 配置
+# 适合架构讨论、风险审查和 claim challenge
+schema_version: 1
+
+defaults:
+  success_criteria:
+    - 给出 claim 级裁决
+    - 明确列出 caveat 与 unresolved
+  allowed_tools:
+    - docs
+    - compare
+    - summarize
+  per_task_timeout: 20m
+  task_retry_attempts: 1
+  proposal_policy:
+    max_passes: 1
+    max_claims_per_worker: 4
+    dedupe_strategy: normalized-statement
+  verification_policy:
+    allow_semantic_verifier: true
+    max_parallel_checks: 2
+  arbiter_policy:
+    allow_undetermined: true
+    blind_review: true
+
+output:
+  directory: ./out/{requestId}
+
+providers:
+  claude-cli:
+    type: cli
+    cli_type: claude
+    command: claude
+    models:
+      default:
+        provider_model: claude-sonnet-4
+        reasoning: medium
+
+agents:
+  - id: proposer-claude
+    provider: claude-cli
+    model: default
+    role: proposer
+  - id: challenger-claude
+    provider: claude-cli
+    model: default
+    role: challenger
+  - id: verifier-claude
+    provider: claude-cli
+    model: default
+    role: semantic-verifier
+  - id: arbiter-claude
+    provider: claude-cli
+    model: default
+    role: arbiter
+  - id: reporter-claude
+    provider: claude-cli
+    model: default
+    role: reporter
+
+roles:
+  proposers: [proposer-claude]
+  challengers: [challenger-claude]
+  semantic_verifier: verifier-claude
+  arbiter: arbiter-claude
+  reporter: reporter-claude
+`
+
+const geminiTemplate = `# til-consensus Gemini CLI 配置
+# 适合信息搜集、结构化摘要和 semantic verification
+schema_version: 1
+
+defaults:
+  success_criteria:
+    - 给出 claim 级裁决
+    - 对证据不足的部分明确标成 undetermined
+  allowed_tools:
+    - docs
+    - compare
+    - summarize
+  per_task_timeout: 20m
+  task_retry_attempts: 1
+  proposal_policy:
+    max_passes: 1
+    max_claims_per_worker: 4
+    dedupe_strategy: normalized-statement
+  verification_policy:
+    allow_semantic_verifier: true
+    max_parallel_checks: 2
+  arbiter_policy:
+    allow_undetermined: true
+    blind_review: true
+
+output:
+  directory: ./out/{requestId}
+
+providers:
+  gemini-cli:
+    type: cli
+    cli_type: gemini
+    command: gemini
+    models:
+      default:
+        provider_model: gemini-2.5-pro
+        reasoning: medium
+
+agents:
+  - id: proposer-gemini
+    provider: gemini-cli
+    model: default
+    role: proposer
+  - id: challenger-gemini
+    provider: gemini-cli
+    model: default
+    role: challenger
+  - id: verifier-gemini
+    provider: gemini-cli
+    model: default
+    role: semantic-verifier
+  - id: arbiter-gemini
+    provider: gemini-cli
+    model: default
+    role: arbiter
+  - id: reporter-gemini
+    provider: gemini-cli
+    model: default
+    role: reporter
+
+roles:
+  proposers: [proposer-gemini]
+  challengers: [challenger-gemini]
+  semantic_verifier: verifier-gemini
+  arbiter: arbiter-gemini
+  reporter: reporter-gemini
 `
 
 const openaiTemplate = `# til-consensus OpenAI API 配置

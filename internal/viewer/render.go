@@ -160,9 +160,9 @@ type ArtifactView struct {
 }
 
 type RoundView struct {
-	Round       int      `json:"round"`
-	Phase       string   `json:"phase"`
-	Summary     string   `json:"summary,omitempty"`
+	Round        int      `json:"round"`
+	Phase        string   `json:"phase"`
+	Summary      string   `json:"summary,omitempty"`
 	Participants []string `json:"participants,omitempty"`
 }
 
@@ -797,10 +797,10 @@ func buildFollowUps(result consensus.RunResult, runDir string, limit int) []Foll
 	}
 	if result.Lineage != nil {
 		out = append(out, FollowUpView{
-			ParentRequestID: result.Lineage.ParentRequestID,
-			ParentSessionID: result.Lineage.ParentSessionID,
-			ParentCaseID:    result.Lineage.ParentCaseID,
-			Trigger:         result.Lineage.Trigger,
+			ParentRequestID:   result.Lineage.ParentRequestID,
+			ParentSessionID:   result.Lineage.ParentSessionID,
+			ParentCaseID:      result.Lineage.ParentCaseID,
+			Trigger:           result.Lineage.Trigger,
 			FollowUpRequestID: result.RequestID,
 			FollowUpCaseID:    lineageCaseID(result),
 		})
@@ -884,11 +884,11 @@ func extractVerifications(entries []consensus.EvidenceRecord) []VerificationView
 		switch entry.Kind {
 		case consensus.EvidenceKindDeterministicCheck, consensus.EvidenceKindSemanticVerification:
 			item := VerificationView{
-				EntryID:      entry.EntryID,
+				EntryID:        entry.EntryID,
 				VerificationID: entry.VerificationID,
-				ClaimID:      entry.ClaimID,
-				ChallengeID:  entry.ChallengeID,
-				Summary:      entry.Summary,
+				ClaimID:        entry.ClaimID,
+				ChallengeID:    entry.ChallengeID,
+				Summary:        entry.Summary,
 			}
 			if entry.Artifact != nil {
 				item.ArtifactPath = entry.Artifact.Path

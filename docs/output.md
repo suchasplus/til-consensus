@@ -136,6 +136,7 @@
 - `requestId`
 - `request`
 - `phase`
+- `checkpoint`
 - `claimGraph`
 - `challengeTickets`
 - `result`
@@ -146,3 +147,32 @@
 - `run --replay-session`
 - `session list`
 - `session show`
+
+其中：
+
+- `resume-session`
+  - 读取 snapshot 里的 `checkpoint.lastCompletedPhase`
+  - 对 `adjudication` 模式执行 phase 级恢复
+- `replay-session`
+  - 复用旧 request，但生成新的 child run
+  - 更适合做“同一问题重新跑一次”而不是断点恢复
+
+## provider 审计 artifact
+
+当 provider 被调用时，`artifacts/` 目录下还会额外生成一组审计文件：
+
+- `input-<agent>-<task>.json`
+  - provider 实际收到的结构化任务输入
+- `failure-<agent>-<task>.json`
+  - provider 执行失败时的分类结果
+  - 常见 `class`：
+    - `timeout`
+    - `auth`
+    - `rate_limited`
+    - `unavailable`
+    - `network`
+    - `command_not_found`
+    - `command_exit`
+- `raw-<agent>-<task>.*`
+  - provider 的原始输出
+  - 如果输出无法规范化，还会保留 parse error 原文

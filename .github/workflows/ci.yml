@@ -1,0 +1,95 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  quality-linux:
+    name: quality-linux
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Check formatting
+        run: |
+          output="$(gofmt -l .)"
+          if [ -n "$output" ]; then
+            echo "以下文件未格式化:"
+            echo "$output"
+            exit 1
+          fi
+
+      - name: Run unit tests
+        run: go test ./...
+
+      - name: Run race tests
+        run: go test -race ./...
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v6
+
+      - name: Build CLI
+        run: make build
+
+      - name: Upload Linux CLI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: til-consensus-linux-cli
+          path: bin/til-consensus
+          if-no-files-found: error
+
+  build-macos:
+    name: build-macos
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build CLI
+        run: make build
+
+      - name: Smoke version output
+        run: ./bin/til-consensus --version
+
+  cli-smoke:
+    name: cli-smoke
+    runs-on: ubuntu-latest
+    needs:
+      - quality-linux
+    steps:
+      - name: Download Linux CLI artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: til-consensus-linux-cli
+          path: ./bin
+
+      - name: Make CLI executable
+        run: chmod +x ./bin/til-consensus
+
+      - name: Smoke --version
+        run: ./bin/til-consensus --version
+
+      - name: Smoke version command
+        run: ./bin/til-consensus version

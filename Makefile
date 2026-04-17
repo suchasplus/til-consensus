@@ -3,6 +3,9 @@ APP ?= til-consensus
 CMD_PKG ?= ./cmd/til-consensus
 BIN_DIR ?= ./bin
 DIST_DIR ?= ./dist
+TARGET_GOOS ?= $(shell $(GO) env GOOS)
+TARGET_GOARCH ?= $(shell $(GO) env GOARCH)
+RELEASE_NAME ?= $(APP)_$(VERSION)_$(TARGET_GOOS)_$(TARGET_GOARCH)
 DEBUG_FLAGS ?= -gcflags "all=-N -l"
 VERSION_PKG ?= github.com/suchasplus/til-consensus/internal/buildinfo
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
@@ -19,7 +22,7 @@ else
 INSTALL_DIR ?= $(HOME)/.local/bin
 endif
 
-.PHONY: fmt test vet lint build build-debug build-release install run cover clean
+.PHONY: fmt test vet lint ci build build-debug build-release release-archive install run cover clean
 
 fmt:
 	$(GO) fmt ./...
@@ -33,6 +36,19 @@ vet:
 lint:
 	golangci-lint run
 
+ci:
+	@output="$$(gofmt -l .)"; \
+	if [ -n "$$output" ]; then \
+		echo "以下文件未格式化:"; \
+		echo "$$output"; \
+		exit 1; \
+	fi
+	$(GO) test ./...
+	$(GO) test -race ./...
+	$(GO) vet ./...
+	golangci-lint run
+	$(MAKE) build VERSION=$(VERSION) COMMIT=$(COMMIT) BUILD_TIME=$(BUILD_TIME) DIRTY=$(DIRTY)
+
 build:
 	mkdir -p $(BIN_DIR)
 	$(GO) build -ldflags "$(COMMON_LDFLAGS)" -o $(BIN_DIR)/$(APP) $(CMD_PKG)
@@ -44,6 +60,12 @@ build-debug:
 build-release:
 	mkdir -p $(DIST_DIR)
 	$(GO) build -trimpath -ldflags "$(RELEASE_LDFLAGS)" -o $(DIST_DIR)/$(APP) $(CMD_PKG)
+
+release-archive:
+	rm -rf $(DIST_DIR)/$(RELEASE_NAME) $(DIST_DIR)/$(RELEASE_NAME).tar.gz
+	mkdir -p $(DIST_DIR)/$(RELEASE_NAME)
+	GOOS=$(TARGET_GOOS) GOARCH=$(TARGET_GOARCH) $(GO) build -trimpath -ldflags "$(RELEASE_LDFLAGS)" -o $(DIST_DIR)/$(RELEASE_NAME)/$(APP) $(CMD_PKG)
+	tar -C $(DIST_DIR) -czf $(DIST_DIR)/$(RELEASE_NAME).tar.gz $(RELEASE_NAME)
 
 install: build-release
 	mkdir -p $(INSTALL_DIR)

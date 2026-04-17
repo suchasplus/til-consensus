@@ -1,0 +1,95 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    name: build-${{ matrix.goos }}-${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Compute build metadata
+        id: meta
+        shell: bash
+        run: |
+          echo "commit_short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "build_time=$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> "$GITHUB_OUTPUT"
+
+      - name: Build release archive
+        run: |
+          make release-archive \
+            VERSION="${{ github.ref_name }}" \
+            COMMIT="${{ steps.meta.outputs.commit_short }}" \
+            BUILD_TIME="${{ steps.meta.outputs.build_time }}" \
+            DIRTY=false \
+            TARGET_GOOS="${{ matrix.goos }}" \
+            TARGET_GOARCH="${{ matrix.goarch }}"
+
+      - name: Verify archive version output
+        shell: bash
+        run: |
+          archive="dist/til-consensus_${{ github.ref_name }}_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz"
+          target_dir="/tmp/til-consensus-release-check"
+          rm -rf "$target_dir"
+          mkdir -p "$target_dir"
+          tar -xzf "$archive" -C "$target_dir"
+          "$target_dir/til-consensus_${{ github.ref_name }}_${{ matrix.goos }}_${{ matrix.goarch }}/til-consensus" --version | grep "${{ github.ref_name }}"
+
+      - name: Upload release archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/til-consensus_${{ github.ref_name }}_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz
+          if-no-files-found: error
+
+  publish-release:
+    name: publish-release
+    runs-on: ubuntu-latest
+    needs:
+      - build-release
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+
+      - name: Generate checksums
+        shell: bash
+        run: |
+          cd dist
+          sha256sum *.tar.gz > checksums.txt
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/checksums.txt

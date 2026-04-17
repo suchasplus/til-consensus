@@ -1,0 +1,39 @@
+# 搭配 codex.config.yaml
+request_id: codex-document-001
+
+task_spec:
+  goal: 完善《服务接入指南》文档，判断哪些结论可以保留，哪些需要 caveat 或 unresolved
+  task_type: strategy
+  success_criteria:
+    - 必须区分保留结论、降级结论和未决问题
+    - 必须给出下一步补证据建议
+  materials:
+    - id: guide-draft
+      title: 当前服务接入指南草稿
+      kind: text
+      content: |
+        当前文档声称：
+        1. 所有客户端都应统一走新网关
+        2. 旧鉴权方式将在两周内下线
+        3. 新 SDK 已在全部地区完成发布
+    - id: constraints
+      title: 文档约束
+      kind: text
+      content: |
+        需要面向外部接入方发布。
+        不允许把未验证的信息写成确定性事实。
+
+roles:
+  proposers: [proposer-codex]
+  challengers: [challenger-codex]
+  arbiter: arbiter-codex
+  semantic_verifier: verifier-codex
+  reporter: reporter-codex
+
+proposal_policy:
+  max_passes: 1
+  max_claims_per_worker: 5
+
+verification_policy:
+  allow_semantic_verifier: true
+  max_parallel_checks: 2

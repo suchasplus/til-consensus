@@ -72,6 +72,9 @@ func ExecuteTaskWithRetry(ctx context.Context, delegate TaskDelegate, task Task,
 						return lastReceipt, lastAwaited, attempt, hookErr
 					}
 				}
+				if err := waitRetryBackoff(ctx, attempt); err != nil {
+					return lastReceipt, lastAwaited, attempt, err
+				}
 				continue
 			}
 			return lastReceipt, lastAwaited, attempt, lastErr
@@ -91,6 +94,9 @@ func ExecuteTaskWithRetry(ctx context.Context, delegate TaskDelegate, task Task,
 						return lastReceipt, lastAwaited, attempt, hookErr
 					}
 				}
+				if err := waitRetryBackoff(ctx, attempt); err != nil {
+					return lastReceipt, lastAwaited, attempt, err
+				}
 				continue
 			}
 			return lastReceipt, AwaitedTask{}, attempt, lastErr
@@ -107,6 +113,9 @@ func ExecuteTaskWithRetry(ctx context.Context, delegate TaskDelegate, task Task,
 					if hookErr := hooks.OnRetry(attempt+1, maxAttempts, retryReason(lastErr, awaited)); hookErr != nil {
 						return lastReceipt, lastAwaited, attempt, hookErr
 					}
+				}
+				if err := waitRetryBackoff(ctx, attempt); err != nil {
+					return lastReceipt, lastAwaited, attempt, err
 				}
 				continue
 			}
@@ -140,4 +149,19 @@ func retryReason(err error, awaited AwaitedTask) string {
 		return err.Error()
 	}
 	return "task failed"
+}
+
+func waitRetryBackoff(ctx context.Context, attempt int) error {
+	backoff := time.Duration(attempt) * 100 * time.Millisecond
+	if backoff > 500*time.Millisecond {
+		backoff = 500 * time.Millisecond
+	}
+	timer := time.NewTimer(backoff)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }

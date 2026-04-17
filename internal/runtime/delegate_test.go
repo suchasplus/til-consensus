@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -96,5 +97,59 @@ func TestDelegateTimeoutReturnsTimeoutMarker(t *testing.T) {
 	}
 	if awaited.Error != "__timeout__" {
 		t.Fatalf("expected timeout marker, got %#v", awaited)
+	}
+}
+
+func TestDelegatePersistsInputAndFailureArtifacts(t *testing.T) {
+	tmp := t.TempDir()
+	delegate, err := NewDelegate(config.Normalize(config.Config{
+		SchemaVersion: 1,
+		Providers: map[string]config.ProviderConfig{
+			"cli": {
+				Type:    config.ProviderTypeCLI,
+				CLIType: config.CLITypeGeneric,
+				Command: "sh",
+				Args:    []string{"-c", "echo boom >&2; exit 7"},
+				Models:  map[string]config.ProviderModelConfig{"default": {ProviderModel: "mock"}},
+			},
+		},
+		Agents: []config.AgentConfig{
+			{ID: "proposer-a", Provider: "cli", Model: "default"},
+		},
+		Roles: config.RolesConfig{
+			Proposers:   []string{"proposer-a"},
+			Challengers: []string{"proposer-a"},
+		},
+	}), tmp)
+	if err != nil {
+		t.Fatalf("NewDelegate failed: %v", err)
+	}
+	receipt, err := delegate.Dispatch(context.Background(), consensus.ProposalTask{
+		TaskMeta: consensus.TaskMeta{
+			RequestID: "req-1",
+			SessionID: "session-1",
+			AgentID:   "proposer-a",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Dispatch failed: %v", err)
+	}
+	awaited, err := delegate.Await(context.Background(), receipt.TaskID, time.Second)
+	if err != nil {
+		t.Fatalf("Await failed: %v", err)
+	}
+	if awaited.OK || awaited.Artifact == nil {
+		t.Fatalf("expected failed task with artifact, got %#v", awaited)
+	}
+	inputPath := filepath.Join(tmp, "input-proposer-a-propose.json")
+	if _, err := os.Stat(inputPath); err != nil {
+		t.Fatalf("expected input artifact: %v", err)
+	}
+	body, err := os.ReadFile(awaited.Artifact.Path)
+	if err != nil {
+		t.Fatalf("read failure artifact: %v", err)
+	}
+	if !strings.Contains(string(body), `"class": "command_exit"`) {
+		t.Fatalf("expected command_exit classification, got %s", string(body))
 	}
 }

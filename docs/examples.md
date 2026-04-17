@@ -1,15 +1,15 @@
 # 配置与输入样例
 
-这页给出两类可直接复用的样例：
+这页分成两部分：
 
-- provider / agent 配置片段
+- 可直接落盘的 provider 配置样例
 - 可直接复制的 `run.yaml`
 
-如果你刚起步，建议先：
+如果你刚起步，建议直接：
 
-1. `til-consensus config init --preset quickstart --config ./til-consensus.yaml`
-2. 从下面复制 provider 片段替换 `providers:` / `agents:` / `roles:`
-3. 再从下面挑一个 `run.yaml`
+1. `til-consensus config init --preset codex --config ./til-consensus.yaml`
+2. 或者从下面挑一个完整配置文件直接复制
+3. 再配一份对应场景的 `run.yaml`
 
 ## Provider 样例
 
@@ -17,147 +17,92 @@
 
 适合包你自己的脚本、本地模型适配器或公司内部 CLI。
 
-```yaml
-providers:
-  generic-local:
-    type: cli
-    cli_type: generic
-    command: python3
-    args:
-      - ./scripts/generic_adapter.py
-    models:
-      default:
-        provider_model: local-generic
-        reasoning: medium
+- [完整配置：generic.config.yaml](examples/generic.config.yaml)
+- 也可以直接生成：
 
-agents:
-  - id: proposer-generic
-    provider: generic-local
-    model: default
-    role: proposer
-  - id: challenger-generic
-    provider: generic-local
-    model: default
-    role: challenger
-  - id: arbiter-generic
-    provider: generic-local
-    model: default
-    role: arbiter
-  - id: reporter-generic
-    provider: generic-local
-    model: default
-    role: reporter
-
-roles:
-  proposers: [proposer-generic]
-  challengers: [challenger-generic]
-  arbiter: arbiter-generic
-  reporter: reporter-generic
+```bash
+til-consensus config init --preset generic --config ./til-consensus.yaml
 ```
 
 ### `codex`
 
-```yaml
-providers:
-  codex-cli:
-    type: cli
-    cli_type: codex
-    command: codex
-    models:
-      default:
-        provider_model: gpt-5
-        reasoning: medium
+- [完整配置：codex.config.yaml](examples/codex.config.yaml)
+- 也可以直接生成：
+
+```bash
+til-consensus config init --preset codex --config ./til-consensus.yaml
 ```
 
 ### `claude`
 
-```yaml
-providers:
-  claude-cli:
-    type: cli
-    cli_type: claude
-    command: claude
-    models:
-      default:
-        provider_model: claude-sonnet-4
-        reasoning: medium
+- [完整配置：claude.config.yaml](examples/claude.config.yaml)
+- 也可以直接生成：
+
+```bash
+til-consensus config init --preset claude --config ./til-consensus.yaml
 ```
 
 ### `gemini`
 
-```yaml
-providers:
-  gemini-cli:
-    type: cli
-    cli_type: gemini
-    command: gemini
-    models:
-      default:
-        provider_model: gemini-2.5-pro
-        reasoning: medium
+- [完整配置：gemini.config.yaml](examples/gemini.config.yaml)
+- 也可以直接生成：
+
+```bash
+til-consensus config init --preset gemini --config ./til-consensus.yaml
 ```
 
 ### 多 CLI 交叉论证
 
-```yaml
-providers:
-  codex-cli:
-    type: cli
-    cli_type: codex
-    command: codex
-    models:
-      default:
-        provider_model: gpt-5
-        reasoning: medium
-  claude-cli:
-    type: cli
-    cli_type: claude
-    command: claude
-    models:
-      default:
-        provider_model: claude-sonnet-4
-        reasoning: medium
-  gemini-cli:
-    type: cli
-    cli_type: gemini
-    command: gemini
-    models:
-      default:
-        provider_model: gemini-2.5-pro
-        reasoning: medium
+推荐直接用下面的组合：
 
-agents:
-  - id: proposer-codex
-    provider: codex-cli
-    model: default
-    role: proposer
-  - id: challenger-claude
-    provider: claude-cli
-    model: default
-    role: challenger
-  - id: verifier-gemini
-    provider: gemini-cli
-    model: default
-    role: semantic-verifier
-  - id: arbiter-claude
-    provider: claude-cli
-    model: default
-    role: arbiter
-  - id: reporter-codex
-    provider: codex-cli
-    model: default
-    role: reporter
+- `codex.config.yaml` 负责 proposer / reporter
+- `claude.config.yaml` 负责 challenger / arbiter
+- `gemini.config.yaml` 负责 semantic verifier
 
-roles:
-  proposers: [proposer-codex]
-  challengers: [challenger-claude]
-  arbiter: arbiter-claude
-  semantic_verifier: verifier-gemini
-  reporter: reporter-codex
+如果你想把三者合并到一份配置里，可以从这三份文件里直接拷贝 `providers / agents / roles`。
+
+## 一对一组合包
+
+下面这 4 组是“配置 + run 输入”一对一配套的最小可复制组合：
+
+- `generic`
+  - [generic.config.yaml](examples/generic.config.yaml)
+  - [generic.run.yaml](examples/generic.run.yaml)
+- `codex`
+  - [codex.config.yaml](examples/codex.config.yaml)
+  - [codex.run.yaml](examples/codex.run.yaml)
+- `claude`
+  - [claude.config.yaml](examples/claude.config.yaml)
+  - [claude.run.yaml](examples/claude.run.yaml)
+- `gemini`
+  - [gemini.config.yaml](examples/gemini.config.yaml)
+  - [gemini.run.yaml](examples/gemini.run.yaml)
+
+使用方式统一是：
+
+```bash
+cp docs/examples/codex.config.yaml ./til-consensus.yaml
+til-consensus run --config ./til-consensus.yaml --input ./docs/examples/codex.run.yaml
+til-consensus view --config ./til-consensus.yaml
 ```
+
+把 `codex` 替换成 `generic`、`claude` 或 `gemini` 即可。
 
 ## `run.yaml` 样例
 
+- [文档完善](examples/document-refinement.run.yaml)
 - [架构选择](examples/architecture-decision.run.yaml)
-- [observe 否定 action 后 reopen](examples/observe-reopen.run.yaml)
+- [coding review](examples/coding-review.run.yaml)
 - [事实冲突与 freshness](examples/factual-conflict.run.yaml)
+- [observe 否定 action 后 reopen](examples/observe-reopen.run.yaml)
+
+推荐搭配：
+
+- 文档完善 / 架构选择：
+  - `codex.config.yaml` 或 `claude.config.yaml`
+- coding review：
+  - `coding` preset 或 `codex.config.yaml`
+- factual conflict：
+  - `generic.config.yaml` 或 `gemini.config.yaml`
+
+如果你想一步到位，优先用上面的“一对一组合包”。

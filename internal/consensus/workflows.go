@@ -39,13 +39,16 @@ func (e *Engine) beginWorkflow(ctx context.Context, request StartRequest) (*work
 		challengeTickets: make([]ChallengeTicket, 0),
 	}
 	if err := e.deps.SessionStore.Save(ctx, SessionSnapshot{
-		SessionID:    run.sessionID,
-		RequestID:    request.RequestID,
-		Request:      &request,
-		Phase:        run.state.Current(),
-		StartedAt:    run.startedAt.Format(time.RFC3339Nano),
-		ClaimGraph:   run.claimGraph,
-		LedgerCursor: run.ledgerCursor,
+		SessionID:     run.sessionID,
+		RequestID:     request.RequestID,
+		Request:       &request,
+		Phase:         run.state.Current(),
+		Checkpoint:    &SessionCheckpoint{Mode: request.Mode, LastCompletedPhase: SessionPhaseCreated},
+		CaseManifest:  &run.manifest,
+		StartedAt:     run.startedAt.Format(time.RFC3339Nano),
+		ClaimGraph:    run.claimGraph,
+		LedgerEntries: run.ledgerEntries,
+		LedgerCursor:  run.ledgerCursor,
 	}); err != nil {
 		return nil, err
 	}
@@ -139,6 +142,15 @@ func (e *Engine) beginWorkflow(ctx context.Context, request StartRequest) (*work
 	if _, err := e.runIngestSources(ctx, request, run, "initial"); err != nil {
 		return nil, err
 	}
+	if err := e.patchRunState(ctx, run, SessionPatch{
+		Phase: ptr(SessionPhaseIngest),
+		Checkpoint: &SessionCheckpoint{
+			Mode:               request.Mode,
+			LastCompletedPhase: SessionPhaseIngest,
+		},
+	}); err != nil {
+		return nil, err
+	}
 	return run, nil
 }
 
@@ -164,6 +176,9 @@ func (e *Engine) startAdjudication(ctx context.Context, request StartRequest) (_
 	if err := ValidateClaimDependencies(run.claimGraph); err != nil {
 		return nil, err
 	}
+	if err := e.saveAdjudicationCheckpoint(ctx, run, SessionPhasePropose, claimIDs(run.claimGraph), 0, 0, 0, true, nil, nil, nil); err != nil {
+		return nil, err
+	}
 	if len(run.claimGraph) == 0 {
 		result := e.buildAdjudicationResult(request, run.sessionID, run.manifest, run.claimGraph, run.challengeTickets, run.verificationResults, run.revisionRecords, nil, ArbiterReport{
 			TaskVerdict: TaskVerdictFailed,
@@ -179,9 +194,11 @@ func (e *Engine) startAdjudication(ctx context.Context, request StartRequest) (_
 	}
 	activeClaimIDs := claimIDs(run.claimGraph)
 	var (
-		arbiterReport ArbiterReport
-		terminalState WorkflowTerminalState
-		fallbacksUsed int
+		arbiterReport     ArbiterReport
+		terminalState     WorkflowTerminalState
+		fallbacksUsed     int
+		lastRevisionRound int
+		lastVerifyRounds  int
 	)
 adjudicationCycle:
 	for {
@@ -194,6 +211,9 @@ adjudicationCycle:
 				return nil, err
 			}
 			SortChallenges(run.challengeTickets)
+			if err := e.saveAdjudicationCheckpoint(ctx, run, SessionPhaseChallenge, activeClaimIDs, revisionRound, verifyRounds, fallbacksUsed, true, nil, nil, nil); err != nil {
+				return nil, err
+			}
 
 			if err := e.advancePhase(ctx, request, run.sessionID, run.state, SessionPhaseVerify, run.claimGraph, run.challengeTickets, run.ledgerCursor); err != nil {
 				return nil, err
@@ -202,6 +222,11 @@ adjudicationCycle:
 				return nil, err
 			}
 			verifyRounds++
+			if err := e.saveAdjudicationCheckpoint(ctx, run, SessionPhaseVerify, activeClaimIDs, revisionRound, verifyRounds, fallbacksUsed, true, nil, nil, nil); err != nil {
+				return nil, err
+			}
+			lastRevisionRound = revisionRound
+			lastVerifyRounds = verifyRounds
 			if verifyRounds >= request.LoopPolicy.MaxVerificationRounds {
 				break
 			}
@@ -220,6 +245,11 @@ adjudicationCycle:
 			if err != nil {
 				return nil, err
 			}
+			if err := e.saveAdjudicationCheckpoint(ctx, run, SessionPhaseRevise, revisedClaimIDs, revisionRound+1, verifyRounds, fallbacksUsed, materialChange, nil, nil, nil); err != nil {
+				return nil, err
+			}
+			lastRevisionRound = revisionRound + 1
+			lastVerifyRounds = verifyRounds
 			if len(revisedClaimIDs) == 0 || !materialChange {
 				break
 			}
@@ -268,6 +298,9 @@ adjudicationCycle:
 		}
 		run.claimGraph = ApplyDecisions(run.claimGraph, arbiterReport.Decisions)
 		run.claimGraph = ApplyAdjudicationRecords(run.claimGraph, arbiterReport.Records)
+		if err := e.saveAdjudicationCheckpoint(ctx, run, SessionPhaseAdjudicate, activeClaimIDs, lastRevisionRound, lastVerifyRounds, fallbacksUsed, true, &arbiterReport, nil, nil); err != nil {
+			return nil, err
+		}
 		terminalState = DetermineTerminalState(run.claimGraph, run.challengeTickets, run.manifest, nil)
 
 		target, fallbackClaimIDs, fallbackReason := decideAdjudicationFallback(request, run.claimGraph, run.challengeTickets, arbiterReport, terminalState, fallbacksUsed)
@@ -298,6 +331,13 @@ adjudicationCycle:
 			if err != nil {
 				return nil, err
 			}
+			nextClaims := fallbackClaimIDs
+			if len(nextClaims) == 0 {
+				nextClaims = claimIDs(run.claimGraph)
+			}
+			if err := e.saveAdjudicationCheckpoint(ctx, run, SessionPhaseIngest, nextClaims, lastRevisionRound, 0, fallbacksUsed, newEvidence, &arbiterReport, nil, nil); err != nil {
+				return nil, err
+			}
 			if !newEvidence {
 				break adjudicationCycle
 			}
@@ -312,6 +352,9 @@ adjudicationCycle:
 			}
 			revisedClaimIDs, materialChange, err := e.runRevisionPhase(ctx, request, run, request.LoopPolicy.MaxRevisionRounds+fallbacksUsed, fallbackClaimIDs)
 			if err != nil {
+				return nil, err
+			}
+			if err := e.saveAdjudicationCheckpoint(ctx, run, SessionPhaseRevise, revisedClaimIDs, request.LoopPolicy.MaxRevisionRounds+fallbacksUsed, 0, fallbacksUsed, materialChange, &arbiterReport, nil, nil); err != nil {
 				return nil, err
 			}
 			if !materialChange || len(revisedClaimIDs) == 0 {
@@ -348,6 +391,9 @@ adjudicationCycle:
 	}); err != nil {
 		return nil, err
 	}
+	if err := e.saveAdjudicationCheckpoint(ctx, run, SessionPhaseReport, claimIDs(run.claimGraph), 0, 0, fallbacksUsed, true, &arbiterReport, &report, nil); err != nil {
+		return nil, err
+	}
 
 	result := e.buildAdjudicationResult(request, run.sessionID, run.manifest, run.claimGraph, run.challengeTickets, run.verificationResults, run.revisionRecords, run.adjudicationRecords, arbiterReport, report, nil, terminalState, nil, run.metrics, run.startedAt, nil)
 	if request.ActionPolicy != nil {
@@ -372,6 +418,9 @@ adjudicationCycle:
 				return nil, err
 			}
 		}
+		if err := e.saveAdjudicationCheckpoint(ctx, run, SessionPhaseAction, claimIDs(run.claimGraph), 0, 0, fallbacksUsed, true, &arbiterReport, &report, actionOutput); err != nil {
+			return nil, err
+		}
 	}
 	if err := e.advancePhase(ctx, request, run.sessionID, run.state, SessionPhaseObserve, run.claimGraph, run.challengeTickets, run.ledgerCursor); err != nil {
 		return nil, err
@@ -380,6 +429,9 @@ adjudicationCycle:
 		return nil, err
 	}
 	result.Observations = append([]ObservationRecord(nil), run.observations...)
+	if err := e.saveAdjudicationCheckpoint(ctx, run, SessionPhaseObserve, claimIDs(run.claimGraph), 0, 0, fallbacksUsed, true, &arbiterReport, &report, result.Action); err != nil {
+		return nil, err
+	}
 	if result.TerminalState == "" {
 		result.TerminalState = terminalState
 	}

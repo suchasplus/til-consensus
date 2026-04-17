@@ -83,9 +83,15 @@ func (d *Delegate) Dispatch(ctx context.Context, task consensus.Task) (consensus
 	d.mu.Unlock()
 
 	go func() {
+		inputArtifact, inputErr := d.persistTaskInput(task, agent)
+		if inputErr != nil {
+			done <- taskOutcome{err: inputErr}
+			return
+		}
 		raw, err := runner.RunTask(taskCtx, ProviderTaskRequest{Task: task, Agent: agent})
 		if err != nil {
-			done <- taskOutcome{err: err}
+			artifact, _ := d.persistTaskFailure(task, agent, err, inputArtifact)
+			done <- taskOutcome{artifact: artifact, err: err}
 			return
 		}
 		artifact, persistErr := d.persistRawOutput(task, raw)
@@ -122,12 +128,14 @@ func (d *Delegate) Await(ctx context.Context, taskID string, timeout time.Durati
 	select {
 	case <-ctx.Done():
 		entry.cancel()
+		drainTaskOutcome(entry.done, 100*time.Millisecond)
 		d.mu.Lock()
 		delete(d.tasks, taskID)
 		d.mu.Unlock()
 		return consensus.AwaitedTask{}, ctx.Err()
 	case <-timer.C:
 		entry.cancel()
+		drainTaskOutcome(entry.done, 100*time.Millisecond)
 		d.mu.Lock()
 		delete(d.tasks, taskID)
 		d.mu.Unlock()
@@ -140,6 +148,18 @@ func (d *Delegate) Await(ctx context.Context, taskID string, timeout time.Durati
 			return consensus.AwaitedTask{OK: false, Error: outcome.err.Error(), Artifact: outcome.artifact}, nil
 		}
 		return consensus.AwaitedTask{OK: true, Output: outcome.result, Artifact: outcome.artifact}, nil
+	}
+}
+
+func drainTaskOutcome(done <-chan taskOutcome, grace time.Duration) {
+	if grace <= 0 {
+		grace = 100 * time.Millisecond
+	}
+	timer := time.NewTimer(grace)
+	defer timer.Stop()
+	select {
+	case <-done:
+	case <-timer.C:
 	}
 }
 
@@ -256,14 +276,87 @@ func (d *Delegate) persistRawParseError(task consensus.Task, parseErr *JSONParse
 	return writeArtifact(filename, []byte(body), "text/plain")
 }
 
+func (d *Delegate) persistTaskInput(task consensus.Task, agent ResolvedAgentRuntime) (*consensus.ArtifactRef, error) {
+	if strings.TrimSpace(d.artifactDir) == "" {
+		return nil, nil
+	}
+	payload := map[string]any{
+		"version": 1,
+		"agent": map[string]any{
+			"id":            agent.ID,
+			"role":          agent.Role,
+			"provider":      agent.ProviderName,
+			"providerType":  agent.Provider.Type,
+			"providerModel": agent.ProviderModel,
+		},
+		"task": task,
+	}
+	body, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("marshal task input: %w", err)
+	}
+	body = append(body, '\n')
+	filename := filepath.Join(d.artifactDir, buildInputFilename(task))
+	return writeArtifact(filename, body, "application/json")
+}
+
+func (d *Delegate) persistTaskFailure(task consensus.Task, agent ResolvedAgentRuntime, err error, inputArtifact *consensus.ArtifactRef) (*consensus.ArtifactRef, error) {
+	if strings.TrimSpace(d.artifactDir) == "" {
+		return nil, nil
+	}
+	providerErr := classifyProviderError(err)
+	payload := map[string]any{
+		"version": 1,
+		"agent": map[string]any{
+			"id":            agent.ID,
+			"role":          agent.Role,
+			"provider":      agent.ProviderName,
+			"providerType":  agent.Provider.Type,
+			"providerModel": agent.ProviderModel,
+		},
+		"task": map[string]any{
+			"kind":      task.Kind(),
+			"requestId": task.Meta().RequestID,
+			"sessionId": task.Meta().SessionID,
+			"agentId":   task.Meta().AgentID,
+		},
+		"error": map[string]any{
+			"class":      providerErr.Class,
+			"operation":  providerErr.Operation,
+			"statusCode": providerErr.StatusCode,
+			"message":    providerErr.Error(),
+		},
+	}
+	if inputArtifact != nil {
+		payload["inputArtifact"] = inputArtifact
+	}
+	body, marshalErr := json.MarshalIndent(payload, "", "  ")
+	if marshalErr != nil {
+		return nil, fmt.Errorf("marshal task failure: %w", marshalErr)
+	}
+	body = append(body, '\n')
+	filename := filepath.Join(d.artifactDir, buildFailureFilename(task))
+	return writeArtifact(filename, body, "application/json")
+}
+
 func buildRawFilename(task consensus.Task) string {
 	safeAgent := sanitizeFilename(task.Meta().AgentID)
 	return fmt.Sprintf("raw-%s-%s.json", safeAgent, task.Kind())
 }
 
+func buildInputFilename(task consensus.Task) string {
+	safeAgent := sanitizeFilename(task.Meta().AgentID)
+	return fmt.Sprintf("input-%s-%s.json", safeAgent, task.Kind())
+}
+
 func buildParseErrorFilename(task consensus.Task) string {
 	safeAgent := sanitizeFilename(task.Meta().AgentID)
 	return fmt.Sprintf("raw-error-%s-%s.txt", safeAgent, task.Kind())
+}
+
+func buildFailureFilename(task consensus.Task) string {
+	safeAgent := sanitizeFilename(task.Meta().AgentID)
+	return fmt.Sprintf("failure-%s-%s.json", safeAgent, task.Kind())
 }
 
 func writeArtifact(path string, body []byte, mediaType string) (*consensus.ArtifactRef, error) {

@@ -68,6 +68,28 @@ func (e *Engine) Start(ctx context.Context, input StartRequest) (_ *RunResult, e
 	}
 }
 
+func (e *Engine) Resume(ctx context.Context, snapshot SessionSnapshot) (_ *RunResult, err error) {
+	if snapshot.Request == nil {
+		return nil, fmt.Errorf("session %s has no resumable request", snapshot.SessionID)
+	}
+	if e.deps.TaskDelegate == nil {
+		return nil, fmt.Errorf("task delegate is required")
+	}
+	if e.deps.SessionStore == nil {
+		return nil, fmt.Errorf("session store is required")
+	}
+	request, err := NormalizeStartRequest(*snapshot.Request)
+	if err != nil {
+		return nil, err
+	}
+	switch request.Mode {
+	case WorkflowModeAdjudication:
+		return e.resumeAdjudication(ctx, request, snapshot)
+	default:
+		return nil, fmt.Errorf("phase 级 resume 目前仅支持 adjudication 模式，当前模式=%s", request.Mode)
+	}
+}
+
 func (e *Engine) executeTask(ctx context.Context, request StartRequest, sessionID string, task Task, startedAt time.Time, timeout time.Duration) (DispatchReceipt, AwaitedTask, error) {
 	taskCtx, cancel, deadlineErr := e.withGlobalDeadline(ctx, request, startedAt)
 	if deadlineErr != nil {
@@ -191,7 +213,7 @@ func (e *Engine) buildAdjudicationResult(
 		Action:        action,
 		Observations:  append([]ObservationRecord(nil), observations...),
 		Metrics:       finalizeMetrics(metrics, startedAt, e.clock),
-		Error: failure,
+		Error:         failure,
 		Adjudication: &AdjudicationResultSection{
 			TaskVerdict:         arbiter.TaskVerdict,
 			TerminalState:       terminalState,
@@ -249,7 +271,7 @@ func (e *Engine) failSession(ctx context.Context, request StartRequest, sessionI
 			Summary: cause.Error(),
 		},
 		Metrics: finalizeMetrics(Metrics{}, startedAt, e.clock),
-		Error: failure,
+		Error:   failure,
 	}
 	if request.Mode == WorkflowModeAdjudication {
 		result.Adjudication = &AdjudicationResultSection{

@@ -24,7 +24,10 @@ func newViewCommand() *cli.Command {
 			&cli.StringFlag{Name: "claim-verdict", Usage: "只显示特定 verdict 的 claims"},
 			&cli.IntFlag{Name: "limit", Usage: "限制 claims/verifications/artifacts 的展示数量", Value: 20},
 			&cli.BoolFlag{Name: "verbose", Usage: "展开 rationale、evidence refs 和 artifact 路径"},
-			&cli.BoolFlag{Name: "web", Usage: "预留：启动浏览器 viewer（当前未实现）", Hidden: true},
+			&cli.BoolFlag{Name: "web", Usage: "启动本地只读 Web viewer"},
+			&cli.StringFlag{Name: "host", Usage: "Web viewer 监听地址", Value: "127.0.0.1"},
+			&cli.IntFlag{Name: "port", Usage: "Web viewer 监听端口；0 表示自动分配", Value: 0},
+			&cli.BoolFlag{Name: "open", Usage: "显式打开默认浏览器"},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			return runViewCommand(ctx, cmd)
@@ -32,10 +35,7 @@ func newViewCommand() *cli.Command {
 	}
 }
 
-func runViewCommand(_ context.Context, cmd *cli.Command) error {
-	if cmd.Bool("web") {
-		return fmt.Errorf("view --web 预留给二期浏览器 viewer，当前未实现，见 docs/viewer.md")
-	}
+func runViewCommand(ctx context.Context, cmd *cli.Command) error {
 	if !isSupportedViewFormat(cmd.String("format")) {
 		return fmt.Errorf("unsupported view format: %s", cmd.String("format"))
 	}
@@ -98,13 +98,37 @@ func runViewCommand(_ context.Context, cmd *cli.Command) error {
 	if claimVerdict != "" && !isSupportedClaimVerdict(claimVerdict) {
 		return fmt.Errorf("unsupported claim verdict filter: %s", claimVerdict)
 	}
-	doc := viewer.BuildDocument(bundle, viewer.RenderOptions{
+	renderOptions := viewer.RenderOptions{
 		Format:       cmd.String("format"),
 		Sections:     cmd.StringSlice("section"),
 		ClaimVerdict: consensus.ClaimVerdict(claimVerdict),
 		Limit:        cmd.Int("limit"),
 		Verbose:      cmd.Bool("verbose"),
-	})
+	}
+	if cmd.Bool("web") {
+		if cmd.IsSet("format") && cmd.String("format") != viewer.FormatText {
+			_, _ = fmt.Fprintf(cmd.ErrWriter, "view --web 忽略 --format=%s，页面固定返回 HTML，数据接口固定返回 JSON\n", cmd.String("format"))
+		}
+		server, err := viewer.NewWebServer(bundle, viewer.WebOptions{
+			Host:          cmd.String("host"),
+			Port:          cmd.Int("port"),
+			RenderOptions: renderOptions,
+		})
+		if err != nil {
+			return err
+		}
+		_, _ = fmt.Fprintf(cmd.Writer, "web viewer started: %s\n", server.URL())
+		_, _ = fmt.Fprintf(cmd.Writer, "requestId: %s | mode: %s\n", bundle.Result.RequestID, bundle.Result.Mode)
+		_, _ = fmt.Fprintln(cmd.Writer, "按 Ctrl+C 退出")
+		if cmd.Bool("open") {
+			if err := viewer.OpenBrowser(server.URL()); err != nil {
+				_ = server.Close()
+				return err
+			}
+		}
+		return server.Serve(ctx)
+	}
+	doc := viewer.BuildDocument(bundle, renderOptions)
 	rendered, err := viewer.RenderDocument(doc, viewer.RenderOptions{
 		Format:  cmd.String("format"),
 		Verbose: cmd.Bool("verbose"),

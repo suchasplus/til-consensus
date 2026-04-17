@@ -2,16 +2,9 @@
 
 `til-consensus` 是一个面向一次性论证、架构选择和代码裁决任务的 CLI。它用确定性的 coordinator 编排多种工作流，把过程和结论落成可审计的本地产物。
 
-对默认 `adjudication` 而言，系统现在是 claim-centric 的：先生成 `CaseManifest`，再把材料写入 `EvidenceLedger`，随后围绕 claim 做 challenge、verification、revision，最后为每条 claim 生成 disposition，而不是只选“哪篇完整答案更像对的”。
+默认 `adjudication` 是 claim-centric 的：系统不会只选“哪篇完整答案看起来更像对的”，而是围绕 claim 做 challenge、verification、revision 和 adjudication。
 
-默认 `adjudication` 现在还支持两条更严格的闭环能力：
-
-- `adjudicate -> revise/ingest`
-  - 如果 claim 仍是 `unresolved` 或 `keep_with_caveat`，系统可以按 `fallback_policy` 自动回退继续修订或补抓证据
-- `observe -> real external sources`
-  - 可以通过 `observe_policy.sources` 执行真实外部命令，把 post-action 观测写入账本
-  - 如果观测与 retained claims 矛盾，terminal state 会升级为 `requires_human_review`
-  - 同时会在 `artifacts/followups/` 下生成真实的 follow-up case JSON
+如果你只想先跑通一次，先看下面的 quickstart 即可。更完整的 provider 配置和 `run.yaml` 样例在 [docs/examples.md](docs/examples.md)。
 
 当前支持 3 种 workflow：
 
@@ -48,6 +41,21 @@ til-consensus run \
 
 ```bash
 til-consensus view --config ./til-consensus.yaml
+```
+
+也可以直接启动本地只读 Web viewer：
+
+```bash
+til-consensus view --config ./til-consensus.yaml --web
+```
+
+如果你已经装了具体 CLI，也可以直接生成对应模板：
+
+```bash
+til-consensus config init --preset codex --config ./til-consensus.yaml
+til-consensus config init --preset claude --config ./til-consensus.yaml
+til-consensus config init --preset gemini --config ./til-consensus.yaml
+til-consensus config init --preset generic --config ./til-consensus.yaml
 ```
 
 默认输出会写到 `./out/{requestId}/`。最重要的文件是：
@@ -122,7 +130,7 @@ defaults:
 
 ## 配置模板
 
-`config init` 内置 5 个 preset：
+`config init` 内置 9 个 preset：
 
 - `quickstart`
   - 零凭证，使用 `mock`
@@ -133,6 +141,14 @@ defaults:
 - `coding`
   - 代码裁决模板
   - 预置 `workspace_snapshot`、`allowed_paths`、`command`、`git_diff_paths`、`benchmark_threshold`
+- `generic`
+  - 外部脚本 / 本地代理模板
+- `codex`
+  - Codex CLI 模板
+- `claude`
+  - Claude CLI 模板
+- `gemini`
+  - Gemini CLI 模板
 - `debate`
   - `free_debate` 模板
   - 预置 `participants`、`debate_policy`
@@ -144,9 +160,22 @@ defaults:
 
 ```bash
 til-consensus config init --preset quickstart --config ./til-consensus.yaml
+til-consensus config init --preset codex --config ./til-consensus.yaml
 til-consensus config init --preset debate --stdout
 til-consensus config init --preset delphi --config ./til-consensus.yaml --force
 ```
+
+常见可复制样例：
+
+- [provider 配置与 `run.yaml` 示例](docs/examples.md)
+- [generic 组合包](docs/examples/generic.config.yaml)
+- [codex 组合包](docs/examples/codex.config.yaml)
+- [claude 组合包](docs/examples/claude.config.yaml)
+- [gemini 组合包](docs/examples/gemini.config.yaml)
+- [文档完善输入样例](docs/examples/document-refinement.run.yaml)
+- [架构选择输入样例](docs/examples/architecture-decision.run.yaml)
+- [coding review 输入样例](docs/examples/coding-review.run.yaml)
+- [事实冲突输入样例](docs/examples/factual-conflict.run.yaml)
 
 如果模板起步不够用，再用下面两个命令做增量修改：
 
@@ -231,6 +260,12 @@ til-consensus view --config ./til-consensus.yaml --section claims --section veri
 til-consensus view --config ./til-consensus.yaml --section observations --section followups --verbose
 ```
 
+同样的结果也可以用浏览器 viewer 看：
+
+```bash
+til-consensus view --config ./til-consensus.yaml --web --section observations --section followups --verbose
+```
+
 - free_debate：
 
 ```bash
@@ -290,6 +325,10 @@ til-consensus view --config ./til-consensus.yaml --section rounds --section conv
   - 直接运行 CLI
 - `make cover`
   - 生成并打印单元测试覆盖率
+- `make ci`
+  - 本地对齐 GitHub CI 的质量门禁
+- `make release-archive`
+  - 生成单个平台的发布压缩包
 
 第一次本地安装常用命令：
 
@@ -316,6 +355,44 @@ export PATH="$HOME/.local/bin:$PATH"
 ```bash
 make install INSTALL_DIR=/usr/local/bin
 ```
+
+## CI 与发布
+
+仓库使用 GitHub Actions 做两条流水线：
+
+- `ci`
+  - PR / push 到 `main` 时触发
+  - 运行：
+    - `gofmt -l .`
+    - `go test ./...`
+    - `go test -race ./...`
+    - `go vet ./...`
+    - `golangci-lint run`
+    - `make build`
+- `release`
+  - 推送 `v*` tag 时触发
+  - 产出：
+    - `linux/amd64`
+    - `linux/arm64`
+    - `darwin/amd64`
+    - `darwin/arm64`
+    的发布压缩包和 `checksums.txt`
+
+本地可直接对齐 CI：
+
+```bash
+make ci
+```
+
+本地模拟单个平台发布：
+
+```bash
+make release-archive VERSION=v0.1.0 TARGET_GOOS=darwin TARGET_GOARCH=arm64 DIRTY=false
+```
+
+更完整说明见：
+
+- [CI 与发布](docs/release.md)
 
 ## follow-up / observe / structured parsing
 
@@ -345,6 +422,25 @@ til-consensus run --config ./til-consensus.yaml --replay-session session_xxx
 til-consensus session list --config ./til-consensus.yaml --request-id tc_xxx
 til-consensus session show --config ./til-consensus.yaml --session-id session_xxx
 ```
+
+说明：
+
+- `run --resume-session`
+  - 会读取 `_sessions/` 里的 checkpoint snapshot
+  - 对 `adjudication` 模式执行 phase 级恢复，而不是从头重跑整条 request
+- `run --replay-session`
+  - 会基于历史 request 生成新的 child run
+  - 适合做“同一输入重新审理”，并保留 parent/child lineage
+
+provider 执行过程中还会把关键审计文件落到 `artifacts/`：
+
+- `input-<agent>-<task>.json`
+  - provider 实际收到的结构化任务输入
+- `failure-<agent>-<task>.json`
+  - provider 执行失败时的分类结果
+  - 会带 `class`、`message`、可选 `statusCode`
+- `raw-<agent>-<task>.*`
+  - provider 的原始输出或 parse error 原文
 
 外部源解析现在支持：
 
@@ -397,6 +493,7 @@ til-consensus version
 - [文档首页](docs/index.md)
 - [配置说明](docs/config.md)
 - [输出产物说明](docs/output.md)
+- [CI 与发布](docs/release.md)
 - [终端 view 用法](docs/view.md)
-- [浏览器 Viewer 二期规划](docs/viewer.md)
+- [浏览器 Viewer](docs/viewer.md)
 - [多工作流技术设计](docs/rewrite.md)

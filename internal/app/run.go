@@ -93,7 +93,7 @@ func runCommand(ctx context.Context, cmd *cli.Command) error {
 		if err != nil {
 			return err
 		}
-		return executeResolvedPlan(ctx, loaded, plan, cmd.Writer)
+		return executeResumedSession(ctx, loaded, plan, snapshot, cmd.Writer)
 	}
 	if sessionID := strings.TrimSpace(cmd.String("replay-session")); sessionID != "" {
 		if hasConflictingRunSource(cmd, "replay-session") {
@@ -193,6 +193,36 @@ func executeResolvedPlan(ctx context.Context, loaded config.LoadedConfig, plan c
 		ArtifactDir:  plan.ArtifactsDir,
 	})
 	result, runErr := engine.Start(ctx, plan.StartRequest)
+	if runErr != nil {
+		_ = artifact.WriteErrorArtifact(plan.RequestID, plan.ErrorPath, runErr)
+		return runErr
+	}
+	if err := artifact.WriteRunArtifacts(result, plan.ResultPath, plan.SummaryPath); err != nil {
+		return err
+	}
+	output.RunCompleted(plan.ResultPath, plan.SummaryPath)
+	return nil
+}
+
+func executeResumedSession(ctx context.Context, loaded config.LoadedConfig, plan config.ResolvedRunPlan, snapshot *consensus.SessionSnapshot, writer interface{ Write([]byte) (int, error) }) error {
+	output := NewOutput(writer, os.Stderr, plan.Verbose)
+	output.RunStarted(plan.RequestID, plan.Mode, plan.Task, plan.Roles)
+
+	delegate, err := runtime.NewDelegate(loaded.Config, plan.ArtifactsDir)
+	if err != nil {
+		return err
+	}
+	engine := consensus.NewEngine(consensus.EngineDeps{
+		TaskDelegate: delegate,
+		Observer: observer.NewMulti(
+			observer.NewJSONL(plan.EventsPath),
+			output.EventObserver(),
+		),
+		Ledger:       observer.NewLedger(plan.LedgerPath, plan.ManifestPath),
+		SessionStore: filestore.New(plan.SessionStoreDir),
+		ArtifactDir:  plan.ArtifactsDir,
+	})
+	result, runErr := engine.Resume(ctx, *snapshot)
 	if runErr != nil {
 		_ = artifact.WriteErrorArtifact(plan.RequestID, plan.ErrorPath, runErr)
 		return runErr

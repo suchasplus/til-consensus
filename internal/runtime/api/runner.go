@@ -104,7 +104,7 @@ func (r *Runner) runOpenAI(
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", buildHTTPError("openai-compatible", resp)
+		return "", buildHTTPError("api", "openai-compatible", resp)
 	}
 	var decoded struct {
 		Choices []struct {
@@ -169,7 +169,7 @@ func (r *Runner) runAnthropic(
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", buildHTTPError("anthropic-compatible", resp)
+		return "", buildHTTPError("api", "anthropic-compatible", resp)
 	}
 	var decoded struct {
 		Content []struct {
@@ -201,13 +201,13 @@ func resolveAPIKey(provider config.ProviderConfig) (string, bool) {
 	return value, value != ""
 }
 
-func buildHTTPError(label string, resp *http.Response) error {
+func buildHTTPError(provider string, label string, resp *http.Response) error {
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	text := strings.TrimSpace(string(body))
 	if text == "" {
-		return fmt.Errorf("%s request failed: status=%d", label, resp.StatusCode)
+		return fmt.Errorf("%s:%s request failed: status=%d", provider, label, resp.StatusCode)
 	}
-	return fmt.Errorf("%s request failed: status=%d body=%s", label, resp.StatusCode, text)
+	return fmt.Errorf("%s:%s request failed: status=%d body=%s", provider, label, resp.StatusCode, text)
 }
 
 func firstNonEmpty(values ...string) string {

@@ -61,6 +61,7 @@ func TestReadmeAndDocsIndexLinks(t *testing.T) {
 		"summary.md",
 		"artifacts/",
 		"til-consensus config init --preset quickstart --config ./til-consensus.yaml",
+		"til-consensus config init --preset codex --config ./til-consensus.yaml",
 		"til-consensus config init --preset debate --stdout",
 		"til-consensus run \\",
 		"--mode free-debate",
@@ -68,6 +69,16 @@ func TestReadmeAndDocsIndexLinks(t *testing.T) {
 		"--participants debater-a,debater-b,debater-c",
 		"--convergence-threshold 0.8",
 		"til-consensus view --config ./til-consensus.yaml",
+		"make ci",
+		"make release-archive VERSION=v0.1.0 TARGET_GOOS=darwin TARGET_GOARCH=arm64 DIRTY=false",
+		"docs/release.md",
+		"docs/examples.md",
+		"docs/examples/generic.config.yaml",
+		"docs/examples/codex.config.yaml",
+		"docs/examples/claude.config.yaml",
+		"docs/examples/gemini.config.yaml",
+		"docs/examples/document-refinement.run.yaml",
+		"docs/examples/coding-review.run.yaml",
 	} {
 		if !strings.Contains(string(readme), needle) {
 			t.Fatalf("README missing %q", needle)
@@ -76,13 +87,30 @@ func TestReadmeAndDocsIndexLinks(t *testing.T) {
 
 	for _, rel := range []string{
 		"docs/config.md",
+		"docs/examples.md",
 		"docs/output.md",
+		"docs/release.md",
 		"docs/view.md",
 		"docs/viewer.md",
 		"docs/rewrite.md",
+		"docs/examples/generic.config.yaml",
+		"docs/examples/codex.config.yaml",
+		"docs/examples/claude.config.yaml",
+		"docs/examples/gemini.config.yaml",
+		"docs/examples/generic.run.yaml",
+		"docs/examples/codex.run.yaml",
+		"docs/examples/claude.run.yaml",
+		"docs/examples/gemini.run.yaml",
+		"docs/examples/document-refinement.run.yaml",
+		"docs/examples/architecture-decision.run.yaml",
+		"docs/examples/coding-review.run.yaml",
+		"docs/examples/factual-conflict.run.yaml",
 	} {
 		if _, err := os.Stat(filepath.Join(root, rel)); err != nil {
 			t.Fatalf("missing linked doc %s: %v", rel, err)
+		}
+		if strings.HasPrefix(rel, "docs/examples/") {
+			continue
 		}
 		if !strings.Contains(string(index), filepath.Base(rel)) {
 			t.Fatalf("docs/index.md missing link to %s", rel)

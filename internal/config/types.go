@@ -51,24 +51,24 @@ type Config struct {
 }
 
 type DefaultsConfig struct {
-	Mode               consensus.WorkflowMode       `yaml:"mode,omitempty"`
-	TaskType           consensus.CaseTaskType       `yaml:"task_type,omitempty"`
-	SuccessCriteria    []string                     `yaml:"success_criteria"`
-	OutOfScope         []string                     `yaml:"out_of_scope,omitempty"`
-	AllowedTools       []string                     `yaml:"allowed_tools"`
-	PerTaskTimeout     Duration                     `yaml:"per_task_timeout"`
-	TaskRetryAttempts  int                          `yaml:"task_retry_attempts,omitempty"`
-	GlobalDeadline     Duration                     `yaml:"global_deadline"`
-	ProposalPolicy     ProposalPolicyConfig         `yaml:"proposal_policy"`
-	VerificationPolicy VerificationPolicyConfig     `yaml:"verification_policy"`
-	ArbiterPolicy      ArbiterPolicyConfig          `yaml:"arbiter_policy"`
-	IngestPolicy       consensus.IngestPolicy       `yaml:"ingest_policy,omitempty"`
+	Mode               consensus.WorkflowMode               `yaml:"mode,omitempty"`
+	TaskType           consensus.CaseTaskType               `yaml:"task_type,omitempty"`
+	SuccessCriteria    []string                             `yaml:"success_criteria"`
+	OutOfScope         []string                             `yaml:"out_of_scope,omitempty"`
+	AllowedTools       []string                             `yaml:"allowed_tools"`
+	PerTaskTimeout     Duration                             `yaml:"per_task_timeout"`
+	TaskRetryAttempts  int                                  `yaml:"task_retry_attempts,omitempty"`
+	GlobalDeadline     Duration                             `yaml:"global_deadline"`
+	ProposalPolicy     ProposalPolicyConfig                 `yaml:"proposal_policy"`
+	VerificationPolicy VerificationPolicyConfig             `yaml:"verification_policy"`
+	ArbiterPolicy      ArbiterPolicyConfig                  `yaml:"arbiter_policy"`
+	IngestPolicy       consensus.IngestPolicy               `yaml:"ingest_policy,omitempty"`
 	FallbackPolicy     consensus.AdjudicationFallbackPolicy `yaml:"fallback_policy,omitempty"`
-	ObservePolicy      consensus.ObservePolicy      `yaml:"observe_policy,omitempty"`
-	DebatePolicy       DebatePolicyConfig           `yaml:"debate_policy,omitempty"`
-	DelphiPolicy       DelphiPolicyConfig           `yaml:"delphi_policy,omitempty"`
-	WorkspaceSnapshot  *consensus.WorkspaceSnapshot `yaml:"workspace_snapshot,omitempty"`
-	TaskConstraints    consensus.TaskConstraints    `yaml:"task_constraints,omitempty"`
+	ObservePolicy      consensus.ObservePolicy              `yaml:"observe_policy,omitempty"`
+	DebatePolicy       DebatePolicyConfig                   `yaml:"debate_policy,omitempty"`
+	DelphiPolicy       DelphiPolicyConfig                   `yaml:"delphi_policy,omitempty"`
+	WorkspaceSnapshot  *consensus.WorkspaceSnapshot         `yaml:"workspace_snapshot,omitempty"`
+	TaskConstraints    consensus.TaskConstraints            `yaml:"task_constraints,omitempty"`
 }
 
 type RolesConfig struct {
@@ -188,20 +188,20 @@ type LoadedConfig struct {
 }
 
 type RunInput struct {
-	Mode               consensus.WorkflowMode   `yaml:"mode" json:"mode"`
-	RequestID          string                   `yaml:"request_id" json:"request_id"`
-	TaskRetryAttempts  int                      `yaml:"task_retry_attempts,omitempty" json:"task_retry_attempts,omitempty"`
-	TaskSpec           TaskSpecInput            `yaml:"task_spec" json:"task_spec"`
-	Roles              RolesConfig              `yaml:"roles" json:"roles"`
-	ProposalPolicy     ProposalPolicyConfig     `yaml:"proposal_policy" json:"proposal_policy"`
-	VerificationPolicy VerificationPolicyConfig `yaml:"verification_policy" json:"verification_policy"`
-	ArbiterPolicy      ArbiterPolicyConfig      `yaml:"arbiter_policy" json:"arbiter_policy"`
-	IngestPolicy       consensus.IngestPolicy   `yaml:"ingest_policy" json:"ingest_policy"`
+	Mode               consensus.WorkflowMode               `yaml:"mode" json:"mode"`
+	RequestID          string                               `yaml:"request_id" json:"request_id"`
+	TaskRetryAttempts  int                                  `yaml:"task_retry_attempts,omitempty" json:"task_retry_attempts,omitempty"`
+	TaskSpec           TaskSpecInput                        `yaml:"task_spec" json:"task_spec"`
+	Roles              RolesConfig                          `yaml:"roles" json:"roles"`
+	ProposalPolicy     ProposalPolicyConfig                 `yaml:"proposal_policy" json:"proposal_policy"`
+	VerificationPolicy VerificationPolicyConfig             `yaml:"verification_policy" json:"verification_policy"`
+	ArbiterPolicy      ArbiterPolicyConfig                  `yaml:"arbiter_policy" json:"arbiter_policy"`
+	IngestPolicy       consensus.IngestPolicy               `yaml:"ingest_policy" json:"ingest_policy"`
 	FallbackPolicy     consensus.AdjudicationFallbackPolicy `yaml:"fallback_policy" json:"fallback_policy"`
-	ObservePolicy      consensus.ObservePolicy  `yaml:"observe_policy" json:"observe_policy"`
-	DebatePolicy       DebatePolicyConfig       `yaml:"debate_policy" json:"debate_policy"`
-	DelphiPolicy       DelphiPolicyConfig       `yaml:"delphi_policy" json:"delphi_policy"`
-	Action             string                   `yaml:"action" json:"action"`
+	ObservePolicy      consensus.ObservePolicy              `yaml:"observe_policy" json:"observe_policy"`
+	DebatePolicy       DebatePolicyConfig                   `yaml:"debate_policy" json:"debate_policy"`
+	DelphiPolicy       DelphiPolicyConfig                   `yaml:"delphi_policy" json:"delphi_policy"`
+	Action             string                               `yaml:"action" json:"action"`
 }
 
 type TaskSpecInput struct {

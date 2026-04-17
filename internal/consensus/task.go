@@ -3,18 +3,18 @@ package consensus
 type TaskKind string
 
 const (
-	TaskKindPropose                TaskKind = "propose"
-	TaskKindChallenge              TaskKind = "challenge"
-	TaskKindSemanticVerify         TaskKind = "semantic_verify"
-	TaskKindRevise                 TaskKind = "revise"
-	TaskKindArbitrate              TaskKind = "arbitrate"
-	TaskKindReport                 TaskKind = "report"
-	TaskKindAction                 TaskKind = "action"
-	TaskKindInitialProposal        TaskKind = "initial_proposal"
-	TaskKindDebateRound            TaskKind = "debate_round"
-	TaskKindFinalVote              TaskKind = "final_vote"
-	TaskKindDelphiQuestionnaire    TaskKind = "delphi_questionnaire"
-	TaskKindDelphiRevision         TaskKind = "delphi_revision"
+	TaskKindPropose                  TaskKind = "propose"
+	TaskKindChallenge                TaskKind = "challenge"
+	TaskKindSemanticVerify           TaskKind = "semantic_verify"
+	TaskKindRevise                   TaskKind = "revise"
+	TaskKindArbitrate                TaskKind = "arbitrate"
+	TaskKindReport                   TaskKind = "report"
+	TaskKindAction                   TaskKind = "action"
+	TaskKindInitialProposal          TaskKind = "initial_proposal"
+	TaskKindDebateRound              TaskKind = "debate_round"
+	TaskKindFinalVote                TaskKind = "final_vote"
+	TaskKindDelphiQuestionnaire      TaskKind = "delphi_questionnaire"
+	TaskKindDelphiRevision           TaskKind = "delphi_revision"
 	TaskKindDelphiFacilitatorSummary TaskKind = "delphi_facilitator_summary"
 )
 
@@ -173,9 +173,9 @@ func (ArbiterTask) Kind() TaskKind   { return TaskKindArbitrate }
 func (t ArbiterTask) Meta() TaskMeta { return t.TaskMeta }
 
 type ArbiterTaskOutput struct {
-	Summary     string            `json:"summary"`
-	TaskVerdict TaskVerdict       `json:"taskVerdict"`
-	Decisions   []ArbiterDecision `json:"decisions"`
+	Summary     string               `json:"summary"`
+	TaskVerdict TaskVerdict          `json:"taskVerdict"`
+	Decisions   []ArbiterDecision    `json:"decisions"`
 	Records     []AdjudicationRecord `json:"records,omitempty"`
 }
 
@@ -243,28 +243,28 @@ func (InitialProposalTaskResult) Kind() TaskKind { return TaskKindInitialProposa
 
 type DebateRoundTask struct {
 	TaskMeta
-	TaskSpec       TaskSpec         `json:"taskSpec"`
-	Round          int              `json:"round"`
-	SelfClaims     []DebateClaim    `json:"selfClaims"`
-	PeerClaims     []DebateClaim    `json:"peerClaims"`
-	RoundSummary   string           `json:"roundSummary,omitempty"`
-	PeerContextMode string          `json:"peerContextMode,omitempty"`
+	TaskSpec        TaskSpec      `json:"taskSpec"`
+	Round           int           `json:"round"`
+	SelfClaims      []DebateClaim `json:"selfClaims"`
+	PeerClaims      []DebateClaim `json:"peerClaims"`
+	RoundSummary    string        `json:"roundSummary,omitempty"`
+	PeerContextMode string        `json:"peerContextMode,omitempty"`
 }
 
 func (DebateRoundTask) Kind() TaskKind   { return TaskKindDebateRound }
 func (t DebateRoundTask) Meta() TaskMeta { return t.TaskMeta }
 
 type DebateJudgementDraft struct {
-	ClaimID         string          `json:"claimId"`
-	Judgement       DebateJudgement `json:"judgement"`
-	Rationale       string          `json:"rationale,omitempty"`
-	RevisedStatement string         `json:"revisedStatement,omitempty"`
-	MergeWithClaims []string        `json:"mergeWithClaims,omitempty"`
+	ClaimID          string          `json:"claimId"`
+	Judgement        DebateJudgement `json:"judgement"`
+	Rationale        string          `json:"rationale,omitempty"`
+	RevisedStatement string          `json:"revisedStatement,omitempty"`
+	MergeWithClaims  []string        `json:"mergeWithClaims,omitempty"`
 }
 
 type DebateRoundOutput struct {
-	Summary    string                `json:"summary"`
-	NewClaims  []ClaimDraft          `json:"newClaims,omitempty"`
+	Summary    string                 `json:"summary"`
+	NewClaims  []ClaimDraft           `json:"newClaims,omitempty"`
 	Judgements []DebateJudgementDraft `json:"judgements,omitempty"`
 }
 
@@ -303,11 +303,11 @@ func (FinalVoteTaskResult) Kind() TaskKind { return TaskKindFinalVote }
 
 type DelphiQuestionnaireTask struct {
 	TaskMeta
-	TaskSpec          TaskSpec            `json:"taskSpec"`
-	Round             int                 `json:"round"`
-	Questionnaire     string              `json:"questionnaire"`
-	PreviousStatements []DelphiStatement  `json:"previousStatements,omitempty"`
-	PreviousSummary   string              `json:"previousSummary,omitempty"`
+	TaskSpec           TaskSpec          `json:"taskSpec"`
+	Round              int               `json:"round"`
+	Questionnaire      string            `json:"questionnaire"`
+	PreviousStatements []DelphiStatement `json:"previousStatements,omitempty"`
+	PreviousSummary    string            `json:"previousSummary,omitempty"`
 }
 
 func (DelphiQuestionnaireTask) Kind() TaskKind   { return TaskKindDelphiQuestionnaire }
@@ -321,7 +321,7 @@ type DelphiResponseDraft struct {
 }
 
 type DelphiQuestionnaireOutput struct {
-	Summary   string               `json:"summary"`
+	Summary   string                `json:"summary"`
 	Responses []DelphiResponseDraft `json:"responses"`
 }
 
@@ -333,10 +333,10 @@ func (DelphiQuestionnaireTaskResult) Kind() TaskKind { return TaskKindDelphiQues
 
 type DelphiRevisionTask struct {
 	TaskMeta
-	TaskSpec            TaskSpec           `json:"taskSpec"`
-	Round               int                `json:"round"`
-	StatementSummaries  []DelphiStatement  `json:"statementSummaries"`
-	PreviousSummary     string             `json:"previousSummary,omitempty"`
+	TaskSpec           TaskSpec          `json:"taskSpec"`
+	Round              int               `json:"round"`
+	StatementSummaries []DelphiStatement `json:"statementSummaries"`
+	PreviousSummary    string            `json:"previousSummary,omitempty"`
 }
 
 func (DelphiRevisionTask) Kind() TaskKind   { return TaskKindDelphiRevision }
@@ -355,8 +355,8 @@ func (DelphiRevisionTaskResult) Kind() TaskKind { return TaskKindDelphiRevision 
 
 type DelphiFacilitatorSummaryTask struct {
 	TaskMeta
-	TaskSpec          TaskSpec          `json:"taskSpec"`
-	Round             int               `json:"round"`
+	TaskSpec           TaskSpec          `json:"taskSpec"`
+	Round              int               `json:"round"`
 	StatementSummaries []DelphiStatement `json:"statementSummaries"`
 }
 
@@ -364,10 +364,10 @@ func (DelphiFacilitatorSummaryTask) Kind() TaskKind   { return TaskKindDelphiFac
 func (t DelphiFacilitatorSummaryTask) Meta() TaskMeta { return t.TaskMeta }
 
 type DelphiFacilitatorSummaryOutput struct {
-	Summary         string            `json:"summary"`
-	Recommendation  string            `json:"recommendation,omitempty"`
-	DissentSummary  []string          `json:"dissentSummary,omitempty"`
-	Statements      []DelphiStatement `json:"statements,omitempty"`
+	Summary        string            `json:"summary"`
+	Recommendation string            `json:"recommendation,omitempty"`
+	DissentSummary []string          `json:"dissentSummary,omitempty"`
+	Statements     []DelphiStatement `json:"statements,omitempty"`
 }
 
 type DelphiFacilitatorSummaryTaskResult struct {

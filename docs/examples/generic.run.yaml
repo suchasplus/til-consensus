@@ -1,0 +1,48 @@
+# 搭配 generic.config.yaml
+request_id: generic-factual-001
+
+task_spec:
+  goal: 判断“供应商已经完成迁移”这一说法是否仍然可靠
+  task_type: factual
+  success_criteria:
+    - 必须暴露来源冲突
+    - 必须考虑 freshness
+    - 证据不足时允许 undetermined
+  materials:
+    - id: statement
+      title: 待验证陈述
+      kind: text
+      content: |
+        当前对外口径声称：供应商已经完成迁移，所有区域都已切换到新系统。
+
+roles:
+  proposers: [proposer-generic]
+  challengers: [challenger-generic]
+  arbiter: arbiter-generic
+  semantic_verifier: verifier-generic
+  reporter: reporter-generic
+
+proposal_policy:
+  max_passes: 1
+  max_claims_per_worker: 4
+
+verification_policy:
+  allow_semantic_verifier: true
+  max_parallel_checks: 2
+
+ingest_policy:
+  sources:
+    - name: structured-source
+      command: python3
+      args:
+        - ./scripts/source_probe.py
+      parsing:
+        mode: json
+        required_paths:
+          - report.summary
+          - report.publishedAt
+        summary_path: report.summary
+        excerpt_path: report.excerpt
+        metadata_paths:
+          publishedAt: report.publishedAt
+          source: report.source

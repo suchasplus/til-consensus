@@ -1,66 +1,70 @@
-# 浏览器 Viewer 二期规划
+# 浏览器 Viewer
 
-当前版本的主查看入口仍然是 `til-consensus view` 的终端输出。
-
-浏览器 Viewer 不在这一轮交付里，但实现路线已经固定。
-
-## 目标
-
-- 保持 Go 单二进制
-- 不引入独立前端工程
-- 不依赖远程后端
-- 只读取本地输出产物
-- 按 `mode` 渲染 `adjudication`、`free_debate`、`delphi`
-
-## 入口形式
-
-预留命令：
+当前版本已经支持：
 
 ```bash
 til-consensus view --web
 ```
 
-二期会由这个命令启动一个本地只读 HTTP 服务，再自动打开浏览器。
+它会启动一个**本地只读 HTTP 服务**，默认只绑定 `127.0.0.1`，并打印实际访问地址。默认不会自动打开浏览器；如果你明确需要，可以再加 `--open`。
 
-## 技术路线
+## 当前范围
 
-- Go `html/template`
-- 少量原生 JS
-- 数据源固定为：
-  - `result.json`
-  - `ledger.jsonl`
-  - `artifacts/manifest.jsonl`
+这轮实现的是 MVP，目标是把现有 `Document` 直接变成一个可读的本地页面，而不是再造一套 viewer schema。
 
-## 页面结构
-
-一期页面固定包含：
+当前页面固定包含：
 
 - `Overview`
-  - 当前 mode
-  - 任务结论
-  - 关键统计
-  - 主要风险
 - `Claims`
-  - `adjudication` 的 claim graph
-- `Debate`
-  - `free_debate` 的轮次与 votes
-- `Delphi`
-  - `delphi` 的 statements、收敛度、异议摘要
 - `Evidence`
-  - ledger 时间线
-  - verification 结果
-  - artifact 引用
-- `Artifacts`
-  - log
-  - diff
-  - benchmark
-  - raw worker output
+- `Observations`
+- `Follow-ups`
+- `Workflow`
+- `Files`
 
-## 测试要求
+其中：
 
-二期实现时至少要有：
+- `Evidence`
+  - 聚合 `Verifications`、`Challenges`、`Artifacts`、`Risks`
+- `Workflow`
+  - 按 mode 展示 `free_debate` 或 `delphi` 的额外结构化块
 
-- HTTP handler 测试
-- 模板渲染 golden tests
-- view model 构造测试
-- 缺失 ledger / manifest / artifact 的降级测试
+## HTTP 接口
+
+- `GET /`
+  - 页面 HTML
+- `GET /api/document`
+  - 当前 `Document` 的 JSON
+  - 支持 query 参数：
+    - `section`
+    - `claim_verdict`
+    - `limit`
+    - `verbose`
+- `GET /api/healthz`
+  - 返回 `200 ok`
+
+## 设计约束
+
+当前 viewer 明确保持：
+
+- 只读
+- 单二进制 Go 实现
+- 不依赖远程后端
+- 不引入独立前端工程
+- 不改已有 `Document` / `result.json` 读取逻辑
+
+当前明确不做：
+
+- artifact 内容在线预览
+- 目录浏览器
+- 自动刷新 / websocket
+- 多用户访问控制
+- 默认自动打开浏览器
+
+## 后续更适合继续做的事
+
+- claim 详情页
+- artifact 内容预览
+- lineage 图
+- observation / follow-up 专门视图
+- 基于 sqlite session store 的更强查询

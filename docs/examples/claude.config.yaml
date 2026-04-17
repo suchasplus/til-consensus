@@ -1,0 +1,60 @@
+schema_version: 1
+
+defaults:
+  success_criteria:
+    - 给出 claim 级裁决
+    - 输出关键 caveat 与 unresolved
+  per_task_timeout: 20m
+  task_retry_attempts: 1
+  proposal_policy:
+    max_passes: 1
+    max_claims_per_worker: 4
+    dedupe_strategy: normalized-statement
+  verification_policy:
+    allow_semantic_verifier: true
+    max_parallel_checks: 2
+  arbiter_policy:
+    allow_undetermined: true
+    blind_review: true
+
+output:
+  directory: ./out/{requestId}
+
+providers:
+  claude-cli:
+    type: cli
+    cli_type: claude
+    command: claude
+    models:
+      default:
+        provider_model: claude-sonnet-4
+        reasoning: medium
+
+agents:
+  - id: proposer-claude
+    provider: claude-cli
+    model: default
+    role: proposer
+  - id: challenger-claude
+    provider: claude-cli
+    model: default
+    role: challenger
+  - id: verifier-claude
+    provider: claude-cli
+    model: default
+    role: semantic-verifier
+  - id: arbiter-claude
+    provider: claude-cli
+    model: default
+    role: arbiter
+  - id: reporter-claude
+    provider: claude-cli
+    model: default
+    role: reporter
+
+roles:
+  proposers: [proposer-claude]
+  challengers: [challenger-claude]
+  semantic_verifier: verifier-claude
+  arbiter: arbiter-claude
+  reporter: reporter-claude

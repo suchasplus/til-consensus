@@ -227,6 +227,18 @@ type RunLineage struct {
 	Trigger         string `json:"trigger,omitempty" yaml:"trigger,omitempty"`
 }
 
+type SessionCheckpoint struct {
+	Mode               WorkflowMode `json:"mode,omitempty"`
+	LastCompletedPhase SessionPhase `json:"lastCompletedPhase,omitempty"`
+	ActiveClaimIDs     []string     `json:"activeClaimIds,omitempty"`
+	RevisionRound      int          `json:"revisionRound,omitempty"`
+	VerifyRounds       int          `json:"verifyRounds,omitempty"`
+	FallbacksUsed      int          `json:"fallbacksUsed,omitempty"`
+	MaterialChange     bool         `json:"materialChange,omitempty"`
+	DebateRound        int          `json:"debateRound,omitempty"`
+	DelphiRound        int          `json:"delphiRound,omitempty"`
+}
+
 type StartRequest struct {
 	Mode               WorkflowMode               `json:"mode,omitempty" yaml:"mode,omitempty"`
 	RequestID          string                     `json:"requestId" yaml:"request_id"`

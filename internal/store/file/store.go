@@ -59,6 +59,12 @@ func (s *Store) Patch(ctx context.Context, sessionID string, patch consensus.Ses
 	if patch.Phase != nil {
 		snapshot.Phase = *patch.Phase
 	}
+	if patch.Checkpoint != nil {
+		snapshot.Checkpoint = patch.Checkpoint
+	}
+	if patch.CaseManifest != nil {
+		snapshot.CaseManifest = patch.CaseManifest
+	}
 	if patch.FinishedAt != nil {
 		snapshot.FinishedAt = *patch.FinishedAt
 	}
@@ -71,8 +77,71 @@ func (s *Store) Patch(ctx context.Context, sessionID string, patch consensus.Ses
 	if patch.ChallengeTickets != nil {
 		snapshot.ChallengeTickets = append([]consensus.ChallengeTicket(nil), patch.ChallengeTickets...)
 	}
+	if patch.LedgerEntries != nil {
+		snapshot.LedgerEntries = append([]consensus.EvidenceRecord(nil), patch.LedgerEntries...)
+	}
 	if patch.LedgerCursor != nil {
 		snapshot.LedgerCursor = *patch.LedgerCursor
+	}
+	if patch.VerificationResults != nil {
+		snapshot.VerificationResults = append([]consensus.VerificationResult(nil), patch.VerificationResults...)
+	}
+	if patch.RevisionRecords != nil {
+		snapshot.RevisionRecords = append([]consensus.ClaimRevisionRecord(nil), patch.RevisionRecords...)
+	}
+	if patch.AdjudicationRecords != nil {
+		snapshot.AdjudicationRecords = append([]consensus.AdjudicationRecord(nil), patch.AdjudicationRecords...)
+	}
+	if patch.Observations != nil {
+		snapshot.Observations = append([]consensus.ObservationRecord(nil), patch.Observations...)
+	}
+	if patch.Metrics != nil {
+		snapshot.Metrics = *patch.Metrics
+	}
+	if patch.ResumeCount != nil {
+		snapshot.ResumeCount = *patch.ResumeCount
+	}
+	if patch.LastResumedAt != nil {
+		snapshot.LastResumedAt = *patch.LastResumedAt
+	}
+	if patch.ArbiterReport != nil {
+		snapshot.ArbiterReport = patch.ArbiterReport
+	}
+	if patch.Report != nil {
+		snapshot.Report = patch.Report
+	}
+	if patch.Action != nil {
+		snapshot.Action = patch.Action
+	}
+	if patch.DebateClaims != nil {
+		snapshot.DebateClaims = append([]consensus.DebateClaim(nil), patch.DebateClaims...)
+	}
+	if patch.DebateRounds != nil {
+		snapshot.DebateRounds = append([]consensus.DebateRoundRecord(nil), patch.DebateRounds...)
+	}
+	if patch.DebateVotes != nil {
+		snapshot.DebateVotes = append([]consensus.DebateVoteRecord(nil), patch.DebateVotes...)
+	}
+	if patch.DelphiRounds != nil {
+		snapshot.DelphiRounds = append([]consensus.DelphiRoundRecord(nil), patch.DelphiRounds...)
+	}
+	if patch.DelphiStatements != nil {
+		snapshot.DelphiStatements = append([]consensus.DelphiStatement(nil), patch.DelphiStatements...)
+	}
+	if patch.DelphiRatingDistributions != nil {
+		snapshot.DelphiRatingDistributions = make(map[string][]float64, len(patch.DelphiRatingDistributions))
+		for key, values := range patch.DelphiRatingDistributions {
+			snapshot.DelphiRatingDistributions[key] = append([]float64(nil), values...)
+		}
+	}
+	if patch.DelphiConsensusLevel != nil {
+		snapshot.DelphiConsensusLevel = *patch.DelphiConsensusLevel
+	}
+	if patch.DelphiRecommendation != nil {
+		snapshot.DelphiRecommendation = *patch.DelphiRecommendation
+	}
+	if patch.DelphiDissentSummary != nil {
+		snapshot.DelphiDissentSummary = append([]string(nil), patch.DelphiDissentSummary...)
 	}
 	if patch.Result != nil {
 		snapshot.Result = patch.Result
