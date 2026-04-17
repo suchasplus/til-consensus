@@ -675,7 +675,12 @@ func (o *Output) printDebugLocked(event consensus.RunEvent) {
 		return
 	}
 	if payload := prettyPayload(event.Payload); payload != "" {
-		o.Printf("[til-consensus][debug] %s payload=%s\n", event.Type, payload)
+		prefix := fmt.Sprintf("[til-consensus][debug] %s payload=", event.Type)
+		if o.color {
+			prefix = colorizeRunOutput(prefix)
+			payload = colorizeDebugJSON(payload)
+		}
+		_, _ = io.WriteString(o.stdout, prefix+payload+"\n")
 	}
 	if text := debugArtifactText(o.artifactsDir, event.Type, event.Payload); text != "" {
 		o.Printf("[til-consensus][debug] %s\n", text)

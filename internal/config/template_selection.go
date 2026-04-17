@@ -344,7 +344,7 @@ func buildTemplateProvider(profile string) (string, string, ProviderConfig, erro
 			Command: "gemini",
 			Models: map[string]ProviderModelConfig{
 				"default": {
-					ProviderModel: "gemini-3.1-pro-preivew",
+					ProviderModel: "gemini-3.1-pro-preview",
 					Reasoning:     "medium",
 				},
 			},

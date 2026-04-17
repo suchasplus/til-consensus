@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -237,6 +238,107 @@ func TestParseHelpersAndOutputHelpers(t *testing.T) {
 	}
 }
 
+func TestResolveTaskOverride(t *testing.T) {
+	tmp := t.TempDir()
+	taskFile := filepath.Join(tmp, "task.txt")
+	const body = "第一行任务描述\n\n第二行补充背景\n"
+	if err := os.WriteFile(taskFile, []byte(body), 0o644); err != nil {
+		t.Fatalf("write task file: %v", err)
+	}
+
+	task, err := resolveTaskOverride("", taskFile)
+	if err != nil {
+		t.Fatalf("resolveTaskOverride failed: %v", err)
+	}
+	if task != body {
+		t.Fatalf("expected full task file contents, got %q", task)
+	}
+
+	if _, err := resolveTaskOverride("inline", taskFile); err == nil || !strings.Contains(err.Error(), "--task 不能与 --task-file 同时使用") {
+		t.Fatalf("expected task/task-file conflict, got %v", err)
+	}
+
+	emptyFile := filepath.Join(tmp, "empty.txt")
+	if err := os.WriteFile(emptyFile, []byte(" \n\t "), 0o644); err != nil {
+		t.Fatalf("write empty task file: %v", err)
+	}
+	if _, err := resolveTaskOverride("", emptyFile); err == nil || !strings.Contains(err.Error(), "task file is empty") {
+		t.Fatalf("expected empty task file error, got %v", err)
+	}
+}
+
+func TestRunCommandTaskFileOverridesInputGoal(t *testing.T) {
+	tmp := t.TempDir()
+	configPath := filepath.Join(tmp, "til-consensus.yaml")
+	taskFile := filepath.Join(tmp, "task.txt")
+	inputPath := filepath.Join(tmp, "run.yaml")
+
+	writeFile(t, configPath, fmt.Sprintf(`schema_version: 1
+defaults:
+  per_task_timeout: 1s
+  task_retry_attempts: 0
+  proposal_policy:
+    max_passes: 1
+    max_claims_per_worker: 1
+  verification_policy:
+    max_parallel_checks: 1
+  arbiter_policy:
+    allow_undetermined: true
+    blind_review: true
+output:
+  directory: %q
+providers:
+  mock:
+    type: mock
+    models:
+      default:
+        provider_model: mock
+agents:
+  - id: proposer-a
+    provider: mock
+    model: default
+    role: proposer
+  - id: challenger-a
+    provider: mock
+    model: default
+    role: challenger
+  - id: arbiter-a
+    provider: mock
+    model: default
+    role: arbiter
+roles:
+  proposers: [proposer-a]
+  challengers: [challenger-a]
+  arbiter: arbiter-a
+`, filepath.Join(tmp, "out", "{requestId}")))
+	writeFile(t, taskFile, "来自 task-file 的完整任务\n第二行也要保留\n")
+	writeFile(t, inputPath, `task_spec:
+  goal: from-input
+`)
+
+	runCmd := newRunCommand()
+	stdout, stderr, err := runCLICommand(context.Background(), runCmd, []string{"run", "--config", configPath, "--input", inputPath, "--task-file", taskFile})
+	if err != nil {
+		t.Fatalf("run failed: %v\nstderr=%s", err, stderr)
+	}
+	resultPath := extractResultPath(t, stdout)
+	data, readErr := os.ReadFile(resultPath)
+	if readErr != nil {
+		t.Fatalf("read result: %v", readErr)
+	}
+	var result struct {
+		TaskSpec struct {
+			Goal string `json:"goal"`
+		} `json:"taskSpec"`
+	}
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("decode result: %v", err)
+	}
+	if result.TaskSpec.Goal != "来自 task-file 的完整任务\n第二行也要保留" {
+		t.Fatalf("unexpected goal: %q", result.TaskSpec.Goal)
+	}
+}
+
 func TestVerboseOutputShowsDurationsAndPhaseSummaries(t *testing.T) {
 	var stdout bytes.Buffer
 	output := NewOutput(&stdout, &bytes.Buffer{}, true, false, "")
@@ -378,6 +480,44 @@ func TestDebugOutputShowsPayloadAndArtifactPaths(t *testing.T) {
 	}
 	if !strings.Contains(text, "provider artifacts input=/tmp/til-consensus-artifacts/input-verifier-codex-semantic_verify-<taskID>.json") {
 		t.Fatalf("expected debug artifact path, got: %s", text)
+	}
+}
+
+func TestDebugOutputColorizesPayloadJSONWhenForced(t *testing.T) {
+	t.Setenv("FORCE_COLOR", "1")
+	t.Setenv("NO_COLOR", "")
+	t.Setenv("TERM", "xterm-256color")
+
+	var stdout bytes.Buffer
+	output := NewOutput(&stdout, &bytes.Buffer{}, false, true, "")
+	observer := output.EventObserver()
+
+	err := observer.OnEvent(context.Background(), consensus.RunEvent{
+		Type: consensus.RunEventTaskDispatched,
+		Payload: map[string]any{
+			"agentId":     "verifier-codex",
+			"attempt":     1,
+			"enabled":     true,
+			"taskKind":    "semantic_verify",
+			"maxAttempts": 2,
+		},
+	})
+	if err != nil {
+		t.Fatalf("OnEvent debug dispatch failed: %v", err)
+	}
+
+	text := stdout.String()
+	for _, needle := range []string{
+		"\x1b[34m\"agentId\"\x1b[0m",
+		"\x1b[32m\"verifier-codex\"\x1b[0m",
+		"\x1b[33m1\x1b[0m",
+		"\x1b[35mtrue\x1b[0m",
+		"\x1b[36m{\x1b[0m",
+		"\x1b[36m:\x1b[0m",
+	} {
+		if !strings.Contains(text, needle) {
+			t.Fatalf("expected colored debug payload to contain %q, got: %q", needle, text)
+		}
 	}
 }
 

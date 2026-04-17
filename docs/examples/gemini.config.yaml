@@ -27,7 +27,7 @@ providers:
     command: gemini
     models:
       default:
-        provider_model: gemini-3.1-pro-preivew
+        provider_model: gemini-3.1-pro-preview
         reasoning: medium
 
 agents:

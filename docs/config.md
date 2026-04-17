@@ -52,6 +52,57 @@ til-consensus config init --mode adjudication --provider-profile gemini --config
 til-consensus config init --mode adjudication --provider-profile mock --task-profile coding --config ./til-consensus.yaml
 ```
 
+## `run` 的输入方式
+
+`til-consensus run` 现在支持几种常用输入源：
+
+- `--task`
+  - 直接在命令行里传一段任务文本
+- `--task-file`
+  - 从文件中读取**全部文本内容**作为任务文本
+- `--input`
+  - 读取 `run.yaml` 或 `run.json`
+- `--followup`
+  - 直接执行 follow-up case artifact
+- `--resume-session`
+  - 从已持久化的 session 恢复
+- `--replay-session`
+  - 基于历史 session 生成 child run
+
+最常见的两种方式：
+
+```bash
+til-consensus run --config ./til-consensus.yaml --task "判断这个 patch 是否真正修复了竞态问题"
+til-consensus run --config ./til-consensus.yaml --task-file ./task.md
+```
+
+如果你的输入文件里已经有 `task_spec.goal`，也可以用 `--task-file` 覆盖它：
+
+```bash
+til-consensus run --config ./til-consensus.yaml --input ./run.yaml --task-file ./task.md
+```
+
+优先级是：
+
+1. `--task` 或 `--task-file`
+2. `--input` 里的 `task_spec.goal`
+
+约束规则：
+
+- `--task-file` 不能和 `--task` 同时使用
+- `--task-file` 不能和：
+  - `--followup`
+  - `--resume-session`
+  - `--replay-session`
+  同时使用
+- `--task-file` 可以和 `--input` 一起使用
+
+`--task-file` 适合这些场景：
+
+- 任务描述很长，不适合塞进 shell 一行
+- 你想把整段需求、会议纪要、文档草稿直接交给 workflow
+- 你希望任务文本可以放进版本控制或复用
+
 如果已有配置文件，需要覆盖：
 
 ```bash
@@ -77,7 +128,7 @@ provider profile 的当前默认模型：
 - `claude`
   - `claude-opus-4-6`
 - `gemini`
-  - `gemini-3.1-pro-preivew`
+  - `gemini-3.1-pro-preview`
 
 ## 配置结构
 

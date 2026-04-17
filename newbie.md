@@ -72,6 +72,16 @@ til-consensus run \
   --task "判断这个 patch 是否真正修复了竞态问题"
 ```
 
+如果你的任务已经写在文件里，也可以直接读文件全文：
+
+```bash
+til-consensus run \
+  --config ./til-consensus.yaml \
+  --task-file ./task.md
+```
+
+`--task-file` 会把文件全部内容当作任务文本。它可以和 `--input ./run.yaml` 一起使用，用来覆盖 `task_spec.goal`；但不能和 `--task` 同时使用。
+
 查看结果：
 
 ```bash
@@ -346,7 +356,7 @@ provider profile 的当前默认模型：
 - `claude`
   - `claude-opus-4-6`
 - `gemini`
-  - `gemini-3.1-pro-preivew`
+  - `gemini-3.1-pro-preview`
 
 ## 14. 出错时先看哪里
 

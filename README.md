@@ -37,6 +37,16 @@ til-consensus run \
   --task "判断这个 patch 是否真正修复了竞态问题"
 ```
 
+如果任务文本已经写在文件里，也可以直接读取整份文本内容：
+
+```bash
+til-consensus run \
+  --config ./til-consensus.yaml \
+  --task-file ./task.md
+```
+
+`--task-file` 会读取文件全部内容作为任务文本。它可以和 `--input` 一起用，用来覆盖 `run.yaml` 里的 `task_spec.goal`；但不能和 `--task` 同时使用。
+
 3. 查看最新一次结果：
 
 ```bash
@@ -195,7 +205,7 @@ til-consensus config init --mode delphi --provider-profile mock --config ./til-c
 - `claude`
   - `claude-opus-4-6`
 - `gemini`
-  - `gemini-3.1-pro-preivew`
+  - `gemini-3.1-pro-preview`
 
 常见可复制样例：
 

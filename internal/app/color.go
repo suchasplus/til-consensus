@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -121,4 +122,78 @@ func colorizeViewText(text string) string {
 		text = strings.ReplaceAll(text, item.old, item.new)
 	}
 	return text
+}
+
+func colorizeDebugJSON(text string) string {
+	if text == "" {
+		return text
+	}
+	var out bytes.Buffer
+	for i := 0; i < len(text); {
+		switch text[i] {
+		case '{', '}', '[', ']', ':', ',':
+			out.WriteString(ansi(36, text[i:i+1]))
+			i++
+		case '"':
+			start := i
+			i++
+			for i < len(text) {
+				if text[i] == '\\' {
+					i += 2
+					continue
+				}
+				if text[i] == '"' {
+					i++
+					break
+				}
+				i++
+			}
+			token := text[start:i]
+			j := i
+			for j < len(text) && (text[j] == ' ' || text[j] == '\t' || text[j] == '\n' || text[j] == '\r') {
+				j++
+			}
+			if j < len(text) && text[j] == ':' {
+				out.WriteString(ansi(34, token))
+			} else {
+				out.WriteString(ansi(32, token))
+			}
+		default:
+			start := i
+			for i < len(text) && !strings.ContainsRune("{}[]:,\"", rune(text[i])) {
+				i++
+			}
+			token := text[start:i]
+			trimmed := strings.TrimSpace(token)
+			switch {
+			case trimmed == "":
+				out.WriteString(token)
+			case trimmed == "true" || trimmed == "false" || trimmed == "null":
+				out.WriteString(strings.Replace(token, trimmed, ansi(35, trimmed), 1))
+			case isJSONNumber(trimmed):
+				out.WriteString(strings.Replace(token, trimmed, ansi(33, trimmed), 1))
+			default:
+				out.WriteString(token)
+			}
+		}
+	}
+	return out.String()
+}
+
+func isJSONNumber(text string) bool {
+	if text == "" {
+		return false
+	}
+	for i, r := range text {
+		switch {
+		case r >= '0' && r <= '9':
+		case r == '-' || r == '+' || r == '.' || r == 'e' || r == 'E':
+			if i == len(text)-1 && (r == 'e' || r == 'E' || r == '+' || r == '-') {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
 }

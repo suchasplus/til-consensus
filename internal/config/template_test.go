@@ -84,7 +84,7 @@ func TestRenderTemplatePresetsAreValidYAML(t *testing.T) {
 			preset: TemplatePresetGemini,
 			needles: []string{
 				"cli_type: gemini",
-				"provider_model: gemini-3.1-pro-preivew",
+				"provider_model: gemini-3.1-pro-preview",
 			},
 		},
 	}
@@ -183,7 +183,7 @@ func TestRenderTemplateRequestBuildsComposedTemplate(t *testing.T) {
 	for _, needle := range []string{
 		"mode=delphi provider_profile=gemini task_profile=general",
 		"cli_type: gemini",
-		"provider_model: gemini-3.1-pro-preivew",
+		"provider_model: gemini-3.1-pro-preview",
 		"participant-c",
 		"facilitator-a",
 	} {

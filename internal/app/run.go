@@ -24,6 +24,7 @@ func newRunCommand() *cli.Command {
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "config", Usage: "配置文件路径"},
 			&cli.StringFlag{Name: "input", Usage: "输入文件路径"},
+			&cli.StringFlag{Name: "task-file", Usage: "任务文本文件路径，读取整个文件内容作为 task"},
 			&cli.StringFlag{Name: "followup", Usage: "直接执行 follow-up case artifact"},
 			&cli.StringFlag{Name: "resume-session", Usage: "从持久化 session store 重新执行某个 session 的 request"},
 			&cli.StringFlag{Name: "replay-session", Usage: "基于某个 session 的 request 生成新的 child run"},
@@ -67,7 +68,7 @@ func runCommand(ctx context.Context, cmd *cli.Command) error {
 	sessionStore := filestore.New(config.ResolveSessionStoreDir(loaded))
 	if followupPath := strings.TrimSpace(cmd.String("followup")); followupPath != "" {
 		if hasConflictingRunSource(cmd, "followup") {
-			return fmt.Errorf("--followup 不能与 --input/--task/--resume-session/--replay-session 同时使用")
+			return fmt.Errorf("--followup 不能与 --input/--task/--task-file/--resume-session/--replay-session 同时使用")
 		}
 		artifact, err := consensus.LoadFollowUpCaseArtifact(followupPath)
 		if err != nil {
@@ -81,7 +82,7 @@ func runCommand(ctx context.Context, cmd *cli.Command) error {
 	}
 	if sessionID := strings.TrimSpace(cmd.String("resume-session")); sessionID != "" {
 		if hasConflictingRunSource(cmd, "resume-session") {
-			return fmt.Errorf("--resume-session 不能与 --input/--task/--followup/--replay-session 同时使用")
+			return fmt.Errorf("--resume-session 不能与 --input/--task/--task-file/--followup/--replay-session 同时使用")
 		}
 		snapshot, err := sessionStore.Load(ctx, sessionID)
 		if err != nil {
@@ -98,7 +99,7 @@ func runCommand(ctx context.Context, cmd *cli.Command) error {
 	}
 	if sessionID := strings.TrimSpace(cmd.String("replay-session")); sessionID != "" {
 		if hasConflictingRunSource(cmd, "replay-session") {
-			return fmt.Errorf("--replay-session 不能与 --input/--task/--followup/--resume-session 同时使用")
+			return fmt.Errorf("--replay-session 不能与 --input/--task/--task-file/--followup/--resume-session 同时使用")
 		}
 		snapshot, err := sessionStore.Load(ctx, sessionID)
 		if err != nil {
@@ -127,11 +128,15 @@ func runCommand(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
+	taskOverride, err := resolveTaskOverride(cmd.String("task"), cmd.String("task-file"))
+	if err != nil {
+		return err
+	}
 	overrides := config.RunOverrides{
 		ConfigPath:           cmd.String("config"),
 		InputPath:            cmd.String("input"),
 		Mode:                 parseMode(cmd.String("mode")),
-		Task:                 cmd.String("task"),
+		Task:                 taskOverride,
 		Proposers:            splitComma(cmd.String("proposers")),
 		Challengers:          splitComma(cmd.String("challengers")),
 		Participants:         splitComma(cmd.String("participants")),
@@ -163,6 +168,7 @@ func hasConflictingRunSource(cmd *cli.Command, active string) bool {
 	sources := map[string]bool{
 		"input":          strings.TrimSpace(cmd.String("input")) != "",
 		"task":           strings.TrimSpace(cmd.String("task")) != "",
+		"task-file":      strings.TrimSpace(cmd.String("task-file")) != "",
 		"followup":       strings.TrimSpace(cmd.String("followup")) != "",
 		"resume-session": strings.TrimSpace(cmd.String("resume-session")) != "",
 		"replay-session": strings.TrimSpace(cmd.String("replay-session")) != "",
@@ -174,6 +180,25 @@ func hasConflictingRunSource(cmd *cli.Command, active string) bool {
 		}
 	}
 	return false
+}
+
+func resolveTaskOverride(task string, taskFile string) (string, error) {
+	task = strings.TrimSpace(task)
+	taskFile = strings.TrimSpace(taskFile)
+	if task != "" && taskFile != "" {
+		return "", fmt.Errorf("--task 不能与 --task-file 同时使用")
+	}
+	if taskFile == "" {
+		return task, nil
+	}
+	body, err := os.ReadFile(taskFile)
+	if err != nil {
+		return "", fmt.Errorf("read task file: %w", err)
+	}
+	if strings.TrimSpace(string(body)) == "" {
+		return "", fmt.Errorf("task file is empty: %s", taskFile)
+	}
+	return string(body), nil
 }
 
 func executeResolvedPlan(ctx context.Context, loaded config.LoadedConfig, plan config.ResolvedRunPlan, writer interface{ Write([]byte) (int, error) }) error {

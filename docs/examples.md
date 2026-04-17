@@ -88,6 +88,16 @@ til-consensus view --config ./til-consensus.yaml
 
 把 `codex` 替换成 `generic`、`claude` 或 `gemini` 即可。
 
+如果你不想写 `run.yaml`，也可以把任务直接写进文件，再用 `--task-file`：
+
+```bash
+cp docs/examples/codex.config.yaml ./til-consensus.yaml
+til-consensus run --config ./til-consensus.yaml --task-file ./task.md
+til-consensus view --config ./til-consensus.yaml
+```
+
+`--task-file` 会读取文件全部内容作为任务文本，适合长问题、文档草稿或完整背景说明。
+
 ## `run.yaml` 样例
 
 - [文档完善](examples/document-refinement.run.yaml)
@@ -106,3 +116,32 @@ til-consensus view --config ./til-consensus.yaml
   - `generic.config.yaml` 或 `gemini.config.yaml`
 
 如果你想一步到位，优先用上面的“一对一组合包”。
+
+## 什么时候用 `run.yaml`，什么时候用 `--task-file`
+
+建议这样区分：
+
+- 只想提交一个问题或一段长文本：
+  - 用 `--task` 或 `--task-file`
+- 需要指定：
+  - `roles`
+  - `proposal_policy`
+  - `verification_policy`
+  - `debate_policy`
+  - `delphi_policy`
+  - `action`
+  - `materials`
+  - `constraints`
+  - `workspace_snapshot`
+  - 用 `run.yaml`
+
+两者也可以组合：
+
+```bash
+til-consensus run \
+  --config ./til-consensus.yaml \
+  --input ./docs/examples/coding-review.run.yaml \
+  --task-file ./task.md
+```
+
+这时 `--task-file` 会覆盖 `run.yaml` 里的 `task_spec.goal`，其余 policy 和 roles 仍然沿用 `run.yaml`。
