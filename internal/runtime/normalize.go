@@ -333,7 +333,10 @@ func normalizeSemanticResults(value any) {
 			continue
 		}
 		targetType := strings.ToLower(strings.TrimSpace(stringMapValue(entry, "targetType")))
-		rawVerdict := strings.TrimSpace(stringMapValue(entry, "verdict"))
+		rawVerdict := firstNonEmpty(
+			strings.TrimSpace(stringMapValue(entry, "verdict")),
+			strings.TrimSpace(stringMapValue(entry, "verificationStatus")),
+		)
 		if _, ok := entry["claimId"]; !ok {
 			if targetID := firstNonEmpty(stringMapValue(entry, "targetId"), stringMapValue(entry, "claim")); targetID != "" && (targetType == "" || targetType == "claim") {
 				entry["claimId"] = targetID
@@ -405,6 +408,7 @@ func normalizeArbiterOutput(root map[string]any) {
 			continue
 		}
 		rawVerdict := strings.TrimSpace(stringMapValue(entry, "verdict"))
+		rawDisposition := strings.TrimSpace(stringMapValue(entry, "disposition"))
 		if _, ok := entry["claimId"]; !ok {
 			if claimID := firstNonEmpty(stringMapValue(entry, "targetClaimId"), stringMapValue(entry, "targetId")); claimID != "" {
 				entry["claimId"] = claimID
@@ -422,9 +426,16 @@ func normalizeArbiterOutput(root map[string]any) {
 		}
 		if verdict := normalizeClaimVerdictString(rawVerdict); verdict != "" {
 			entry["verdict"] = verdict
+		} else if disposition := normalizeClaimDispositionString(rawDisposition); disposition == string(consensus.ClaimDispositionKeep) || disposition == string(consensus.ClaimDispositionKeepWithCaveat) {
+			entry["verdict"] = string(consensus.ClaimVerdictSupported)
+		} else if disposition == string(consensus.ClaimDispositionReject) {
+			entry["verdict"] = string(consensus.ClaimVerdictRefuted)
+		} else if disposition == string(consensus.ClaimDispositionUnresolved) {
+			entry["verdict"] = string(consensus.ClaimVerdictUndetermined)
 		}
 		attachMetadata(entry, map[string]any{
 			"rawVerdict":       rawVerdict,
+			"rawDisposition":   rawDisposition,
 			"rawTargetClaimId": stringMapValue(entry, "targetClaimId"),
 		})
 	}
@@ -482,7 +493,7 @@ func normalizeClaimVerdictString(raw string) string {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "", "unknown":
 		return ""
-	case "supported", "support", "upheld", "relevant", "partially_supported", "partially-supported":
+	case "supported", "support", "upheld", "relevant", "partially_supported", "partially-supported", "verified", "corroborated":
 		return string(consensus.ClaimVerdictSupported)
 	case "refuted", "rejected", "reject", "not_supported", "not-supported", "overstated":
 		return string(consensus.ClaimVerdictRefuted)
@@ -490,6 +501,23 @@ func normalizeClaimVerdictString(raw string) string {
 		return string(consensus.ClaimVerdictInsufficientEvidence)
 	case "undetermined", "uncertain", "inconclusive", "mixed":
 		return string(consensus.ClaimVerdictUndetermined)
+	default:
+		return raw
+	}
+}
+
+func normalizeClaimDispositionString(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "unknown":
+		return ""
+	case "keep", "accepted", "accept", "retain":
+		return string(consensus.ClaimDispositionKeep)
+	case "keep_with_caveat", "keep-with-caveat", "accepted_with_caveat", "accepted-with-caveat":
+		return string(consensus.ClaimDispositionKeepWithCaveat)
+	case "reject", "rejected":
+		return string(consensus.ClaimDispositionReject)
+	case "unresolved", "undetermined", "insufficient_evidence", "insufficient-evidence":
+		return string(consensus.ClaimDispositionUnresolved)
 	default:
 		return raw
 	}

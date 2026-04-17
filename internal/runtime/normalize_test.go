@@ -103,6 +103,25 @@ func TestNormalizeSemanticVerificationOutputAcceptsTargetAliasesAndVerdictLabels
 	}
 }
 
+func TestNormalizeSemanticVerificationOutputAcceptsVerificationStatusAlias(t *testing.T) {
+	result, err := NormalizeTaskOutputFromText(consensus.SemanticVerificationTask{
+		TaskMeta: consensus.TaskMeta{AgentID: "verifier-1"},
+	}, `{"summary":"semantic","results":[{"targetId":"claim-1","targetType":"claim","verificationStatus":"verified","reasoning":"looks verified"}]}`)
+	if err != nil {
+		t.Fatalf("NormalizeTaskOutputFromText failed: %v", err)
+	}
+	typed, ok := result.(consensus.SemanticVerificationTaskResult)
+	if !ok {
+		t.Fatalf("unexpected result type: %T", result)
+	}
+	if typed.Output.Results[0].ClaimID != "claim-1" || typed.Output.Results[0].Verdict != consensus.ClaimVerdictSupported || typed.Output.Results[0].Rationale != "looks verified" {
+		t.Fatalf("unexpected semantic verification alias normalization: %#v", typed.Output.Results[0])
+	}
+	if typed.Output.Results[0].Metadata["rawVerdict"] != "verified" {
+		t.Fatalf("expected semantic metadata to preserve verificationStatus alias: %#v", typed.Output.Results[0].Metadata)
+	}
+}
+
 func TestNormalizeArbiterOutputRejectsMissingVerdict(t *testing.T) {
 	_, err := NormalizeTaskOutput(consensus.ArbiterTask{
 		TaskMeta: consensus.TaskMeta{AgentID: "arbiter-1"},
@@ -138,6 +157,26 @@ func TestNormalizeArbiterOutputAcceptsStructuredTaskVerdictAndDecisionAliases(t 
 	}
 	if typed.Output.Metadata["rawTaskVerdict"] == nil || decision.Metadata["rawVerdict"] != "rejected" {
 		t.Fatalf("expected arbiter metadata to preserve raw verdicts: output=%#v decision=%#v", typed.Output.Metadata, decision.Metadata)
+	}
+}
+
+func TestNormalizeArbiterOutputAcceptsVerifiedVerdictAndAcceptedDisposition(t *testing.T) {
+	result, err := NormalizeTaskOutputFromText(consensus.ArbiterTask{
+		TaskMeta: consensus.TaskMeta{AgentID: "arbiter-1"},
+	}, `{"summary":"arbiter","taskVerdict":"undetermined","decisions":[{"claimId":"claim-1","verdict":"verified","disposition":"accepted","rationale":"looks correct"}]}`)
+	if err != nil {
+		t.Fatalf("NormalizeTaskOutputFromText failed: %v", err)
+	}
+	typed, ok := result.(consensus.ArbiterTaskResult)
+	if !ok {
+		t.Fatalf("unexpected result type: %T", result)
+	}
+	decision := typed.Output.Decisions[0]
+	if decision.Verdict != consensus.ClaimVerdictSupported {
+		t.Fatalf("expected verified to normalize to supported, got %#v", decision)
+	}
+	if decision.Metadata["rawVerdict"] != "verified" || decision.Metadata["rawDisposition"] != "accepted" {
+		t.Fatalf("expected raw verdict/disposition metadata, got %#v", decision.Metadata)
 	}
 }
 
