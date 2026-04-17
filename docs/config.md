@@ -14,53 +14,59 @@
 第一次上手时，直接生成模板：
 
 ```bash
-til-consensus config init --preset quickstart --config ./til-consensus.yaml
+til-consensus config init --mode adjudication --provider-profile mock --config ./til-consensus.yaml
 ```
 
-常用 preset：
+`config init` 现在按 3 个维度生成模板：
 
-- `quickstart`
-  - 默认 `adjudication`
-  - 先跑通一遍 CLI
-- `openai`
-  - 接真实 API provider
-- `coding`
-  - 做 patch / benchmark / code review 裁决
-- `generic`
-  - 接你自己的脚本、本地代理或内部 CLI
-- `codex`
-  - 直接生成 Codex CLI 配置
-- `claude`
-  - 直接生成 Claude CLI 配置
-- `gemini`
-  - 直接生成 Gemini CLI 配置
-- `debate`
-  - 使用 `free_debate`
-  - 适合多 CLI 交叉辩论
-- `delphi`
-  - 使用 `delphi`
-  - 适合匿名多轮收敛
+- `--mode`
+  - `adjudication`
+  - `free-debate`
+  - `delphi`
+- `--provider-profile`
+  - `mock`
+  - `openai`
+  - `generic`
+  - `codex`
+  - `claude`
+  - `gemini`
+- `--task-profile`
+  - `general`
+  - `coding`
 
 如果想先看看模板，不落盘：
 
 ```bash
-til-consensus config init --preset debate --stdout
+til-consensus config init --mode free-debate --provider-profile mock --stdout
 ```
 
-直接生成 provider 导向模板：
+常见组合：
 
 ```bash
-til-consensus config init --preset generic --config ./til-consensus.yaml
-til-consensus config init --preset codex --config ./til-consensus.yaml
-til-consensus config init --preset claude --config ./til-consensus.yaml
-til-consensus config init --preset gemini --config ./til-consensus.yaml
+til-consensus config init --mode adjudication --provider-profile generic --config ./til-consensus.yaml
+til-consensus config init --mode adjudication --provider-profile codex --config ./til-consensus.yaml
+til-consensus config init --mode adjudication --provider-profile claude --config ./til-consensus.yaml
+til-consensus config init --mode adjudication --provider-profile gemini --config ./til-consensus.yaml
+til-consensus config init --mode adjudication --provider-profile mock --task-profile coding --config ./til-consensus.yaml
 ```
 
 如果已有配置文件，需要覆盖：
 
 ```bash
-til-consensus config init --preset delphi --config ./til-consensus.yaml --force
+til-consensus config init --mode delphi --provider-profile mock --config ./til-consensus.yaml --force
 ```
+
+旧的 `--preset` 仍然可用，但现在只是兼容别名。例如：
+
+- `quickstart`
+- `coding`
+- `debate`
+- `delphi`
+- `generic`
+- `codex`
+- `claude`
+- `gemini`
+- `openai`
 
 ## 配置结构
 

@@ -141,6 +141,12 @@ func buildDeterministic(task consensus.Task, agent config.AgentConfig) any {
 			"claims":  claims,
 		}
 	case consensus.ChallengeTask:
+		requestedChecks := []string{"semantic"}
+		suggestedMethod := "补充更具体的一手材料或比较依据"
+		if consensus.DetectTaskType(value.TaskSpec) == consensus.CaseTaskTypeCoding {
+			requestedChecks = []string{"workspace_snapshot"}
+			suggestedMethod = "补充可复现材料"
+		}
 		tickets := make([]map[string]any, 0, len(value.Claims))
 		for _, claim := range value.Claims {
 			tickets = append(tickets, map[string]any{
@@ -149,8 +155,8 @@ func buildDeterministic(task consensus.Task, agent config.AgentConfig) any {
 				"kind":                         "evidence-gap",
 				"attackType":                   "insufficient_evidence",
 				"severity":                     "medium",
-				"requestedChecks":              []string{"workspace_snapshot"},
-				"suggestedFalsificationMethod": "补充可复现材料",
+				"requestedChecks":              requestedChecks,
+				"suggestedFalsificationMethod": suggestedMethod,
 			})
 		}
 		return map[string]any{
@@ -211,26 +217,52 @@ func buildDeterministic(task consensus.Task, agent config.AgentConfig) any {
 			},
 		}
 	case consensus.ArbiterTask:
+		openChallenges := make(map[string]bool, len(value.Challenges))
+		for _, ticket := range value.Challenges {
+			if ticket.Status == consensus.ChallengeStatusOpen {
+				openChallenges[ticket.ClaimID] = true
+			}
+		}
+		nonPassingFindings := make(map[string]bool, len(value.Findings))
+		for _, finding := range value.Findings {
+			if finding.Status != consensus.VerificationStatusPassed {
+				nonPassingFindings[finding.ClaimID] = true
+			}
+		}
 		decisions := make([]map[string]any, 0, len(value.Claims))
 		records := make([]map[string]any, 0, len(value.Claims))
+		claimVerdicts := make([]consensus.ClaimNode, 0, len(value.Claims))
 		for _, claim := range value.Claims {
+			verdict := consensus.ClaimVerdictSupported
+			disposition := consensus.ClaimDispositionKeep
+			confidence := 0.8
+			rationale := agent.ID + " supports " + claim.ClaimID
+			actionability := "ready"
+			if openChallenges[claim.ClaimID] || nonPassingFindings[claim.ClaimID] {
+				verdict = consensus.ClaimVerdictUndetermined
+				disposition = consensus.ClaimDispositionUnresolved
+				confidence = 0.45
+				rationale = agent.ID + " keeps " + claim.ClaimID + " unresolved until stronger evidence lands"
+				actionability = "blocked"
+			}
 			decisions = append(decisions, map[string]any{
 				"claimId":    claim.ClaimID,
-				"verdict":    "supported",
-				"confidence": 0.8,
-				"rationale":  agent.ID + " supports " + claim.ClaimID,
+				"verdict":    verdict,
+				"confidence": confidence,
+				"rationale":  rationale,
 			})
 			records = append(records, map[string]any{
 				"targetClaimId":   claim.ClaimID,
-				"disposition":     "keep",
-				"rationale":       agent.ID + " keeps " + claim.ClaimID,
-				"finalConfidence": 0.8,
-				"actionability":   "ready",
+				"disposition":     disposition,
+				"rationale":       rationale,
+				"finalConfidence": confidence,
+				"actionability":   actionability,
 			})
+			claimVerdicts = append(claimVerdicts, consensus.ClaimNode{Verdict: verdict})
 		}
 		return map[string]any{
 			"summary":     "arbiter summary by " + agent.ID,
-			"taskVerdict": "supported",
+			"taskVerdict": consensus.DetermineTaskVerdict(claimVerdicts),
 			"decisions":   decisions,
 			"records":     records,
 		}
@@ -270,9 +302,13 @@ func buildDeterministic(task consensus.Task, agent config.AgentConfig) any {
 			},
 		}
 	case consensus.DelphiFacilitatorSummaryTask:
+		recommendation := "Option from facilitator"
+		if len(value.StatementSummaries) > 0 && value.StatementSummaries[0].Statement != "" {
+			recommendation = value.StatementSummaries[0].Statement
+		}
 		return map[string]any{
 			"summary":        "facilitator summary by " + agent.ID,
-			"recommendation": "Option from facilitator",
+			"recommendation": recommendation,
 		}
 	case consensus.ActionTask:
 		return consensus.ActionExecution{

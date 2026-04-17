@@ -27,7 +27,7 @@ providers:
     command: codex
     models:
       default:
-        provider_model: gpt-5
+        provider_model: gpt-5.4
         reasoning: medium
 
 agents:

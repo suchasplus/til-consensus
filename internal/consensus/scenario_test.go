@@ -352,6 +352,21 @@ func loadScenarioRequest(t *testing.T, name string) (consensus.StartRequest, str
 			Output: config.OutputConfig{
 				Directory: "./out/{requestId}",
 			},
+			Providers: map[string]config.ProviderConfig{
+				"mock": {Type: config.ProviderTypeMock, Models: map[string]config.ProviderModelConfig{"default": {ProviderModel: "mock"}}},
+			},
+			Agents: []config.AgentConfig{
+				{ID: "proposer-a", Provider: "mock", Model: "default"},
+				{ID: "challenger-a", Provider: "mock", Model: "default"},
+				{ID: "arbiter-a", Provider: "mock", Model: "default"},
+				{ID: "reporter-a", Provider: "mock", Model: "default"},
+				{ID: "verifier-a", Provider: "mock", Model: "default"},
+				{ID: "actor-a", Provider: "mock", Model: "default"},
+				{ID: "participant-a", Provider: "mock", Model: "default"},
+				{ID: "participant-b", Provider: "mock", Model: "default"},
+				{ID: "participant-c", Provider: "mock", Model: "default"},
+				{ID: "facilitator-a", Provider: "mock", Model: "default"},
+			},
 		}),
 	}
 	plan, err := config.ResolveRunPlan(loaded, input, config.RunOverrides{}, time.Unix(1700000000, 0).UTC())

@@ -17,8 +17,8 @@ func TestRenderTemplatePresetsAreValidYAML(t *testing.T) {
 			name:   "quickstart",
 			preset: TemplatePresetQuickstart,
 			needles: []string{
-				"推荐修改顺序：先改 provider/agent，再改 taskSpec，再改 verificationPolicy",
-				"result.json、ledger.jsonl、summary.md 和 artifacts/",
+				"mode=adjudication provider_profile=mock task_profile=general",
+				"# 兼容别名: quickstart",
 			},
 		},
 		{
@@ -43,6 +43,7 @@ func TestRenderTemplatePresetsAreValidYAML(t *testing.T) {
 			needles: []string{
 				"mode: free_debate",
 				"participants:",
+				"participant-c",
 			},
 		},
 		{
@@ -51,6 +52,7 @@ func TestRenderTemplatePresetsAreValidYAML(t *testing.T) {
 			needles: []string{
 				"mode: delphi",
 				"convergence_threshold",
+				"participant-c",
 			},
 		},
 		{
@@ -66,7 +68,7 @@ func TestRenderTemplatePresetsAreValidYAML(t *testing.T) {
 			preset: TemplatePresetCodex,
 			needles: []string{
 				"cli_type: codex",
-				"provider_model: gpt-5",
+				"provider_model: gpt-5.4",
 			},
 		},
 		{
@@ -74,7 +76,7 @@ func TestRenderTemplatePresetsAreValidYAML(t *testing.T) {
 			preset: TemplatePresetClaude,
 			needles: []string{
 				"cli_type: claude",
-				"provider_model: claude-sonnet-4",
+				"provider_model: claude-opus-4-6",
 			},
 		},
 		{
@@ -82,7 +84,7 @@ func TestRenderTemplatePresetsAreValidYAML(t *testing.T) {
 			preset: TemplatePresetGemini,
 			needles: []string{
 				"cli_type: gemini",
-				"provider_model: gemini-2.5-pro",
+				"provider_model: gemini-3.1-pro-preivew",
 			},
 		},
 	}
@@ -137,7 +139,7 @@ func TestWritePresetTemplateForce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read file: %v", err)
 	}
-	if !strings.Contains(string(body), "til-consensus quickstart 配置") {
+	if !strings.Contains(string(body), "mode=adjudication provider_profile=mock task_profile=general") {
 		t.Fatalf("unexpected file content:\n%s", string(body))
 	}
 }
@@ -145,5 +147,48 @@ func TestWritePresetTemplateForce(t *testing.T) {
 func TestRenderTemplateRejectsUnknownPreset(t *testing.T) {
 	if _, err := RenderTemplate("unknown"); err == nil {
 		t.Fatal("expected unknown preset to fail")
+	}
+}
+
+func TestResolveTemplateSelectionAxes(t *testing.T) {
+	selection, err := ResolveTemplateSelection("", "delphi", "codex", "general")
+	if err != nil {
+		t.Fatalf("ResolveTemplateSelection failed: %v", err)
+	}
+	if selection.Mode != "delphi" || selection.ProviderProfile != TemplateProviderProfileCodex || selection.TaskProfile != TemplateTaskProfileGeneral {
+		t.Fatalf("unexpected selection: %#v", selection)
+	}
+
+	selection, err = ResolveTemplateSelection("coding", "", "", "")
+	if err != nil {
+		t.Fatalf("ResolveTemplateSelection failed: %v", err)
+	}
+	if selection.Mode != "adjudication" || selection.ProviderProfile != TemplateProviderProfileMock || selection.TaskProfile != TemplateTaskProfileCoding {
+		t.Fatalf("unexpected coding alias selection: %#v", selection)
+	}
+
+	if _, err := ResolveTemplateSelection("", "free-debate", "", "coding"); err == nil {
+		t.Fatal("expected coding task profile with free-debate to fail")
+	}
+}
+
+func TestRenderTemplateRequestBuildsComposedTemplate(t *testing.T) {
+	body, selection, err := RenderTemplateRequest("", "delphi", "gemini", "general")
+	if err != nil {
+		t.Fatalf("RenderTemplateRequest failed: %v", err)
+	}
+	if selection.Mode != "delphi" || selection.ProviderProfile != TemplateProviderProfileGemini {
+		t.Fatalf("unexpected selection: %#v", selection)
+	}
+	for _, needle := range []string{
+		"mode=delphi provider_profile=gemini task_profile=general",
+		"cli_type: gemini",
+		"provider_model: gemini-3.1-pro-preivew",
+		"participant-c",
+		"facilitator-a",
+	} {
+		if !strings.Contains(body, needle) {
+			t.Fatalf("rendered template missing %q\n%s", needle, body)
+		}
 	}
 }

@@ -35,7 +35,7 @@ func TestConfigCommandsAndActCommand(t *testing.T) {
 	tmp := t.TempDir()
 	configPath := filepath.Join(tmp, "til-consensus.yaml")
 	var initOut bytes.Buffer
-	if err := runConfigInitCommand(&initOut, configPath, "quickstart", false, false); err != nil {
+	if err := runConfigInitCommand(&initOut, configPath, "quickstart", "", "", "", false, false); err != nil {
 		t.Fatalf("runConfigInitCommand failed: %v", err)
 	}
 
@@ -239,7 +239,7 @@ func TestParseHelpersAndOutputHelpers(t *testing.T) {
 func TestFollowUpRunAndSessionCommands(t *testing.T) {
 	tmp := t.TempDir()
 	configPath := filepath.Join(tmp, "til-consensus.yaml")
-	if err := runConfigInitCommand(&bytes.Buffer{}, configPath, "quickstart", false, false); err != nil {
+	if err := runConfigInitCommand(&bytes.Buffer{}, configPath, "quickstart", "", "", "", false, false); err != nil {
 		t.Fatalf("runConfigInitCommand failed: %v", err)
 	}
 	loaded, err := config.Load(configPath)

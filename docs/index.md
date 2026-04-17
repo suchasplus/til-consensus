@@ -11,6 +11,7 @@
 
 - [工作流与状态机](workflow.md)
 - [输出产物说明](output.md)
+- [E2E 测试设计](e2e.md)
 - [CI 与发布](release.md)
 - [浏览器 Viewer](viewer.md)
 - [多工作流技术设计](rewrite.md)

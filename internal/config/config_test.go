@@ -132,6 +132,45 @@ func TestResolveRunPlanSupportsDebateAndDelphiModes(t *testing.T) {
 	}
 }
 
+func TestResolveRunPlanRejectsUnknownOverrideParticipant(t *testing.T) {
+	tmp := t.TempDir()
+	loaded := LoadedConfig{
+		ConfigDir: tmp,
+		Config: Normalize(Config{
+			SchemaVersion: 1,
+			Defaults: DefaultsConfig{
+				Mode: consensus.WorkflowModeDelphi,
+			},
+			Output: OutputConfig{Directory: "./out/{requestId}"},
+			Providers: map[string]ProviderConfig{
+				"mock": {Type: ProviderTypeMock, Models: map[string]ProviderModelConfig{"default": {ProviderModel: "mock"}}},
+			},
+			Agents: []AgentConfig{
+				{ID: "participant-a", Provider: "mock", Model: "default"},
+				{ID: "participant-b", Provider: "mock", Model: "default"},
+				{ID: "facilitator-a", Provider: "mock", Model: "default"},
+			},
+			Roles: RolesConfig{
+				Participants: []string{"participant-a", "participant-b"},
+				Facilitator:  "facilitator-a",
+			},
+		}),
+	}
+
+	_, err := ResolveRunPlan(loaded, RunInput{
+		TaskSpec: TaskSpecInput{Goal: "delphi goal"},
+	}, RunOverrides{
+		Mode:         consensus.WorkflowModeDelphi,
+		Participants: []string{"participant-a", "participant-b", "participant-c"},
+	}, time.Unix(1700000000, 0))
+	if err == nil {
+		t.Fatal("expected unknown participant override to fail")
+	}
+	if got := err.Error(); got != "roles.participants references unknown agent participant-c" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestResolveRunPlanCarriesAdjudicationFallbackAndObservationPolicies(t *testing.T) {
 	tmp := t.TempDir()
 	loaded := LoadedConfig{
@@ -211,6 +250,13 @@ func TestResolveRunPlanForRequestAndSessionStoreDir(t *testing.T) {
 		Config: Normalize(Config{
 			SchemaVersion: 1,
 			Output:        OutputConfig{Directory: "./out/{requestId}"},
+			Providers: map[string]ProviderConfig{
+				"mock": {Type: ProviderTypeMock, Models: map[string]ProviderModelConfig{"default": {ProviderModel: "mock"}}},
+			},
+			Agents: []AgentConfig{
+				{ID: "p1", Provider: "mock", Model: "default"},
+				{ID: "c1", Provider: "mock", Model: "default"},
+			},
 		}),
 	}
 	request, err := consensus.NormalizeStartRequest(consensus.StartRequest{

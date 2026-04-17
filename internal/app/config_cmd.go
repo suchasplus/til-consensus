@@ -31,12 +31,24 @@ func newConfigInitCommand() *cli.Command {
 		Usage: "写入首用友好的示例配置",
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "config", Usage: "配置文件路径"},
-			&cli.StringFlag{Name: "preset", Usage: "模板预设(quickstart|openai|coding|debate|delphi|generic|codex|claude|gemini)", Value: config.TemplatePresetQuickstart},
+			&cli.StringFlag{Name: "preset", Usage: "兼容别名(quickstart|openai|coding|debate|delphi|generic|codex|claude|gemini)"},
+			&cli.StringFlag{Name: "mode", Usage: "workflow 模式(adjudication|free-debate|delphi)"},
+			&cli.StringFlag{Name: "provider-profile", Usage: "provider profile(mock|openai|generic|codex|claude|gemini)"},
+			&cli.StringFlag{Name: "task-profile", Usage: "task profile(general|coding)", Value: config.TemplateTaskProfileGeneral},
 			&cli.BoolFlag{Name: "stdout", Usage: "只打印模板，不写入文件"},
 			&cli.BoolFlag{Name: "force", Usage: "允许覆盖已存在的配置文件"},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
-			return runConfigInitCommand(cmd.Writer, cmd.String("config"), cmd.String("preset"), cmd.Bool("stdout"), cmd.Bool("force"))
+			return runConfigInitCommand(
+				cmd.Writer,
+				cmd.String("config"),
+				cmd.String("preset"),
+				cmd.String("mode"),
+				cmd.String("provider-profile"),
+				cmd.String("task-profile"),
+				cmd.Bool("stdout"),
+				cmd.Bool("force"),
+			)
 		},
 	}
 }
@@ -203,8 +215,8 @@ func newConfigAddAgentCommand() *cli.Command {
 	}
 }
 
-func runConfigInitCommand(writer io.Writer, explicitPath string, preset string, stdout bool, force bool) error {
-	body, err := config.RenderTemplate(preset)
+func runConfigInitCommand(writer io.Writer, explicitPath string, preset string, mode string, providerProfile string, taskProfile string, stdout bool, force bool) error {
+	body, selection, err := config.RenderTemplateRequest(preset, mode, providerProfile, taskProfile)
 	if err != nil {
 		return err
 	}
@@ -220,10 +232,17 @@ func runConfigInitCommand(writer io.Writer, explicitPath string, preset string, 
 		}
 		path = defaultPath
 	}
-	if err := config.WritePresetTemplate(path, preset, force); err != nil {
+	if err := config.WriteTemplateSelection(path, selection, force); err != nil {
 		return err
 	}
-	_, _ = fmt.Fprintf(writer, "config template written: %s (%s)\n", path, preset)
+	_, _ = fmt.Fprintf(
+		writer,
+		"config template written: %s (mode=%s provider_profile=%s task_profile=%s)\n",
+		path,
+		selection.Mode,
+		selection.ProviderProfile,
+		selection.TaskProfile,
+	)
 	return nil
 }
 

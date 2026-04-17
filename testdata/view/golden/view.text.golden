@@ -58,18 +58,6 @@ artifacts: 3
 - claim-4 | semantic | inconclusive
   设计说明没有给出足够上下文。
 
-Rounds
-(无 round 数据)
-
-Votes
-(无 vote 数据)
-
-Statements
-(无 statement 数据)
-
-Convergence
-(无 convergence 数据)
-
 风险与未决项
 - terminal_state | tc_1710000000000_abcd12 | completed
 - open challenge | claim-2 | 需要更多 benchmark 证据验证没有性能回退。

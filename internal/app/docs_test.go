@@ -16,7 +16,7 @@ func TestReadmeQuickstartCommands(t *testing.T) {
 	configPath := filepath.Join(tmp, "til-consensus.yaml")
 
 	var initOut bytes.Buffer
-	if err := runConfigInitCommand(&initOut, configPath, "quickstart", false, false); err != nil {
+	if err := runConfigInitCommand(&initOut, configPath, "quickstart", "", "", "", false, false); err != nil {
 		t.Fatalf("runConfigInitCommand failed: %v", err)
 	}
 
@@ -60,9 +60,10 @@ func TestReadmeAndDocsIndexLinks(t *testing.T) {
 		"ledger.jsonl",
 		"summary.md",
 		"artifacts/",
-		"til-consensus config init --preset quickstart --config ./til-consensus.yaml",
-		"til-consensus config init --preset codex --config ./til-consensus.yaml",
-		"til-consensus config init --preset debate --stdout",
+		"til-consensus config init --mode adjudication --provider-profile mock --config ./til-consensus.yaml",
+		"til-consensus config init --mode adjudication --provider-profile codex --config ./til-consensus.yaml",
+		"til-consensus config init --mode free-debate --provider-profile mock --stdout",
+		"--task-profile coding",
 		"til-consensus run \\",
 		"--mode free-debate",
 		"--mode delphi",

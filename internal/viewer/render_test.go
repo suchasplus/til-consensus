@@ -214,6 +214,90 @@ func TestBuildDocumentSupportsFreeDebateAndDelphi(t *testing.T) {
 	}
 }
 
+func TestBuildDocumentPrimaryResultPrefersTerminalStateForAdjudication(t *testing.T) {
+	doc := BuildDocument(Bundle{
+		Result: consensus.RunResult{
+			SchemaVersion: 1,
+			Mode:          consensus.WorkflowModeAdjudication,
+			RequestID:     "req-1",
+			SessionID:     "session-1",
+			TaskSpec:      consensus.TaskSpec{Goal: "goal"},
+			TerminalState: consensus.TerminalStateRequiresHumanReview,
+			Adjudication: &consensus.AdjudicationResultSection{
+				TaskVerdict: consensus.TaskVerdictSupported,
+			},
+		},
+		Files: RunFiles{RunDir: "sample-run", ResultPath: "sample-run/result.json", LedgerPath: "sample-run/ledger.jsonl", SummaryPath: "sample-run/summary.md", ManifestPath: "sample-run/artifacts/manifest.jsonl"},
+	}, RenderOptions{Format: FormatText})
+	if doc.Overview.PrimaryResult != string(consensus.TerminalStateRequiresHumanReview) {
+		t.Fatalf("unexpected primary result: %#v", doc.Overview)
+	}
+}
+
+func TestRenderDocumentAllSectionsAreModeAware(t *testing.T) {
+	doc := BuildDocument(Bundle{
+		Result: consensus.RunResult{
+			SchemaVersion: 2,
+			Mode:          consensus.WorkflowModeDelphi,
+			RequestID:     "req-delphi",
+			SessionID:     "session-delphi",
+			TaskSpec:      consensus.TaskSpec{Goal: "delphi goal"},
+			Report:        consensus.AdjudicationReport{Summary: "delphi summary"},
+			Delphi: &consensus.DelphiResultSection{
+				ConsensusLevel: 0.82,
+				Recommendation: "Use monorepo",
+				Rounds:         []consensus.DelphiRoundRecord{{Round: 1, Phase: "delphi_questionnaire"}},
+				Statements:     []consensus.DelphiStatement{{StatementID: "s1", Statement: "Use monorepo", MeanRating: 4.5, ConsensusLevel: 0.82}},
+			},
+		},
+		Files: RunFiles{RunDir: "sample-run", ResultPath: "sample-run/result.json", LedgerPath: "sample-run/ledger.jsonl", SummaryPath: "sample-run/summary.md", ManifestPath: "sample-run/artifacts/manifest.jsonl"},
+	}, RenderOptions{Format: FormatText})
+	got, err := RenderDocument(doc, RenderOptions{Format: FormatText})
+	if err != nil {
+		t.Fatalf("RenderDocument failed: %v", err)
+	}
+	if !strings.Contains(got, "Rounds") || !strings.Contains(got, "Statements") || !strings.Contains(got, "Convergence") {
+		t.Fatalf("expected delphi sections in all view\n%s", got)
+	}
+	if strings.Contains(got, "关键 Claims") || strings.Contains(got, "挑战明细") || strings.Contains(got, "验证明细") {
+		t.Fatalf("expected adjudication-only sections to be hidden for delphi\n%s", got)
+	}
+}
+
+func TestBuildDocumentDedupesArtifacts(t *testing.T) {
+	doc := BuildDocument(Bundle{
+		Result: consensus.RunResult{
+			SchemaVersion: 1,
+			Mode:          consensus.WorkflowModeAdjudication,
+			RequestID:     "req-1",
+			SessionID:     "session-1",
+			TaskSpec:      consensus.TaskSpec{Goal: "goal"},
+			Adjudication:  &consensus.AdjudicationResultSection{},
+		},
+		Manifest: []consensus.ArtifactManifestEntry{
+			{
+				Seq:      1,
+				Kind:     consensus.EvidenceKindWorkerOutput,
+				EntryID:  "entry-1",
+				Artifact: consensus.ArtifactRef{Path: "/tmp/run/artifacts/raw-proposer.json"},
+			},
+			{
+				Seq:      2,
+				Kind:     consensus.EvidenceKindWorkerOutput,
+				EntryID:  "entry-2",
+				Artifact: consensus.ArtifactRef{Path: "/tmp/run/artifacts/raw-proposer.json"},
+			},
+		},
+		Files: RunFiles{RunDir: "/tmp/run", ResultPath: "/tmp/run/result.json", LedgerPath: "/tmp/run/ledger.jsonl", SummaryPath: "/tmp/run/summary.md", ManifestPath: "/tmp/run/artifacts/manifest.jsonl"},
+	}, RenderOptions{Format: FormatText})
+	if len(doc.Artifacts) != 1 {
+		t.Fatalf("expected deduped artifacts, got %#v", doc.Artifacts)
+	}
+	if doc.Overview.ArtifactCount != 1 {
+		t.Fatalf("expected deduped artifact count, got %#v", doc.Overview)
+	}
+}
+
 func loadSampleBundle(t *testing.T) Bundle {
 	t.Helper()
 	root := sampleRunDir(t)

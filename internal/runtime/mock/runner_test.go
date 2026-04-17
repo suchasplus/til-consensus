@@ -138,3 +138,65 @@ func TestFallbackBehaviorAndDeterministicBuilders(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildDeterministicDelphiFacilitatorSummaryUsesStatementRecommendation(t *testing.T) {
+	value := buildDeterministic(consensus.DelphiFacilitatorSummaryTask{
+		StatementSummaries: []consensus.DelphiStatement{
+			{StatementID: "s1", Statement: "Use monorepo"},
+		},
+	}, config.AgentConfig{ID: "facilitator-a"})
+	raw, ok := value.(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected deterministic value type: %T", value)
+	}
+	if raw["recommendation"] != "Use monorepo" {
+		t.Fatalf("unexpected recommendation: %#v", raw)
+	}
+}
+
+func TestBuildDeterministicChallengeUsesSemanticChecksForStrategy(t *testing.T) {
+	value := buildDeterministic(consensus.ChallengeTask{
+		TaskSpec: consensus.TaskSpec{
+			Goal: "Should we use a monorepo or polyrepo for our microservices?",
+		},
+		Claims: []consensus.ClaimNode{{ClaimID: "claim-1"}},
+	}, config.AgentConfig{ID: "challenger-a"})
+	raw, ok := value.(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected deterministic value type: %T", value)
+	}
+	tickets, ok := raw["tickets"].([]map[string]any)
+	if !ok || len(tickets) != 1 {
+		t.Fatalf("unexpected tickets: %#v", raw["tickets"])
+	}
+	checks, ok := tickets[0]["requestedChecks"].([]string)
+	if !ok {
+		t.Fatalf("unexpected requestedChecks type: %#v", tickets[0]["requestedChecks"])
+	}
+	if len(checks) != 1 || checks[0] != "semantic" {
+		t.Fatalf("unexpected requested checks: %#v", checks)
+	}
+}
+
+func TestBuildDeterministicArbiterDowngradesUnresolvedClaims(t *testing.T) {
+	value := buildDeterministic(consensus.ArbiterTask{
+		Claims: []consensus.ClaimNode{{ClaimID: "claim-1"}},
+		Challenges: []consensus.ChallengeTicket{
+			{ClaimID: "claim-1", Status: consensus.ChallengeStatusOpen},
+		},
+	}, config.AgentConfig{ID: "arbiter-a"})
+	raw, ok := value.(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected deterministic value type: %T", value)
+	}
+	if raw["taskVerdict"] != consensus.TaskVerdictUndetermined {
+		t.Fatalf("unexpected taskVerdict: %#v", raw["taskVerdict"])
+	}
+	records, ok := raw["records"].([]map[string]any)
+	if !ok || len(records) != 1 {
+		t.Fatalf("unexpected records: %#v", raw["records"])
+	}
+	if records[0]["disposition"] != consensus.ClaimDispositionUnresolved {
+		t.Fatalf("unexpected disposition: %#v", records[0])
+	}
+}

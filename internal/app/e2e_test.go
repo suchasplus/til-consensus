@@ -3,14 +3,17 @@ package app
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/suchasplus/til-consensus/internal/consensus"
 )
 
-func TestCLIResumeSessionFromCheckpoint(t *testing.T) {
+func TestE2EResumeSessionFromCheckpoint(t *testing.T) {
 	tmp := t.TempDir()
 	configPath := filepath.Join(tmp, "til-consensus.yaml")
 	writeFile(t, configPath, fmt.Sprintf(`schema_version: 1
@@ -77,6 +80,37 @@ roles:
 	}
 	sessionID := strings.TrimSuffix(entries[0].Name(), filepath.Ext(entries[0].Name()))
 
+	sessionListCmd := newSessionCommand().Commands[0]
+	sessionListCmd.Writer = &stdout
+	sessionListCmd.ErrWriter = &stderr
+	stdout.Reset()
+	stderr.Reset()
+	if err := sessionListCmd.Run(context.Background(), []string{"list", "--config", configPath}); err != nil {
+		t.Fatalf("session list failed: %v", err)
+	}
+	var listed []map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &listed); err != nil {
+		t.Fatalf("decode session list failed: %v\n%s", err, stdout.String())
+	}
+	if len(listed) != 1 {
+		t.Fatalf("expected one listed session, got %#v", listed)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	sessionShowCmd := newSessionCommand().Commands[1]
+	sessionShowCmd.Writer = &stdout
+	sessionShowCmd.ErrWriter = &stderr
+	if err := sessionShowCmd.Run(context.Background(), []string{"show", "--config", configPath, "--session-id", sessionID}); err != nil {
+		t.Fatalf("session show failed: %v", err)
+	}
+	var shown consensus.SessionSnapshot
+	if err := json.Unmarshal(stdout.Bytes(), &shown); err != nil {
+		t.Fatalf("decode session show failed: %v\n%s", err, stdout.String())
+	}
+	if shown.SessionID != sessionID {
+		t.Fatalf("unexpected session show payload: %#v", shown)
+	}
+
 	writeFile(t, configPath, fmt.Sprintf(`schema_version: 1
 defaults:
   per_task_timeout: 1s
@@ -134,9 +168,26 @@ roles:
 	if !strings.Contains(stdout.String(), "关键 Claims") {
 		t.Fatalf("expected rendered result after resume, got %s", stdout.String())
 	}
+
+	stdout.Reset()
+	stderr.Reset()
+	runCmd = newRunCommand()
+	runCmd.Writer = &stdout
+	runCmd.ErrWriter = &stderr
+	if err := runCmd.Run(context.Background(), []string{"run", "--config", configPath, "--replay-session", sessionID}); err != nil {
+		t.Fatalf("replay run failed: %v\nstderr=%s", err, stderr.String())
+	}
+	replayResultPath := extractResultPath(t, stdout.String())
+	stdout.Reset()
+	if err := viewCmd.Run(context.Background(), []string{"view", "--result", replayResultPath}); err != nil {
+		t.Fatalf("view after replay failed: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "parent: request=") {
+		t.Fatalf("expected replay lineage in view output, got %s", stdout.String())
+	}
 }
 
-func TestCLIFollowupAndObservationSections(t *testing.T) {
+func TestE2EFollowupAndObservationSections(t *testing.T) {
 	tmp := t.TempDir()
 	configPath := filepath.Join(tmp, "til-consensus.yaml")
 	writeFile(t, configPath, fmt.Sprintf(`schema_version: 1
@@ -217,6 +268,17 @@ roles:
 	}
 	stdout.Reset()
 	stderr.Reset()
+	runCmd = newRunCommand()
+	runCmd.Writer = &stdout
+	runCmd.ErrWriter = &stderr
+	if err := runCmd.Run(context.Background(), []string{"run", "--config", configPath, "--followup", artifacts[0]}); err != nil {
+		t.Fatalf("run --followup failed: %v\nstderr=%s", err, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "run completed") {
+		t.Fatalf("expected run --followup to complete, got %s", stdout.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
 	followupCmd := newFollowUpCommand()
 	followupCmd.Writer = &stdout
 	followupCmd.ErrWriter = &stderr
@@ -235,7 +297,7 @@ roles:
 	}
 }
 
-func TestCLIMultiModeSmoke(t *testing.T) {
+func TestE2EMultiModeSmoke(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		preset string
@@ -258,7 +320,7 @@ func TestCLIMultiModeSmoke(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			tmp := t.TempDir()
 			configPath := filepath.Join(tmp, "til-consensus.yaml")
-			if err := runConfigInitCommand(&bytes.Buffer{}, configPath, tc.preset, false, false); err != nil {
+			if err := runConfigInitCommand(&bytes.Buffer{}, configPath, tc.preset, "", "", "", false, false); err != nil {
 				t.Fatalf("init %s config failed: %v", tc.preset, err)
 			}
 			var stdout bytes.Buffer

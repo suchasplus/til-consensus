@@ -53,6 +53,9 @@ func ResolveRunPlan(loaded LoadedConfig, input RunInput, overrides RunOverrides,
 	if err != nil {
 		return ResolvedRunPlan{}, err
 	}
+	if err := validateAssignedAgents(cfg, roles, mode); err != nil {
+		return ResolvedRunPlan{}, err
+	}
 	taskSpec := consensus.TaskSpec{
 		Goal:              task,
 		TaskType:          pickTaskType(input.TaskSpec.TaskType, cfg.Defaults.TaskType),
@@ -169,6 +172,9 @@ func ResolveRunPlanForRequest(loaded LoadedConfig, request consensus.StartReques
 	if err != nil {
 		return ResolvedRunPlan{}, err
 	}
+	if err := validateAssignedAgents(loaded.Config, normalized.Roles, normalized.Mode); err != nil {
+		return ResolvedRunPlan{}, err
+	}
 	artifactPaths := ResolveRunArtifacts(loaded, normalized.RequestID)
 	return ResolvedRunPlan{
 		RequestID:       normalized.RequestID,
@@ -264,6 +270,62 @@ func resolveRoles(mode consensus.WorkflowMode, cfg RolesConfig, input RolesConfi
 		}
 	}
 	return roles, nil
+}
+
+func validateAssignedAgents(cfg Config, roles consensus.RoleAssignments, mode consensus.WorkflowMode) error {
+	knownAgents := make(map[string]struct{}, len(cfg.Agents))
+	for _, agent := range cfg.Agents {
+		knownAgents[agent.ID] = struct{}{}
+	}
+	validateAgent := func(id string, field string) error {
+		if strings.TrimSpace(id) == "" {
+			return nil
+		}
+		if _, ok := knownAgents[id]; !ok {
+			return fmt.Errorf("%s references unknown agent %s", field, id)
+		}
+		return nil
+	}
+	validateAgents := func(ids []string, field string) error {
+		for _, id := range ids {
+			if err := validateAgent(id, field); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	switch mode {
+	case consensus.WorkflowModeAdjudication:
+		if err := validateAgents(roles.Proposers, "roles.proposers"); err != nil {
+			return err
+		}
+		if err := validateAgents(roles.Challengers, "roles.challengers"); err != nil {
+			return err
+		}
+		if err := validateAgent(roles.Arbiter, "roles.arbiter"); err != nil {
+			return err
+		}
+		if err := validateAgent(roles.SemanticVerifier, "roles.semantic_verifier"); err != nil {
+			return err
+		}
+	case consensus.WorkflowModeFreeDebate, consensus.WorkflowModeDelphi:
+		if err := validateAgents(roles.Participants, "roles.participants"); err != nil {
+			return err
+		}
+		if mode == consensus.WorkflowModeDelphi {
+			if err := validateAgent(roles.Facilitator, "roles.facilitator"); err != nil {
+				return err
+			}
+		}
+	}
+	if err := validateAgent(roles.Reporter, "roles.reporter"); err != nil {
+		return err
+	}
+	if err := validateAgent(roles.Actor, "roles.actor"); err != nil {
+		return err
+	}
+	return nil
 }
 
 func pickMode(values ...consensus.WorkflowMode) consensus.WorkflowMode {

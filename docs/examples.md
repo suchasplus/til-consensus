@@ -7,7 +7,7 @@
 
 如果你刚起步，建议直接：
 
-1. `til-consensus config init --preset codex --config ./til-consensus.yaml`
+1. `til-consensus config init --mode adjudication --provider-profile codex --config ./til-consensus.yaml`
 2. 或者从下面挑一个完整配置文件直接复制
 3. 再配一份对应场景的 `run.yaml`
 
@@ -21,7 +21,7 @@
 - 也可以直接生成：
 
 ```bash
-til-consensus config init --preset generic --config ./til-consensus.yaml
+til-consensus config init --mode adjudication --provider-profile generic --config ./til-consensus.yaml
 ```
 
 ### `codex`
@@ -30,7 +30,7 @@ til-consensus config init --preset generic --config ./til-consensus.yaml
 - 也可以直接生成：
 
 ```bash
-til-consensus config init --preset codex --config ./til-consensus.yaml
+til-consensus config init --mode adjudication --provider-profile codex --config ./til-consensus.yaml
 ```
 
 ### `claude`
@@ -39,7 +39,7 @@ til-consensus config init --preset codex --config ./til-consensus.yaml
 - 也可以直接生成：
 
 ```bash
-til-consensus config init --preset claude --config ./til-consensus.yaml
+til-consensus config init --mode adjudication --provider-profile claude --config ./til-consensus.yaml
 ```
 
 ### `gemini`
@@ -48,7 +48,7 @@ til-consensus config init --preset claude --config ./til-consensus.yaml
 - 也可以直接生成：
 
 ```bash
-til-consensus config init --preset gemini --config ./til-consensus.yaml
+til-consensus config init --mode adjudication --provider-profile gemini --config ./til-consensus.yaml
 ```
 
 ### 多 CLI 交叉论证
@@ -101,7 +101,7 @@ til-consensus view --config ./til-consensus.yaml
 - 文档完善 / 架构选择：
   - `codex.config.yaml` 或 `claude.config.yaml`
 - coding review：
-  - `coding` preset 或 `codex.config.yaml`
+  - `--mode adjudication --provider-profile mock --task-profile coding` 或 `codex.config.yaml`
 - factual conflict：
   - `generic.config.yaml` 或 `gemini.config.yaml`
 

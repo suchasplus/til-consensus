@@ -26,7 +26,7 @@
 1. 生成一份可直接运行的配置：
 
 ```bash
-til-consensus config init --preset quickstart --config ./til-consensus.yaml
+til-consensus config init --mode adjudication --provider-profile mock --config ./til-consensus.yaml
 ```
 
 2. 运行一次默认 `adjudication`：
@@ -52,10 +52,10 @@ til-consensus view --config ./til-consensus.yaml --web
 如果你已经装了具体 CLI，也可以直接生成对应模板：
 
 ```bash
-til-consensus config init --preset codex --config ./til-consensus.yaml
-til-consensus config init --preset claude --config ./til-consensus.yaml
-til-consensus config init --preset gemini --config ./til-consensus.yaml
-til-consensus config init --preset generic --config ./til-consensus.yaml
+til-consensus config init --mode adjudication --provider-profile codex --config ./til-consensus.yaml
+til-consensus config init --mode adjudication --provider-profile claude --config ./til-consensus.yaml
+til-consensus config init --mode adjudication --provider-profile gemini --config ./til-consensus.yaml
+til-consensus config init --mode adjudication --provider-profile generic --config ./til-consensus.yaml
 ```
 
 默认输出会写到 `./out/{requestId}/`。最重要的文件是：
@@ -130,40 +130,57 @@ defaults:
 
 ## 配置模板
 
-`config init` 内置 9 个 preset：
+`config init` 现在按 3 个正交维度生成模板：
 
-- `quickstart`
-  - 零凭证，使用 `mock`
-  - 适合第一次跑通 CLI
-- `openai`
-  - 最小 API provider 模板
-  - 适合接真实模型
-- `coding`
-  - 代码裁决模板
-  - 预置 `workspace_snapshot`、`allowed_paths`、`command`、`git_diff_paths`、`benchmark_threshold`
-- `generic`
-  - 外部脚本 / 本地代理模板
-- `codex`
-  - Codex CLI 模板
-- `claude`
-  - Claude CLI 模板
-- `gemini`
-  - Gemini CLI 模板
-- `debate`
-  - `free_debate` 模板
-  - 预置 `participants`、`debate_policy`
-- `delphi`
-  - `delphi` 模板
-  - 预置 `participants`、`facilitator`、`delphi_policy`
+- `--mode`
+  - `adjudication`
+  - `free-debate`
+  - `delphi`
+- `--provider-profile`
+  - `mock`
+  - `openai`
+  - `generic`
+  - `codex`
+  - `claude`
+  - `gemini`
+- `--task-profile`
+  - `general`
+  - `coding`
+
+最常用的组合：
+
+- 第一次跑通 CLI：
+  - `--mode adjudication --provider-profile mock`
+- 接 Codex CLI：
+  - `--mode adjudication --provider-profile codex`
+- 接 Claude CLI：
+  - `--mode adjudication --provider-profile claude`
+- 接 Gemini CLI：
+  - `--mode adjudication --provider-profile gemini`
+- 做代码裁决：
+  - `--mode adjudication --provider-profile mock --task-profile coding`
+- 做自由辩论：
+  - `--mode free-debate --provider-profile mock`
+- 做 Delphi：
+  - `--mode delphi --provider-profile mock`
 
 最常用的初始化方式：
 
 ```bash
-til-consensus config init --preset quickstart --config ./til-consensus.yaml
-til-consensus config init --preset codex --config ./til-consensus.yaml
-til-consensus config init --preset debate --stdout
-til-consensus config init --preset delphi --config ./til-consensus.yaml --force
+til-consensus config init --mode adjudication --provider-profile mock --config ./til-consensus.yaml
+til-consensus config init --mode adjudication --provider-profile codex --config ./til-consensus.yaml
+til-consensus config init --mode adjudication --provider-profile mock --task-profile coding --stdout
+til-consensus config init --mode free-debate --provider-profile mock --stdout
+til-consensus config init --mode delphi --provider-profile mock --config ./til-consensus.yaml --force
 ```
+
+旧的 `--preset` 仍然可用，但现在只是兼容别名：
+
+- `quickstart` = `--mode adjudication --provider-profile mock`
+- `coding` = `--mode adjudication --provider-profile mock --task-profile coding`
+- `debate` = `--mode free-debate --provider-profile mock`
+- `delphi` = `--mode delphi --provider-profile mock`
+- `codex|claude|gemini|generic|openai` = `--mode adjudication --provider-profile <对应值>`
 
 常见可复制样例：
 
@@ -325,6 +342,8 @@ til-consensus view --config ./til-consensus.yaml --section rounds --section conv
   - 直接运行 CLI
 - `make cover`
   - 生成并打印单元测试覆盖率
+- `make test-e2e`
+  - 执行 CLI 端到端测试矩阵
 - `make ci`
   - 本地对齐 GitHub CI 的质量门禁
 - `make release-archive`
@@ -392,6 +411,7 @@ make release-archive VERSION=v0.1.0 TARGET_GOOS=darwin TARGET_GOARCH=arm64 DIRTY
 
 更完整说明见：
 
+- [E2E 测试设计](docs/e2e.md)
 - [CI 与发布](docs/release.md)
 
 ## follow-up / observe / structured parsing

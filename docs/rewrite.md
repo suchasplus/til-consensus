@@ -226,7 +226,7 @@
 - `requires_human_review`
 - `action_blocked_by_risk`
 
-## CLI 与 preset
+## CLI 与模板选择
 
 `run` 新增了 mode 相关 flags：
 
@@ -238,10 +238,24 @@
 - `--vote-threshold`
 - `--convergence-threshold`
 
-`config init` 新增了两个 preset：
+`config init` 现在把模板选择拆成 3 个正交维度：
 
-- `debate`
-- `delphi`
+- `--mode`
+  - `adjudication`
+  - `free-debate`
+  - `delphi`
+- `--provider-profile`
+  - `mock`
+  - `openai`
+  - `generic`
+  - `codex`
+  - `claude`
+  - `gemini`
+- `--task-profile`
+  - `general`
+  - `coding`
+
+旧的 `--preset` 仍保留为兼容别名，不再是主概念。
 
 ## 当前边界
 

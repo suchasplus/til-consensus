@@ -412,7 +412,7 @@ func RenderDocument(doc Document, options RenderOptions) (string, error) {
 func renderText(doc Document, verbose bool) string {
 	var b strings.Builder
 	requested := sectionSet(doc.RequestedSections)
-	if requested[SectionAll] || requested[SectionOverview] {
+	if shouldRenderSection(doc, requested, SectionOverview) {
 		writeTextHeading(&b, "运行头部")
 		fmt.Fprintf(&b, "requestId: %s\n", doc.Overview.RequestID)
 		fmt.Fprintf(&b, "mode: %s\n", doc.Overview.Mode)
@@ -464,7 +464,7 @@ func renderText(doc Document, verbose bool) string {
 		fmt.Fprintf(&b, "artifacts: %d\n", doc.Overview.ArtifactCount)
 	}
 
-	if requested[SectionAll] || requested[SectionClaims] {
+	if shouldRenderSection(doc, requested, SectionClaims) {
 		writeTextHeading(&b, "关键 Claims")
 		if len(doc.Claims) == 0 {
 			b.WriteString("(无 claims)\n")
@@ -484,7 +484,7 @@ func renderText(doc Document, verbose bool) string {
 		}
 	}
 
-	if requested[SectionAll] || requested[SectionChallenges] {
+	if shouldRenderSection(doc, requested, SectionChallenges) {
 		writeTextHeading(&b, "挑战明细")
 		if len(doc.Challenges) == 0 {
 			b.WriteString("(无 challenges)\n")
@@ -498,7 +498,7 @@ func renderText(doc Document, verbose bool) string {
 		}
 	}
 
-	if requested[SectionAll] || requested[SectionVerifications] {
+	if shouldRenderSection(doc, requested, SectionVerifications) {
 		writeTextHeading(&b, "验证明细")
 		if len(doc.Verifications) == 0 {
 			b.WriteString("(无 verifications)\n")
@@ -512,7 +512,7 @@ func renderText(doc Document, verbose bool) string {
 		}
 	}
 
-	if requested[SectionObservations] || (requested[SectionAll] && len(doc.Observations) > 0) {
+	if shouldRenderSection(doc, requested, SectionObservations) {
 		writeTextHeading(&b, "Observations")
 		if len(doc.Observations) == 0 {
 			b.WriteString("(无 observation 数据)\n")
@@ -532,7 +532,7 @@ func renderText(doc Document, verbose bool) string {
 		}
 	}
 
-	if requested[SectionFollowups] || (requested[SectionAll] && len(doc.FollowUps) > 0) {
+	if shouldRenderSection(doc, requested, SectionFollowups) {
 		writeTextHeading(&b, "Follow-ups")
 		if len(doc.FollowUps) == 0 {
 			b.WriteString("(无 follow-up 数据)\n")
@@ -552,7 +552,7 @@ func renderText(doc Document, verbose bool) string {
 		}
 	}
 
-	if requested[SectionAll] || requested[SectionRounds] {
+	if shouldRenderSection(doc, requested, SectionRounds) {
 		writeTextHeading(&b, "Rounds")
 		if len(doc.Rounds) == 0 {
 			b.WriteString("(无 round 数据)\n")
@@ -568,7 +568,7 @@ func renderText(doc Document, verbose bool) string {
 		}
 	}
 
-	if requested[SectionAll] || requested[SectionVotes] {
+	if shouldRenderSection(doc, requested, SectionVotes) {
 		writeTextHeading(&b, "Votes")
 		if len(doc.Votes) == 0 {
 			b.WriteString("(无 vote 数据)\n")
@@ -581,7 +581,7 @@ func renderText(doc Document, verbose bool) string {
 		}
 	}
 
-	if requested[SectionAll] || requested[SectionStatements] {
+	if shouldRenderSection(doc, requested, SectionStatements) {
 		writeTextHeading(&b, "Statements")
 		if len(doc.Statements) == 0 {
 			b.WriteString("(无 statement 数据)\n")
@@ -594,7 +594,7 @@ func renderText(doc Document, verbose bool) string {
 		}
 	}
 
-	if requested[SectionAll] || requested[SectionConvergence] {
+	if shouldRenderSection(doc, requested, SectionConvergence) {
 		writeTextHeading(&b, "Convergence")
 		if doc.Convergence == nil {
 			b.WriteString("(无 convergence 数据)\n")
@@ -615,7 +615,7 @@ func renderText(doc Document, verbose bool) string {
 		fmt.Fprintf(&b, "- %s | %s | %s\n", risk.Category, risk.TargetID, risk.Summary)
 	}
 
-	if requested[SectionAll] || requested[SectionArtifacts] {
+	if shouldRenderSection(doc, requested, SectionArtifacts) {
 		writeTextHeading(&b, "相关文件")
 		fmt.Fprintf(&b, "- result.json: %s\n", doc.Files.Result)
 		fmt.Fprintf(&b, "- ledger.jsonl: %s\n", doc.Files.Ledger)
@@ -728,7 +728,7 @@ func buildOverview(bundle Bundle) Overview {
 		RunDir:          displayRunDir(bundle.Files.RunDir),
 		Goal:            result.TaskSpec.Goal,
 		SuccessCriteria: slices.Clone(result.TaskSpec.SuccessCriteria),
-		ArtifactCount:   len(bundle.Manifest),
+		ArtifactCount:   len(extractArtifacts(bundle.Manifest, bundle.Files.RunDir)),
 		WorkspacePaths:  slices.Clone(workspacePaths(result.TaskSpec.WorkspaceSnapshot)),
 	}
 	if result.CaseManifest != nil {
@@ -817,6 +817,9 @@ func buildFollowUps(result consensus.RunResult, runDir string, limit int) []Foll
 func primaryResult(result consensus.RunResult) string {
 	switch result.Mode {
 	case consensus.WorkflowModeAdjudication:
+		if result.TerminalState != "" && result.TerminalState != consensus.TerminalStateCompleted {
+			return string(result.TerminalState)
+		}
 		if result.Adjudication != nil {
 			return string(result.Adjudication.TaskVerdict)
 		}
@@ -923,7 +926,14 @@ func limitVerifications(items []VerificationView, limit int) []VerificationView 
 
 func extractArtifacts(entries []consensus.ArtifactManifestEntry, runDir string) []ArtifactView {
 	out := make([]ArtifactView, 0, len(entries))
+	seen := make(map[string]struct{}, len(entries))
 	for _, entry := range entries {
+		path := displayCompanionPath(runDir, entry.Artifact.Path)
+		key := strings.Join([]string{string(entry.Kind), path}, "|")
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
 		out = append(out, ArtifactView{
 			Seq:          entry.Seq,
 			EntryID:      entry.EntryID,
@@ -931,7 +941,7 @@ func extractArtifacts(entries []consensus.ArtifactManifestEntry, runDir string) 
 			ChallengeID:  entry.ChallengeID,
 			Kind:         entry.Kind,
 			ProducerRole: entry.ProducerRole,
-			Path:         displayCompanionPath(runDir, entry.Artifact.Path),
+			Path:         path,
 			Hash:         entry.Artifact.Hash,
 			MediaType:    entry.Artifact.MediaType,
 		})
@@ -1080,6 +1090,33 @@ func sectionSet(values []string) map[string]bool {
 		out[value] = true
 	}
 	return out
+}
+
+func shouldRenderSection(doc Document, requested map[string]bool, section string) bool {
+	if requested[section] {
+		return true
+	}
+	if !requested[SectionAll] {
+		return false
+	}
+	switch section {
+	case SectionOverview, SectionArtifacts:
+		return true
+	case SectionClaims, SectionChallenges, SectionVerifications:
+		return doc.Overview.Mode == string(consensus.WorkflowModeAdjudication)
+	case SectionObservations:
+		return len(doc.Observations) > 0
+	case SectionFollowups:
+		return len(doc.FollowUps) > 0
+	case SectionRounds:
+		return doc.Overview.Mode == string(consensus.WorkflowModeFreeDebate) || doc.Overview.Mode == string(consensus.WorkflowModeDelphi)
+	case SectionVotes:
+		return doc.Overview.Mode == string(consensus.WorkflowModeFreeDebate)
+	case SectionStatements, SectionConvergence:
+		return doc.Overview.Mode == string(consensus.WorkflowModeDelphi)
+	default:
+		return false
+	}
 }
 
 func displayRunDir(path string) string {

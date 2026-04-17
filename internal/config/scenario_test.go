@@ -32,6 +32,11 @@ func TestScenarioInputsLoadAndResolve(t *testing.T) {
 				{ID: "arbiter-a", Provider: "mock", Model: "default"},
 				{ID: "reporter-a", Provider: "mock", Model: "default"},
 				{ID: "verifier-a", Provider: "mock", Model: "default"},
+				{ID: "actor-a", Provider: "mock", Model: "default"},
+				{ID: "participant-a", Provider: "mock", Model: "default"},
+				{ID: "participant-b", Provider: "mock", Model: "default"},
+				{ID: "participant-c", Provider: "mock", Model: "default"},
+				{ID: "facilitator-a", Provider: "mock", Model: "default"},
 			},
 			Roles: RolesConfig{
 				Proposers:        []string{"proposer-a"},
