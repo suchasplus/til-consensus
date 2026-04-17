@@ -6,8 +6,10 @@
 
 1. `--config`
 2. 当前目录下的 `./til-consensus.yaml`
-3. `$XDG_CONFIG_HOME/til-consensus/default.yaml`
-4. `$XDG_CONFIG_HOME/til-consensus/config.yaml`
+3. `~/.config/til-consensus/default.yaml`
+4. `~/.config/til-consensus/config.yaml`
+
+如果你显式设置了 `XDG_CONFIG_HOME`，对应路径会落到 `$XDG_CONFIG_HOME/til-consensus/...`。
 
 ## 推荐起步方式
 
@@ -67,6 +69,15 @@ til-consensus config init --mode delphi --provider-profile mock --config ./til-c
 - `claude`
 - `gemini`
 - `openai`
+
+provider profile 的当前默认模型：
+
+- `codex`
+  - `gpt-5.4`
+- `claude`
+  - `claude-opus-4-6`
+- `gemini`
+  - `gemini-3.1-pro-preivew`
 
 ## 配置结构
 

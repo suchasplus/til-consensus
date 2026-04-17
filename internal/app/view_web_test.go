@@ -58,6 +58,9 @@ func TestViewCommandWebStartsServerAndPrintsURL(t *testing.T) {
 
 	urlValue, err := waitForWebURL(stdout, doneCh)
 	if err != nil {
+		if strings.Contains(err.Error(), "bind: operation not permitted") {
+			t.Skipf("sandbox blocks local listener: %v", err)
+		}
 		t.Fatal(err)
 	}
 	if !strings.HasPrefix(urlValue, "http://127.0.0.1:") {

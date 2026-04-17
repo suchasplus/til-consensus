@@ -47,6 +47,7 @@ func newRunCommand() *cli.Command {
 			&cli.DurationFlag{Name: "global-deadline", Usage: "全局截止时间"},
 			&cli.StringFlag{Name: "action", Usage: "裁决后执行的 action"},
 			&cli.BoolFlag{Name: "verbose", Usage: "输出详细事件"},
+			&cli.BoolFlag{Name: "debug", Usage: "输出完整事件 payload 以及 provider 输入/输出 artifact 路径"},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			return runCommand(ctx, cmd)
@@ -72,7 +73,7 @@ func runCommand(ctx context.Context, cmd *cli.Command) error {
 		if err != nil {
 			return err
 		}
-		plan, err := config.ResolveRunPlanForRequest(loaded, artifact.Request, cmd.Bool("verbose"))
+		plan, err := config.ResolveRunPlanForRequest(loaded, artifact.Request, cmd.Bool("verbose"), cmd.Bool("debug"))
 		if err != nil {
 			return err
 		}
@@ -89,7 +90,7 @@ func runCommand(ctx context.Context, cmd *cli.Command) error {
 		if snapshot == nil || snapshot.Request == nil {
 			return fmt.Errorf("session %s 没有可恢复的 request", sessionID)
 		}
-		plan, err := config.ResolveRunPlanForRequest(loaded, *snapshot.Request, cmd.Bool("verbose"))
+		plan, err := config.ResolveRunPlanForRequest(loaded, *snapshot.Request, cmd.Bool("verbose"), cmd.Bool("debug"))
 		if err != nil {
 			return err
 		}
@@ -116,7 +117,7 @@ func runCommand(ctx context.Context, cmd *cli.Command) error {
 		if snapshot.Result != nil && snapshot.Result.CaseManifest != nil {
 			replayRequest.Lineage.ParentCaseID = snapshot.Result.CaseManifest.CaseID
 		}
-		plan, err := config.ResolveRunPlanForRequest(loaded, replayRequest, cmd.Bool("verbose"))
+		plan, err := config.ResolveRunPlanForRequest(loaded, replayRequest, cmd.Bool("verbose"), cmd.Bool("debug"))
 		if err != nil {
 			return err
 		}
@@ -149,6 +150,7 @@ func runCommand(ctx context.Context, cmd *cli.Command) error {
 		GlobalDeadline:       cmd.Duration("global-deadline"),
 		Action:               cmd.String("action"),
 		Verbose:              cmd.Bool("verbose"),
+		Debug:                cmd.Bool("debug"),
 	}
 	plan, err := config.ResolveRunPlan(loaded, input, overrides, time.Now().UTC())
 	if err != nil {
@@ -175,7 +177,7 @@ func hasConflictingRunSource(cmd *cli.Command, active string) bool {
 }
 
 func executeResolvedPlan(ctx context.Context, loaded config.LoadedConfig, plan config.ResolvedRunPlan, writer interface{ Write([]byte) (int, error) }) error {
-	output := NewOutput(writer, os.Stderr, plan.Verbose)
+	output := NewOutput(writer, os.Stderr, plan.Verbose, plan.Debug, plan.ArtifactsDir)
 	output.RunStarted(plan.RequestID, plan.Mode, plan.Task, plan.Roles)
 
 	delegate, err := runtime.NewDelegate(loaded.Config, plan.ArtifactsDir)
@@ -205,7 +207,7 @@ func executeResolvedPlan(ctx context.Context, loaded config.LoadedConfig, plan c
 }
 
 func executeResumedSession(ctx context.Context, loaded config.LoadedConfig, plan config.ResolvedRunPlan, snapshot *consensus.SessionSnapshot, writer interface{ Write([]byte) (int, error) }) error {
-	output := NewOutput(writer, os.Stderr, plan.Verbose)
+	output := NewOutput(writer, os.Stderr, plan.Verbose, plan.Debug, plan.ArtifactsDir)
 	output.RunStarted(plan.RequestID, plan.Mode, plan.Task, plan.Roles)
 
 	delegate, err := runtime.NewDelegate(loaded.Config, plan.ArtifactsDir)

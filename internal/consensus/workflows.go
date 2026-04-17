@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"slices"
 	"strings"
@@ -280,11 +281,11 @@ adjudicationCycle:
 				ProducerID:   request.Roles.Arbiter,
 				ProducerRole: "arbiter",
 				Summary:      decision.Rationale,
-				Metadata: map[string]any{
+				Metadata: mergeAnyMaps(maps.Clone(decision.Metadata), map[string]any{
 					"verdict":     decision.Verdict,
 					"confidence":  decision.Confidence,
 					"disposition": firstRecordDisposition(run.adjudicationRecords, decision.ClaimID),
-				},
+				}),
 			})
 			if err != nil {
 				return nil, err
@@ -294,6 +295,22 @@ adjudicationCycle:
 		if len(arbiterReport.Records) > 0 {
 			for idx := range arbiterReport.Records {
 				arbiterReport.Records[idx].EvidenceRefs = appendUnique(arbiterReport.Records[idx].EvidenceRefs, matchingDecisionEvidence(arbiterReport.Decisions, arbiterReport.Records[idx].TargetClaimID)...)
+			}
+		}
+		for _, record := range arbiterReport.Records {
+			decision := findArbiterDecision(arbiterReport.Decisions, record.TargetClaimID)
+			if err := e.emit(ctx, request, run.sessionID, RunEventClaimAdjudicated, SessionPhaseAdjudicate, map[string]any{
+				"claimId":           record.TargetClaimID,
+				"disposition":       record.Disposition,
+				"finalConfidence":   record.FinalConfidence,
+				"actionability":     record.Actionability,
+				"blockingRiskCount": len(record.BlockingRisks),
+				"verdict":           decision.Verdict,
+				"confidence":        decision.Confidence,
+				"reason":            firstNonEmpty(record.Rationale, decision.Rationale),
+				"metadata":          mergeAnyMaps(maps.Clone(record.Metadata), maps.Clone(decision.Metadata)),
+			}); err != nil {
+				return nil, err
 			}
 		}
 		run.claimGraph = ApplyDecisions(run.claimGraph, arbiterReport.Decisions)
@@ -852,6 +869,7 @@ func (e *Engine) runRevisionPhase(ctx context.Context, request StartRequest, run
 				Reason:             draft.Reason,
 				EvidenceRefs:       filterEmpty([]string{entry.EntryID}),
 				Round:              round,
+				Metadata:           maps.Clone(draft.Metadata),
 			})
 		}
 	}
@@ -873,12 +891,28 @@ func (e *Engine) runRevisionPhase(ctx context.Context, request StartRequest, run
 				"caveats":            record.Caveats,
 				"boundaryConditions": record.BoundaryConditions,
 				"round":              record.Round,
+				"metadata":           maps.Clone(record.Metadata),
 			},
 		})
 		if err != nil {
 			return nil, false, err
 		}
 		record.EvidenceRefs = appendUnique(record.EvidenceRefs, entry.EntryID)
+		if err := e.emit(ctx, request, run.sessionID, RunEventClaimRevised, SessionPhaseRevise, map[string]any{
+			"claimId":         record.TargetClaimID,
+			"proposerId":      record.ProposerID,
+			"action":          record.Action,
+			"confidenceDelta": record.ConfidenceDelta,
+			"round":           record.Round,
+			"unresolved":      record.Unresolved,
+			"reason":          record.Reason,
+			"caveatCount":     len(record.Caveats),
+			"boundaryCount":   len(record.BoundaryConditions),
+			"revisedText":     record.RevisedText,
+			"metadata":        maps.Clone(record.Metadata),
+		}); err != nil {
+			return nil, false, err
+		}
 	}
 	var materialChange bool
 	var revisedClaimIDs []string
@@ -1049,6 +1083,15 @@ func matchingDecisionEvidence(decisions []ArbiterDecision, claimID string) []str
 	return nil
 }
 
+func findArbiterDecision(decisions []ArbiterDecision, claimID string) ArbiterDecision {
+	for _, decision := range decisions {
+		if decision.ClaimID == claimID {
+			return decision
+		}
+	}
+	return ArbiterDecision{}
+}
+
 func (e *Engine) gatedAction(ctx context.Context, request StartRequest, run *workflowRun, result *RunResult) *ActionOutput {
 	if request.ActionPolicy == nil {
 		return nil
@@ -1123,6 +1166,15 @@ func (e *Engine) runObservePhase(ctx context.Context, request StartRequest, run 
 	}
 	observation.EvidenceRefs = append(observation.EvidenceRefs, entry.EntryID)
 	run.observations = append(run.observations, observation)
+	if err := e.emit(ctx, request, run.sessionID, RunEventObservationAdded, SessionPhaseObserve, map[string]any{
+		"observationId":  observation.ObservationID,
+		"outcome":        observation.Outcome,
+		"reopen":         observation.Reopen,
+		"followUpCaseId": observation.FollowUpCaseID,
+		"summary":        observation.Summary,
+	}); err != nil {
+		return err
+	}
 
 	for _, source := range request.ObservePolicy.Sources {
 		metadata := map[string]string{
@@ -1218,6 +1270,15 @@ func (e *Engine) runObservePhase(ctx context.Context, request StartRequest, run 
 			item.EvidenceRefs = append(item.EvidenceRefs, followUpEntry.EntryID)
 		}
 		run.observations = append(run.observations, item)
+		if err := e.emit(ctx, request, run.sessionID, RunEventObservationAdded, SessionPhaseObserve, map[string]any{
+			"observationId":  item.ObservationID,
+			"outcome":        item.Outcome,
+			"reopen":         item.Reopen,
+			"followUpCaseId": item.FollowUpCaseID,
+			"summary":        item.Summary,
+		}); err != nil {
+			return err
+		}
 	}
 	return nil
 }

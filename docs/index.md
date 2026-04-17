@@ -3,9 +3,10 @@
 如果你是第一次接触 `til-consensus`，建议按这个顺序看：
 
 1. [README](../README.md)
-2. [配置说明](config.md)
-3. [终端 `view` 用法](view.md)
-4. [配置与输入样例](examples.md)
+2. [新手教程](../newbie.md)
+3. [配置说明](config.md)
+4. [终端 `view` 用法](view.md)
+5. [配置与输入样例](examples.md)
 
 如果你已经跑通过一次，再继续：
 

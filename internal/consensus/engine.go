@@ -321,9 +321,19 @@ func (e *Engine) appendEvidence(ctx context.Context, request StartRequest, sessi
 	*entries = append(*entries, entry)
 	*cursor = *cursor + 1
 	if err := e.emit(ctx, request, sessionID, RunEventLedgerAppended, SessionPhase(""), map[string]any{
-		"entryId": entry.EntryID,
-		"kind":    entry.Kind,
-		"claimId": entry.ClaimID,
+		"entryId":      entry.EntryID,
+		"kind":         entry.Kind,
+		"claimId":      entry.ClaimID,
+		"producerId":   entry.ProducerID,
+		"producerRole": entry.ProducerRole,
+		"sourceType":   entry.SourceType,
+		"artifactPath": artifactRefPath(entry.Artifact),
+		"status":       metadataString(entry.Metadata, "status"),
+		"disposition":  metadataString(entry.Metadata, "disposition"),
+		"outcome":      metadataString(entry.Metadata, "outcome"),
+		"checkName":    metadataString(entry.Metadata, "checkName"),
+		"method":       metadataString(entry.Metadata, "method"),
+		"reopen":       metadataBool(entry.Metadata, "reopen"),
 	}); err != nil {
 		return EvidenceRecord{}, err
 	}
@@ -462,6 +472,36 @@ func selectChallenges(tickets []ChallengeTicket, claimID string) []ChallengeTick
 
 func ptr[T any](value T) *T {
 	return &value
+}
+
+func artifactRefPath(artifact *ArtifactRef) string {
+	if artifact == nil {
+		return ""
+	}
+	return artifact.Path
+}
+
+func metadataString(metadata map[string]any, key string) string {
+	if len(metadata) == 0 {
+		return ""
+	}
+	value, ok := metadata[key]
+	if !ok || value == nil {
+		return ""
+	}
+	return fmt.Sprint(value)
+}
+
+func metadataBool(metadata map[string]any, key string) bool {
+	if len(metadata) == 0 {
+		return false
+	}
+	value, ok := metadata[key]
+	if !ok || value == nil {
+		return false
+	}
+	boolean, ok := value.(bool)
+	return ok && boolean
 }
 
 type randomIDFactory struct{}

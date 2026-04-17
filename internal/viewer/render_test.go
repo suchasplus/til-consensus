@@ -93,11 +93,17 @@ func TestRenderDocumentSections(t *testing.T) {
 			contains: []string{"Follow-ups", "child request=child-request-1", "triggered by observation=observe-1"},
 			excludes: []string{"关键 Claims", "相关文件"},
 		},
+		{
+			name:     "debug only",
+			sections: []string{SectionDebug},
+			contains: []string{"Debug Events", "task_dispatched", "artifacts: ./artifacts/input-proposer-a-propose-task-1.json", "rawVerdict: rejected", "rawTaskVerdict: {\"rationale\":\"Need more evidence\",\"verdict\":\"undetermined\"}"},
+			excludes: []string{"关键 Claims", "相关文件"},
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			current := bundle
-			if tc.name == "observations only" || tc.name == "followups only" {
+			if tc.name == "observations only" || tc.name == "followups only" || tc.name == "debug only" {
 				current = bundleWithObservationData(t)
 			}
 			doc := BuildDocument(bundle, RenderOptions{
@@ -106,7 +112,7 @@ func TestRenderDocumentSections(t *testing.T) {
 				Limit:    20,
 				Verbose:  true,
 			})
-			if tc.name == "observations only" || tc.name == "followups only" {
+			if tc.name == "observations only" || tc.name == "followups only" || tc.name == "debug only" {
 				doc = BuildDocument(current, RenderOptions{
 					Format:   FormatText,
 					Sections: tc.sections,
@@ -142,6 +148,22 @@ func TestBuildDocumentIncludesLineageAndFollowUps(t *testing.T) {
 	}
 	if len(doc.FollowUps) < 2 {
 		t.Fatalf("expected parent and child follow-up views, got %#v", doc.FollowUps)
+	}
+	if len(doc.DebugEvents) < 2 {
+		t.Fatalf("expected debug events, got %#v", doc.DebugEvents)
+	}
+	var sawRawVerdict bool
+	var sawRawTaskVerdict bool
+	for _, item := range doc.DebugEvents {
+		if item.RawVerdict == "rejected" {
+			sawRawVerdict = true
+		}
+		if strings.Contains(item.RawTaskVerdict, "\"verdict\":\"undetermined\"") {
+			sawRawTaskVerdict = true
+		}
+	}
+	if !sawRawVerdict || !sawRawTaskVerdict {
+		t.Fatalf("expected raw verdict fields in debug events: %#v", doc.DebugEvents)
 	}
 }
 
@@ -335,6 +357,89 @@ func bundleWithObservationData(t *testing.T) Bundle {
 		Trigger:         "observe_contradiction",
 	}
 	bundle.Result.CaseManifest = &consensus.CaseManifest{CaseID: "child-case-2"}
+	bundle.Events = []consensus.RunEventRecord{
+		{
+			SchemaVersion: 1,
+			Kind:          "til-consensus.event",
+			Seq:           1,
+			LoggedAt:      "2026-04-17T10:00:00Z",
+			Event: consensus.RunEvent{
+				RequestID: bundle.Result.RequestID,
+				SessionID: bundle.Result.SessionID,
+				Type:      consensus.RunEventTaskDispatched,
+				Phase:     consensus.SessionPhasePropose,
+				At:        "2026-04-17T10:00:00Z",
+				Payload: map[string]any{
+					"taskKind": "propose",
+					"agentId":  "proposer-a",
+					"taskId":   "task-1",
+					"attempt":  1,
+				},
+			},
+		},
+		{
+			SchemaVersion: 1,
+			Kind:          "til-consensus.event",
+			Seq:           2,
+			LoggedAt:      "2026-04-17T10:00:02Z",
+			Event: consensus.RunEvent{
+				RequestID: bundle.Result.RequestID,
+				SessionID: bundle.Result.SessionID,
+				Type:      consensus.RunEventTaskCompleted,
+				Phase:     consensus.SessionPhasePropose,
+				At:        "2026-04-17T10:00:02Z",
+				Payload: map[string]any{
+					"taskKind": "propose",
+					"agentId":  "proposer-a",
+					"taskId":   "task-1",
+					"attempt":  1,
+				},
+			},
+		},
+		{
+			SchemaVersion: 1,
+			Kind:          "til-consensus.event",
+			Seq:           3,
+			LoggedAt:      "2026-04-17T10:00:03Z",
+			Event: consensus.RunEvent{
+				RequestID: bundle.Result.RequestID,
+				SessionID: bundle.Result.SessionID,
+				Type:      consensus.RunEventClaimRevised,
+				Phase:     consensus.SessionPhaseRevise,
+				At:        "2026-04-17T10:00:03Z",
+				Payload: map[string]any{
+					"claimId": "claim-1",
+					"action":  "revise",
+					"metadata": map[string]any{
+						"rawVerdict": "rejected",
+					},
+				},
+			},
+		},
+		{
+			SchemaVersion: 1,
+			Kind:          "til-consensus.event",
+			Seq:           4,
+			LoggedAt:      "2026-04-17T10:00:04Z",
+			Event: consensus.RunEvent{
+				RequestID: bundle.Result.RequestID,
+				SessionID: bundle.Result.SessionID,
+				Type:      consensus.RunEventClaimAdjudicated,
+				Phase:     consensus.SessionPhaseAdjudicate,
+				At:        "2026-04-17T10:00:04Z",
+				Payload: map[string]any{
+					"claimId":     "claim-1",
+					"disposition": "unresolved",
+					"metadata": map[string]any{
+						"rawTaskVerdict": map[string]any{
+							"verdict":   "undetermined",
+							"rationale": "Need more evidence",
+						},
+					},
+				},
+			},
+		},
+	}
 	return bundle
 }
 

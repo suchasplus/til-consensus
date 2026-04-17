@@ -2,52 +2,177 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"path/filepath"
+	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/suchasplus/til-consensus/internal/consensus"
 )
 
 type Output struct {
-	stdout  io.Writer
-	stderr  io.Writer
-	verbose bool
+	stdout       io.Writer
+	stderr       io.Writer
+	verbose      bool
+	debug        bool
+	color        bool
+	artifactsDir string
+
+	mu             sync.Mutex
+	currentPhase   consensus.SessionPhase
+	phaseStartedAt time.Time
+	phaseStats     phaseStats
+	taskStarts     map[string]time.Time
 }
 
-func NewOutput(stdout, stderr io.Writer, verbose bool) *Output {
-	return &Output{stdout: stdout, stderr: stderr, verbose: verbose}
+type phaseStats struct {
+	tasksDispatched int
+	tasksCompleted  int
+	tasksFailed     int
+	tasksRetried    int
+
+	verificationsPassed       int
+	verificationsFailed       int
+	verificationsInconclusive int
+
+	claimsRevised     int
+	claimsAdjudicated int
+	observationsAdded int
+
+	revisionActions         map[string]int
+	adjudicationDisposition map[string]int
+}
+
+func NewOutput(stdout, stderr io.Writer, verbose bool, debug bool, artifactsDir string) *Output {
+	colorEnabled := shouldEnableColor(stdout)
+	return &Output{
+		stdout:       stdout,
+		stderr:       stderr,
+		verbose:      verbose,
+		debug:        debug,
+		color:        colorEnabled,
+		artifactsDir: artifactsDir,
+		taskStarts:   make(map[string]time.Time),
+	}
 }
 
 func (o *Output) Printf(format string, args ...any) {
-	_, _ = fmt.Fprintf(o.stdout, format, args...)
+	text := fmt.Sprintf(format, args...)
+	if o.color {
+		text = colorizeRunOutput(text)
+	}
+	_, _ = io.WriteString(o.stdout, text)
 }
 
 func (o *Output) Errorf(format string, args ...any) {
-	_, _ = fmt.Fprintf(o.stderr, format, args...)
+	text := fmt.Sprintf(format, args...)
+	if o.color {
+		text = colorizeRunOutput(text)
+	}
+	_, _ = io.WriteString(o.stderr, text)
 }
 
 func (o *Output) EventObserver() consensus.Observer {
 	return observerFunc(func(_ context.Context, event consensus.RunEvent) error {
+		eventAt := parseEventTime(event.At)
+
+		o.mu.Lock()
+		defer o.mu.Unlock()
+
 		switch event.Type {
 		case consensus.RunEventPhaseChanged:
+			if o.verbose {
+				o.flushPhaseSummaryLocked(eventAt)
+			}
+			o.currentPhase = event.Phase
+			o.phaseStartedAt = eventAt
+			o.phaseStats = newPhaseStats()
 			o.Printf("[til-consensus] %s\n", formatPhaseChanged(event.Phase))
+			o.printDebugLocked(event)
 			return nil
 		case consensus.RunEventTaskDispatched:
+			o.recordTaskDispatchedLocked(event.Payload, eventAt)
 			o.Printf("[til-consensus] %s\n", formatTaskDispatched(event.Payload))
+			o.printDebugLocked(event)
 			return nil
 		case consensus.RunEventTaskRetrying:
+			o.recordTaskRetryingLocked()
 			o.Printf("[til-consensus] %s\n", formatTaskRetrying(event.Payload))
+			o.printDebugLocked(event)
 			return nil
 		case consensus.RunEventTaskFailed:
-			o.Printf("[til-consensus] %s\n", formatTaskFailed(event.Payload))
+			payload := o.withTaskDurationLocked(event.Payload, eventAt, true)
+			o.recordTaskFailedLocked()
+			o.Printf("[til-consensus] %s\n", formatTaskFailed(payload))
+			event.Payload = payload
+			o.printDebugLocked(event)
+			return nil
+		case consensus.RunEventTaskCompleted:
+			payload := o.withTaskDurationLocked(event.Payload, eventAt, true)
+			o.recordTaskCompletedLocked()
+			if o.verbose {
+				o.Printf("[til-consensus] %s\n", formatTaskCompleted(payload))
+			}
+			event.Payload = payload
+			o.printDebugLocked(event)
+			return nil
+		case consensus.RunEventLedgerAppended:
+			o.recordLedgerAppendedLocked(event.Payload)
+			if !o.verbose {
+				o.printDebugLocked(event)
+				return nil
+			}
+			if text := compactPayload(event.Payload); text != "" {
+				o.Printf("[til-consensus] %s %s\n", event.Type, text)
+			} else {
+				o.Printf("[til-consensus] %s\n", event.Type)
+			}
+			o.printDebugLocked(event)
+			return nil
+		case consensus.RunEventClaimRevised:
+			o.recordClaimRevisedLocked(event.Payload)
+			if o.verbose {
+				o.Printf("[til-consensus] %s\n", formatClaimRevised(event.Payload))
+			}
+			o.printDebugLocked(event)
+			return nil
+		case consensus.RunEventClaimAdjudicated:
+			o.recordClaimAdjudicatedLocked(event.Payload)
+			if o.verbose {
+				o.Printf("[til-consensus] %s\n", formatClaimAdjudicated(event.Payload))
+			}
+			o.printDebugLocked(event)
+			return nil
+		case consensus.RunEventObservationAdded:
+			o.recordObservationAddedLocked()
+			if o.verbose {
+				o.Printf("[til-consensus] %s\n", formatObservationAdded(event.Payload))
+			}
+			o.printDebugLocked(event)
+			return nil
+		case consensus.RunEventSessionFinalized, consensus.RunEventSessionFailed:
+			if o.verbose {
+				o.flushPhaseSummaryLocked(eventAt)
+			}
+			if !o.verbose {
+				o.printDebugLocked(event)
+				return nil
+			}
+			if text := compactPayload(event.Payload); text != "" {
+				o.Printf("[til-consensus] %s %s\n", event.Type, text)
+			} else {
+				o.Printf("[til-consensus] %s\n", event.Type)
+			}
+			o.printDebugLocked(event)
 			return nil
 		}
+
 		if !o.verbose {
-			return nil
-		}
-		if event.Type == consensus.RunEventTaskCompleted {
-			o.Printf("[til-consensus] %s\n", formatTaskCompleted(event.Payload))
+			o.printDebugLocked(event)
 			return nil
 		}
 		if text := compactPayload(event.Payload); text != "" {
@@ -55,8 +180,102 @@ func (o *Output) EventObserver() consensus.Observer {
 		} else {
 			o.Printf("[til-consensus] %s\n", event.Type)
 		}
+		o.printDebugLocked(event)
 		return nil
 	})
+}
+
+func (o *Output) recordTaskDispatchedLocked(payload map[string]any, at time.Time) {
+	o.phaseStats.tasksDispatched++
+	if !at.IsZero() {
+		o.taskStarts[taskAttemptKey(payload)] = at
+	}
+}
+
+func (o *Output) recordTaskRetryingLocked() {
+	o.phaseStats.tasksRetried++
+}
+
+func (o *Output) recordTaskFailedLocked() {
+	o.phaseStats.tasksFailed++
+}
+
+func (o *Output) recordTaskCompletedLocked() {
+	o.phaseStats.tasksCompleted++
+}
+
+func (o *Output) recordLedgerAppendedLocked(payload map[string]any) {
+	kind := stringValue(payload, "kind")
+	status := stringValue(payload, "status")
+	switch kind {
+	case string(consensus.EvidenceKindDeterministicCheck), string(consensus.EvidenceKindSemanticVerification):
+		switch status {
+		case string(consensus.VerificationStatusPassed):
+			o.phaseStats.verificationsPassed++
+		case string(consensus.VerificationStatusFailed):
+			o.phaseStats.verificationsFailed++
+		case string(consensus.VerificationStatusInconclusive):
+			o.phaseStats.verificationsInconclusive++
+		}
+	}
+}
+
+func (o *Output) recordClaimRevisedLocked(payload map[string]any) {
+	o.phaseStats.claimsRevised++
+	action := stringValue(payload, "action")
+	if action == "" {
+		return
+	}
+	if o.phaseStats.revisionActions == nil {
+		o.phaseStats.revisionActions = make(map[string]int)
+	}
+	o.phaseStats.revisionActions[action]++
+}
+
+func (o *Output) recordClaimAdjudicatedLocked(payload map[string]any) {
+	o.phaseStats.claimsAdjudicated++
+	disposition := stringValue(payload, "disposition")
+	if disposition == "" {
+		return
+	}
+	if o.phaseStats.adjudicationDisposition == nil {
+		o.phaseStats.adjudicationDisposition = make(map[string]int)
+	}
+	o.phaseStats.adjudicationDisposition[disposition]++
+}
+
+func (o *Output) recordObservationAddedLocked() {
+	o.phaseStats.observationsAdded++
+}
+
+func (o *Output) withTaskDurationLocked(payload map[string]any, at time.Time, deleteStart bool) map[string]any {
+	if len(payload) == 0 {
+		return payload
+	}
+	startedAt, ok := o.taskStarts[taskAttemptKey(payload)]
+	if !ok || startedAt.IsZero() || at.IsZero() {
+		return payload
+	}
+	if deleteStart {
+		delete(o.taskStarts, taskAttemptKey(payload))
+	}
+	cloned := clonePayload(payload)
+	cloned["duration"] = roundDuration(at.Sub(startedAt))
+	return cloned
+}
+
+func (o *Output) flushPhaseSummaryLocked(now time.Time) {
+	if o.currentPhase == "" || o.phaseStartedAt.IsZero() {
+		return
+	}
+	duration := ""
+	if !now.IsZero() {
+		duration = roundDuration(now.Sub(o.phaseStartedAt))
+	}
+	summary := formatPhaseSummary(o.currentPhase, duration, o.phaseStats)
+	if summary != "" {
+		o.Printf("[til-consensus] %s\n", summary)
+	}
 }
 
 func formatTaskDispatched(payload map[string]any) string {
@@ -78,15 +297,15 @@ func formatTaskCompleted(payload map[string]any) string {
 	agentID := stringValue(payload, "agentId")
 	taskKind := stringValue(payload, "taskKind")
 	if agentID == "" && taskKind == "" {
-		return withAttemptSuffix(payload, "task completed")
+		return withDurationAndAttemptSuffix(payload, "task completed")
 	}
 	if agentID == "" {
-		return withAttemptSuffix(payload, fmt.Sprintf("task completed: %s", taskKind))
+		return withDurationAndAttemptSuffix(payload, fmt.Sprintf("task completed: %s", taskKind))
 	}
 	if taskKind == "" {
-		return withAttemptSuffix(payload, fmt.Sprintf("task completed: %s", agentID))
+		return withDurationAndAttemptSuffix(payload, fmt.Sprintf("task completed: %s", agentID))
 	}
-	return withAttemptSuffix(payload, fmt.Sprintf("task completed: %s -> %s", agentID, taskKind))
+	return withDurationAndAttemptSuffix(payload, fmt.Sprintf("task completed: %s -> %s", agentID, taskKind))
 }
 
 func formatTaskRetrying(payload map[string]any) string {
@@ -121,9 +340,94 @@ func formatTaskFailed(payload map[string]any) string {
 		prefix = fmt.Sprintf("task failed: %s (%s)", taskKind, taskKindLabel(taskKind))
 	}
 	if errText == "" {
-		return withAttemptSuffix(payload, prefix)
+		return withDurationAndAttemptSuffix(payload, prefix)
 	}
-	return withAttemptSuffix(payload, prefix) + " error=" + errText
+	return withDurationAndAttemptSuffix(payload, prefix) + " error=" + errText
+}
+
+func formatClaimRevised(payload map[string]any) string {
+	claimID := stringValue(payload, "claimId")
+	action := stringValue(payload, "action")
+	reason := stringValue(payload, "reason")
+	delta := stringValue(payload, "confidenceDelta")
+	text := fmt.Sprintf("claim revised: %s action=%s", claimID, action)
+	if delta != "" && delta != "0" && delta != "0.0" {
+		text += " confidenceDelta=" + delta
+	}
+	if reason != "" {
+		text += " reason=" + reason
+	}
+	return text
+}
+
+func formatClaimAdjudicated(payload map[string]any) string {
+	claimID := stringValue(payload, "claimId")
+	disposition := stringValue(payload, "disposition")
+	verdict := stringValue(payload, "verdict")
+	confidence := stringValue(payload, "finalConfidence")
+	if confidence == "" {
+		confidence = stringValue(payload, "confidence")
+	}
+	text := fmt.Sprintf("claim adjudicated: %s disposition=%s", claimID, disposition)
+	if verdict != "" {
+		text += " verdict=" + verdict
+	}
+	if confidence != "" {
+		text += " confidence=" + confidence
+	}
+	reason := stringValue(payload, "reason")
+	if reason != "" {
+		text += " reason=" + reason
+	}
+	return text
+}
+
+func formatObservationAdded(payload map[string]any) string {
+	outcome := stringValue(payload, "outcome")
+	summary := stringValue(payload, "summary")
+	text := fmt.Sprintf("observation recorded: %s", outcome)
+	if boolValue(payload, "reopen") {
+		text += " reopen=true"
+	}
+	if followUpCaseID := stringValue(payload, "followUpCaseId"); followUpCaseID != "" {
+		text += " followUpCaseId=" + followUpCaseID
+	}
+	if summary != "" {
+		text += " summary=" + summary
+	}
+	return text
+}
+
+func formatPhaseSummary(phase consensus.SessionPhase, duration string, stats phaseStats) string {
+	parts := make([]string, 0, 8)
+	if duration != "" {
+		parts = append(parts, "duration="+duration)
+	}
+	if stats.tasksDispatched > 0 || stats.tasksCompleted > 0 || stats.tasksFailed > 0 || stats.tasksRetried > 0 {
+		parts = append(parts, fmt.Sprintf("tasks(d=%d c=%d f=%d r=%d)", stats.tasksDispatched, stats.tasksCompleted, stats.tasksFailed, stats.tasksRetried))
+	}
+	if stats.verificationsPassed > 0 || stats.verificationsFailed > 0 || stats.verificationsInconclusive > 0 {
+		parts = append(parts, fmt.Sprintf("verifications(pass=%d fail=%d inconclusive=%d)", stats.verificationsPassed, stats.verificationsFailed, stats.verificationsInconclusive))
+	}
+	if stats.claimsRevised > 0 {
+		parts = append(parts, fmt.Sprintf("revisions=%d", stats.claimsRevised))
+		if text := joinCounterMap(stats.revisionActions); text != "" {
+			parts = append(parts, "actions="+text)
+		}
+	}
+	if stats.claimsAdjudicated > 0 {
+		parts = append(parts, fmt.Sprintf("adjudications=%d", stats.claimsAdjudicated))
+		if text := joinCounterMap(stats.adjudicationDisposition); text != "" {
+			parts = append(parts, "dispositions="+text)
+		}
+	}
+	if stats.observationsAdded > 0 {
+		parts = append(parts, fmt.Sprintf("observations=%d", stats.observationsAdded))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("phase completed: %s %s", phase, strings.Join(parts, " "))
 }
 
 func stringValue(payload map[string]any, key string) string {
@@ -135,6 +439,18 @@ func stringValue(payload map[string]any, key string) string {
 		return ""
 	}
 	return strings.TrimSpace(fmt.Sprint(value))
+}
+
+func boolValue(payload map[string]any, key string) bool {
+	if len(payload) == 0 {
+		return false
+	}
+	value, ok := payload[key]
+	if !ok || value == nil {
+		return false
+	}
+	boolean, ok := value.(bool)
+	return ok && boolean
 }
 
 func taskKindLabel(kind string) string {
@@ -174,9 +490,14 @@ func compactPayload(payload map[string]any) string {
 	if len(payload) == 0 {
 		return ""
 	}
-	parts := make([]string, 0, len(payload))
-	for key, value := range payload {
-		parts = append(parts, fmt.Sprintf("%s=%v", key, value))
+	keys := make([]string, 0, len(payload))
+	for key := range payload {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, fmt.Sprintf("%s=%v", key, payload[key]))
 	}
 	return strings.Join(parts, " ")
 }
@@ -188,6 +509,15 @@ func withAttemptSuffix(payload map[string]any, text string) string {
 		return text
 	}
 	return fmt.Sprintf("%s attempt=%s/%s", text, attempt, maxAttempts)
+}
+
+func withDurationAndAttemptSuffix(payload map[string]any, text string) string {
+	text = withAttemptSuffix(payload, text)
+	duration := stringValue(payload, "duration")
+	if duration == "" {
+		return text
+	}
+	return text + " duration=" + duration
 }
 
 func formatPhaseChanged(phase consensus.SessionPhase) string {
@@ -275,4 +605,121 @@ type observerFunc func(context.Context, consensus.RunEvent) error
 
 func (f observerFunc) OnEvent(ctx context.Context, event consensus.RunEvent) error {
 	return f(ctx, event)
+}
+
+func parseEventTime(raw string) time.Time {
+	if strings.TrimSpace(raw) == "" {
+		return time.Time{}
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, raw)
+	if err != nil {
+		return time.Time{}
+	}
+	return parsed
+}
+
+func taskAttemptKey(payload map[string]any) string {
+	return strings.Join([]string{
+		stringValue(payload, "agentId"),
+		stringValue(payload, "taskKind"),
+		stringValue(payload, "attempt"),
+	}, "|")
+}
+
+func clonePayload(payload map[string]any) map[string]any {
+	if len(payload) == 0 {
+		return payload
+	}
+	cloned := make(map[string]any, len(payload))
+	for key, value := range payload {
+		cloned[key] = value
+	}
+	return cloned
+}
+
+func roundDuration(duration time.Duration) string {
+	if duration <= 0 {
+		return "0s"
+	}
+	if duration < time.Millisecond {
+		return duration.String()
+	}
+	return duration.Round(time.Millisecond).String()
+}
+
+func joinCounterMap(values map[string]int) string {
+	if len(values) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, fmt.Sprintf("%s=%d", key, values[key]))
+	}
+	return strings.Join(parts, ",")
+}
+
+func newPhaseStats() phaseStats {
+	return phaseStats{
+		revisionActions:         make(map[string]int),
+		adjudicationDisposition: make(map[string]int),
+	}
+}
+
+func (o *Output) printDebugLocked(event consensus.RunEvent) {
+	if !o.debug {
+		return
+	}
+	if payload := prettyPayload(event.Payload); payload != "" {
+		o.Printf("[til-consensus][debug] %s payload=%s\n", event.Type, payload)
+	}
+	if text := debugArtifactText(o.artifactsDir, event.Type, event.Payload); text != "" {
+		o.Printf("[til-consensus][debug] %s\n", text)
+	}
+}
+
+func prettyPayload(payload map[string]any) string {
+	if len(payload) == 0 {
+		return ""
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return compactPayload(payload)
+	}
+	return string(body)
+}
+
+func debugArtifactText(artifactsDir string, eventType consensus.RunEventType, payload map[string]any) string {
+	if strings.TrimSpace(artifactsDir) == "" {
+		return ""
+	}
+	agentID := stringValue(payload, "agentId")
+	taskKind := stringValue(payload, "taskKind")
+	if agentID == "" || taskKind == "" {
+		return ""
+	}
+	safeAgent := sanitizeFilename(agentID)
+	inputPath := filepath.Join(artifactsDir, fmt.Sprintf("input-%s-%s-<taskID>.json", safeAgent, taskKind))
+	rawPath := filepath.Join(artifactsDir, fmt.Sprintf("raw-%s-%s-<taskID>.json", safeAgent, taskKind))
+	failurePath := filepath.Join(artifactsDir, fmt.Sprintf("failure-%s-%s-<taskID>.json", safeAgent, taskKind))
+	parseErrPath := filepath.Join(artifactsDir, fmt.Sprintf("raw-error-%s-%s-<taskID>.txt", safeAgent, taskKind))
+	switch eventType {
+	case consensus.RunEventTaskDispatched:
+		return "provider artifacts input=" + inputPath
+	case consensus.RunEventTaskCompleted:
+		return "provider artifacts input=" + inputPath + " raw=" + rawPath
+	case consensus.RunEventTaskFailed:
+		return "provider artifacts input=" + inputPath + " failure=" + failurePath + " parseError=" + parseErrPath
+	default:
+		return ""
+	}
+}
+
+func sanitizeFilename(value string) string {
+	replacer := strings.NewReplacer("/", "_", " ", "_", ":", "_")
+	return replacer.Replace(value)
 }

@@ -225,6 +225,19 @@
       font-size: 13px;
       word-break: break-word;
     }
+    pre.payload {
+      margin: 10px 0 0;
+      padding: 12px;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      background: rgba(31,42,48,0.04);
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: var(--mono);
+      font-size: 12px;
+      line-height: 1.6;
+    }
   </style>
 </head>
 <body>
@@ -257,6 +270,7 @@
           <option value="evidence">evidence</option>
           <option value="observations">observations</option>
           <option value="followups">followups</option>
+          <option value="debug">debug</option>
           <option value="workflow">workflow</option>
           <option value="files">files</option>
         </select>
@@ -287,6 +301,7 @@
       <a href="#evidence">Evidence</a>
       <a href="#observations">Observations</a>
       <a href="#followups">Follow-ups</a>
+      <a href="#debug">Debug</a>
       <a href="#workflow">Workflow</a>
       <a href="#files">Files</a>
     </div>
@@ -311,6 +326,10 @@
       <section id="followups" class="panel">
         <h2>Follow-ups</h2>
         <div id="followups-body" class="empty">加载中…</div>
+      </section>
+      <section id="debug" class="panel">
+        <h2>Debug</h2>
+        <div id="debug-body" class="empty">加载中…</div>
       </section>
       <section id="workflow" class="panel">
         <h2>Workflow</h2>
@@ -406,16 +425,17 @@
 
       function applyVisibility(section) {
         const visible = new Set({
-          all: ["overview", "claims", "evidence", "observations", "followups", "workflow", "files"],
+          all: ["overview", "claims", "evidence", "observations", "followups", "debug", "workflow", "files"],
           overview: ["overview"],
           claims: ["claims"],
           evidence: ["evidence"],
           observations: ["observations"],
           followups: ["followups"],
+          debug: ["debug"],
           workflow: ["workflow"],
           files: ["files"]
-        }[section] || ["overview", "claims", "evidence", "observations", "followups", "workflow", "files"]);
-        for (const id of ["overview", "claims", "evidence", "observations", "followups", "workflow", "files"]) {
+        }[section] || ["overview", "claims", "evidence", "observations", "followups", "debug", "workflow", "files"]);
+        for (const id of ["overview", "claims", "evidence", "observations", "followups", "debug", "workflow", "files"]) {
           const node = document.getElementById(id);
           if (!node) continue;
           node.classList.toggle("section-hidden", !visible.has(id));
@@ -529,6 +549,27 @@
         `);
       }
 
+      function renderDebug(doc) {
+        return renderList(doc.debugEvents, "没有 debug 事件。", (item) => `
+          <details class="card">
+            <summary>
+              <span class="pill">${escapeHtml(String(item.seq ?? "-"))}</span>
+              <span class="pill">${escapeHtml(item.type || "-")}</span>
+              ${item.phase ? `<span class="pill">${escapeHtml(item.phase)}</span>` : ""}
+              ${escapeHtml(item.summary || item.loggedAt || item.eventAt || "debug event")}
+            </summary>
+            <div class="card-body">
+              <div><strong>loggedAt:</strong> <span class="mono">${escapeHtml(item.loggedAt || "-")}</span></div>
+              ${item.eventAt ? `<div><strong>eventAt:</strong> <span class="mono">${escapeHtml(item.eventAt)}</span></div>` : ""}
+              ${item.rawVerdict ? `<div><strong>rawVerdict:</strong> <span class="mono">${escapeHtml(item.rawVerdict)}</span></div>` : ""}
+              ${item.rawTaskVerdict ? `<div><strong>rawTaskVerdict:</strong> <span class="mono">${escapeHtml(item.rawTaskVerdict)}</span></div>` : ""}
+              ${item.artifactHints && item.artifactHints.length ? `<div><strong>artifacts:</strong><div class="mono">${item.artifactHints.map(escapeHtml).join("<br>")}</div></div>` : ""}
+              ${item.payloadPretty ? `<pre class="payload">${escapeHtml(item.payloadPretty)}</pre>` : `<div class="empty">无额外 payload</div>`}
+            </div>
+          </details>
+        `);
+      }
+
       function renderWorkflow(doc) {
         const chunks = [];
         if (doc.rounds && doc.rounds.length) {
@@ -580,7 +621,7 @@
 
       function renderError(err) {
         const message = `<div class="empty">${escapeHtml(err.message || String(err))}</div>`;
-        for (const id of ["overview-body", "claims-body", "evidence-body", "observations-body", "followups-body", "workflow-body", "files-body"]) {
+        for (const id of ["overview-body", "claims-body", "evidence-body", "observations-body", "followups-body", "debug-body", "workflow-body", "files-body"]) {
           const node = document.getElementById(id);
           if (node) node.innerHTML = message;
         }
@@ -599,6 +640,7 @@
         document.getElementById("evidence-body").innerHTML = renderEvidence(doc);
         document.getElementById("observations-body").innerHTML = renderObservations(doc);
         document.getElementById("followups-body").innerHTML = renderFollowUps(doc);
+        document.getElementById("debug-body").innerHTML = renderDebug(doc);
         document.getElementById("workflow-body").innerHTML = renderWorkflow(doc);
         document.getElementById("files-body").innerHTML = renderFiles(doc);
       }

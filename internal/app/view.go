@@ -20,7 +20,7 @@ func newViewCommand() *cli.Command {
 			&cli.StringFlag{Name: "request-id", Usage: "指定 request id"},
 			&cli.StringFlag{Name: "result", Usage: "直接指定 result.json 路径"},
 			&cli.StringFlag{Name: "format", Usage: "输出格式(text|markdown|json)", Value: viewer.FormatText},
-			&cli.StringSliceFlag{Name: "section", Usage: "输出分段(overview|claims|challenges|verifications|observations|followups|artifacts|all)"},
+			&cli.StringSliceFlag{Name: "section", Usage: "输出分段(overview|claims|challenges|verifications|observations|followups|debug|artifacts|all)"},
 			&cli.StringFlag{Name: "claim-verdict", Usage: "只显示特定 verdict 的 claims"},
 			&cli.IntFlag{Name: "limit", Usage: "限制 claims/verifications/artifacts 的展示数量", Value: 20},
 			&cli.BoolFlag{Name: "verbose", Usage: "展开 rationale、evidence refs 和 artifact 路径"},
@@ -66,6 +66,7 @@ func runViewCommand(ctx context.Context, cmd *cli.Command) error {
 				LedgerPath:   artifactPaths.LedgerPath,
 				SummaryPath:  artifactPaths.SummaryPath,
 				ManifestPath: artifactPaths.ManifestPath,
+				EventsPath:   artifactPaths.EventsPath,
 			}
 		} else {
 			latest, err := viewer.ResolveLatestRun(template)
@@ -83,6 +84,7 @@ func runViewCommand(ctx context.Context, cmd *cli.Command) error {
 				LedgerPath:   artifactPaths.LedgerPath,
 				SummaryPath:  artifactPaths.SummaryPath,
 				ManifestPath: artifactPaths.ManifestPath,
+				EventsPath:   artifactPaths.EventsPath,
 			}
 		}
 	}
@@ -136,6 +138,9 @@ func runViewCommand(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
+	if cmd.String("format") == viewer.FormatText && shouldEnableColor(cmd.Writer) {
+		rendered = colorizeViewText(rendered)
+	}
 	_, _ = fmt.Fprint(cmd.Writer, rendered)
 	return nil
 }
@@ -172,6 +177,7 @@ func isSupportedViewSection(value string) bool {
 		viewer.SectionVerifications,
 		viewer.SectionObservations,
 		viewer.SectionFollowups,
+		viewer.SectionDebug,
 		viewer.SectionArtifacts,
 		viewer.SectionRounds,
 		viewer.SectionVotes,

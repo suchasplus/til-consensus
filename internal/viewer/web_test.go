@@ -2,8 +2,6 @@ package viewer
 
 import (
 	"encoding/json"
-	"io"
-	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -44,38 +42,26 @@ func TestWebHandlerServesIndexAndDocumentAPI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newWebHandler failed: %v", err)
 	}
-	server := httptest.NewServer(handler)
-	defer server.Close()
-
-	indexResp, err := http.Get(server.URL + "/")
-	if err != nil {
-		t.Fatalf("GET / failed: %v", err)
-	}
-	defer func() { _ = indexResp.Body.Close() }()
-	indexBody, err := ioReadAll(indexResp)
-	if err != nil {
-		t.Fatalf("read index body: %v", err)
-	}
-	for _, needle := range []string{"Overview", "Claims", "Evidence", "Observations", "Follow-ups", "Files"} {
+	indexReq := httptest.NewRequest("GET", "/", nil)
+	indexResp := httptest.NewRecorder()
+	handler.ServeHTTP(indexResp, indexReq)
+	indexBody := indexResp.Body.String()
+	for _, needle := range []string{"Overview", "Claims", "Evidence", "Observations", "Follow-ups", "Debug", "Files"} {
 		if !strings.Contains(indexBody, needle) {
 			t.Fatalf("expected index to contain %q\n%s", needle, indexBody)
 		}
 	}
 
-	healthResp, err := http.Get(server.URL + "/api/healthz")
-	if err != nil {
-		t.Fatalf("GET /api/healthz failed: %v", err)
-	}
-	defer func() { _ = healthResp.Body.Close() }()
-	if healthResp.StatusCode != http.StatusOK {
-		t.Fatalf("unexpected healthz status: %d", healthResp.StatusCode)
+	healthReq := httptest.NewRequest("GET", "/api/healthz", nil)
+	healthResp := httptest.NewRecorder()
+	handler.ServeHTTP(healthResp, healthReq)
+	if healthResp.Code != 200 {
+		t.Fatalf("unexpected healthz status: %d", healthResp.Code)
 	}
 
-	docResp, err := http.Get(server.URL + "/api/document?section=claims&claim_verdict=supported&limit=1&verbose=true")
-	if err != nil {
-		t.Fatalf("GET /api/document failed: %v", err)
-	}
-	defer func() { _ = docResp.Body.Close() }()
+	docReq := httptest.NewRequest("GET", "/api/document?section=claims&claim_verdict=supported&limit=1&verbose=true", nil)
+	docResp := httptest.NewRecorder()
+	handler.ServeHTTP(docResp, docReq)
 	var doc Document
 	if err := json.NewDecoder(docResp.Body).Decode(&doc); err != nil {
 		t.Fatalf("decode document: %v", err)
@@ -85,6 +71,33 @@ func TestWebHandlerServesIndexAndDocumentAPI(t *testing.T) {
 	}
 	if len(doc.Claims) != 1 || doc.Claims[0].Verdict != consensus.ClaimVerdictSupported {
 		t.Fatalf("unexpected claims: %#v", doc.Claims)
+	}
+
+	debugReq := httptest.NewRequest("GET", "/api/document?section=debug&verbose=true", nil)
+	debugResp := httptest.NewRecorder()
+	handler.ServeHTTP(debugResp, debugReq)
+	var debugDoc Document
+	if err := json.NewDecoder(debugResp.Body).Decode(&debugDoc); err != nil {
+		t.Fatalf("decode debug document: %v", err)
+	}
+	if len(debugDoc.DebugEvents) == 0 {
+		t.Fatalf("expected debug events in web document: %#v", debugDoc)
+	}
+	if debugDoc.DebugEvents[0].PayloadPretty == "" {
+		t.Fatalf("expected pretty payload in debug event: %#v", debugDoc.DebugEvents[0])
+	}
+	var sawRawVerdict bool
+	var sawRawTaskVerdict bool
+	for _, item := range debugDoc.DebugEvents {
+		if item.RawVerdict == "rejected" {
+			sawRawVerdict = true
+		}
+		if strings.Contains(item.RawTaskVerdict, "\"verdict\":\"undetermined\"") {
+			sawRawTaskVerdict = true
+		}
+	}
+	if !sawRawVerdict || !sawRawTaskVerdict {
+		t.Fatalf("expected raw verdict fields in web debug document: %#v", debugDoc.DebugEvents)
 	}
 }
 
@@ -108,14 +121,9 @@ func TestWebHandlerMissingManifestDegrades(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newWebHandler failed: %v", err)
 	}
-	server := httptest.NewServer(handler)
-	defer server.Close()
-
-	resp, err := http.Get(server.URL + "/api/document")
-	if err != nil {
-		t.Fatalf("GET /api/document failed: %v", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
+	req := httptest.NewRequest("GET", "/api/document", nil)
+	resp := httptest.NewRecorder()
+	handler.ServeHTTP(resp, req)
 	var doc Document
 	if err := json.NewDecoder(resp.Body).Decode(&doc); err != nil {
 		t.Fatalf("decode document: %v", err)
@@ -191,13 +199,9 @@ func TestWebHandlerSupportsDebateAndDelphi(t *testing.T) {
 			if err != nil {
 				t.Fatalf("newWebHandler failed: %v", err)
 			}
-			server := httptest.NewServer(handler)
-			defer server.Close()
-			resp, err := http.Get(server.URL + "/api/document")
-			if err != nil {
-				t.Fatalf("GET /api/document failed: %v", err)
-			}
-			defer func() { _ = resp.Body.Close() }()
+			req := httptest.NewRequest("GET", "/api/document", nil)
+			resp := httptest.NewRecorder()
+			handler.ServeHTTP(resp, req)
 			var doc Document
 			if err := json.NewDecoder(resp.Body).Decode(&doc); err != nil {
 				t.Fatalf("decode document: %v", err)
@@ -205,12 +209,4 @@ func TestWebHandlerSupportsDebateAndDelphi(t *testing.T) {
 			tc.check(t, doc)
 		})
 	}
-}
-
-func ioReadAll(resp *http.Response) (string, error) {
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
-	return string(body), nil
 }

@@ -61,7 +61,7 @@ export PATH="$HOME/.local/bin:$PATH"
 生成配置：
 
 ```bash
-til-consensus config init --preset quickstart --config ./til-consensus.yaml
+til-consensus config init --mode adjudication --provider-profile mock --config ./til-consensus.yaml
 ```
 
 直接运行一个任务：
@@ -144,6 +144,7 @@ til-consensus view \
 - Evidence
 - Observations
 - Follow-ups
+- Debug
 - Workflow
 - Files
 
@@ -158,7 +159,7 @@ til-consensus view \
 所以你也可以这样初始化默认配置：
 
 ```bash
-til-consensus config init --preset quickstart
+til-consensus config init --mode adjudication --provider-profile mock
 ```
 
 它会默认写到：
@@ -181,25 +182,25 @@ til-consensus view
 比如你用 Codex：
 
 ```bash
-til-consensus config init --preset codex --config ./til-consensus.yaml
+til-consensus config init --mode adjudication --provider-profile codex --config ./til-consensus.yaml
 ```
 
 用 Claude：
 
 ```bash
-til-consensus config init --preset claude --config ./til-consensus.yaml
+til-consensus config init --mode adjudication --provider-profile claude --config ./til-consensus.yaml
 ```
 
 用 Gemini：
 
 ```bash
-til-consensus config init --preset gemini --config ./til-consensus.yaml
+til-consensus config init --mode adjudication --provider-profile gemini --config ./til-consensus.yaml
 ```
 
 如果你有自己的脚本或代理，选 `generic`：
 
 ```bash
-til-consensus config init --preset generic --config ./til-consensus.yaml
+til-consensus config init --mode adjudication --provider-profile generic --config ./til-consensus.yaml
 ```
 
 完整样例在：
@@ -313,7 +314,7 @@ til-consensus run --config ./til-consensus.yaml --replay-session session_xxx
 
 ```bash
 til-consensus --version
-til-consensus config init --preset quickstart --config ./til-consensus.yaml
+til-consensus config init --mode adjudication --provider-profile mock --config ./til-consensus.yaml
 til-consensus config validate --config ./til-consensus.yaml
 til-consensus run --config ./til-consensus.yaml --task "..."
 til-consensus view --config ./til-consensus.yaml
@@ -321,20 +322,31 @@ til-consensus view --config ./til-consensus.yaml --web
 til-consensus session list --config ./til-consensus.yaml
 ```
 
-## 13. 什么时候用哪个 preset
+## 13. 什么时候用哪个 mode / provider-profile
 
-- `quickstart`
+- `--mode adjudication --provider-profile mock`
   - 第一次跑通流程
-- `codex / claude / gemini`
-  - 你已经有对应 CLI
-- `generic`
+- `--mode adjudication --provider-profile codex|claude|gemini`
+  - 你已经装了对应 CLI
+- `--mode adjudication --provider-profile generic`
   - 你有自定义脚本或代理
-- `debate`
+- `--mode free-debate --provider-profile mock`
   - 你要做自由辩论 workflow
-- `delphi`
+- `--mode delphi --provider-profile mock`
   - 你要做匿名收敛 workflow
-- `coding`
+- `--mode adjudication --provider-profile mock --task-profile coding`
   - 你主要是代码仓库验证、benchmark、tests、git diff
+
+旧的 `--preset` 还可用，但现在只是兼容别名，不再是主概念。
+
+provider profile 的当前默认模型：
+
+- `codex`
+  - `gpt-5.4`
+- `claude`
+  - `claude-opus-4-6`
+- `gemini`
+  - `gemini-3.1-pro-preivew`
 
 ## 14. 出错时先看哪里
 
@@ -345,17 +357,30 @@ til-consensus session list --config ./til-consensus.yaml
 - `./out/{requestId}/artifacts/`
 - `./out/_sessions/`
 - provider 失败审计文件：
-  - `failure-<agent>-<task>.json`
-  - `input-<agent>-<task>.json`
+  - `failure-<agent>-<task>-<taskID>.json`
+  - `input-<agent>-<task>-<taskID>.json`
+
+如果要看运行期事件和原始模型 verdict，建议：
+
+```bash
+til-consensus run --config ./codex.yaml --task "..." --verbose --debug
+til-consensus view --config ./codex.yaml --section debug --verbose
+til-consensus view --config ./codex.yaml --web --section debug --verbose --open
+```
+
+其中 Debug 区块现在会直接显示：
+
+- `rawVerdict`
+- `rawTaskVerdict`
 
 ## 15. 最后给你一个最短上手路径
 
 如果你只想现在立刻成功一次，就执行这三条：
 
 ```bash
-til-consensus config init --preset quickstart --config ./til-consensus.yaml
+til-consensus config init --mode adjudication --provider-profile mock --config ./til-consensus.yaml
 til-consensus run --config ./til-consensus.yaml --task "判断这个 patch 是否真正修复了竞态问题"
-til-consensus view --config ./til-consensus.yaml --web
+til-consensus view --config ./til-consensus.yaml --web --open
 ```
 
 如果你愿意，下一步可以继续补两份更具体的教程：

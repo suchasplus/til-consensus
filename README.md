@@ -49,6 +49,12 @@ til-consensus view --config ./til-consensus.yaml
 til-consensus view --config ./til-consensus.yaml --web
 ```
 
+如果希望启动后自动打开默认浏览器：
+
+```bash
+til-consensus view --config ./til-consensus.yaml --web --open
+```
+
 如果你已经装了具体 CLI，也可以直接生成对应模板：
 
 ```bash
@@ -182,6 +188,15 @@ til-consensus config init --mode delphi --provider-profile mock --config ./til-c
 - `delphi` = `--mode delphi --provider-profile mock`
 - `codex|claude|gemini|generic|openai` = `--mode adjudication --provider-profile <对应值>`
 
+其中 provider profile 的当前默认模型是：
+
+- `codex`
+  - `gpt-5.4`
+- `claude`
+  - `claude-opus-4-6`
+- `gemini`
+  - `gemini-3.1-pro-preivew`
+
 常见可复制样例：
 
 - [provider 配置与 `run.yaml` 示例](docs/examples.md)
@@ -255,6 +270,24 @@ til-consensus run \
   --task "评估未来 6 个月内是否应将当前单体服务演进为事件驱动架构"
 ```
 
+排查真实 provider 的结构化输出时，建议直接开两级日志：
+
+```bash
+til-consensus run \
+  --config ./codex.yaml \
+  --task "Should we use a monorepo or polyrepo for our microservices?" \
+  --verbose \
+  --debug
+```
+
+其中：
+
+- `--verbose`
+  - 打印业务级摘要
+  - 包括 phase summary、claim revised、claim adjudicated、observation recorded
+- `--debug`
+  - 在 `--verbose` 基础上，再打印完整 payload 和 provider artifact 路径提示
+
 ## `view` 示例
 
 查看最新一次：
@@ -281,6 +314,12 @@ til-consensus view --config ./til-consensus.yaml --section observations --sectio
 
 ```bash
 til-consensus view --config ./til-consensus.yaml --web --section observations --section followups --verbose
+```
+
+如果要直接在页面里看运行期 debug 事件和原始 verdict 词，也可以：
+
+```bash
+til-consensus view --config ./til-consensus.yaml --web --section debug --verbose --open
 ```
 
 - free_debate：
@@ -363,6 +402,44 @@ make install
 
 `til-consensus config init` 在不传 `--config` 时，也会默认写到 `~/.config/til-consensus/default.yaml`。
 
+## 运行期日志
+
+`run` / `followup run` 的实时终端日志现在支持两级详细度：
+
+- 默认
+  - phase 变化
+  - task dispatched / retrying / failed
+- `--verbose`
+  - task completed
+  - phase completed
+  - claim revised
+  - claim adjudicated
+  - observation recorded
+- `--debug`
+  - 在 `--verbose` 基础上
+  - 再打印完整事件 payload
+  - 再打印 `input/raw/failure` artifact 路径提示
+
+如果输出连接到真实终端，关键字会自动着色；如果输出被重定向到文件，则保持纯文本。
+
+可用环境变量：
+
+- `NO_COLOR=1`
+  - 关闭终端彩色输出
+- `FORCE_COLOR=1`
+  - 强制开启终端彩色输出
+
+`view` 的终端文本输出现在也会使用同一套着色策略，但只对：
+
+- `view --format text`
+
+生效；如果你输出的是：
+
+- `markdown`
+- `json`
+
+则保持纯文本，不插入 ANSI 颜色码。
+
 如果 `~/.local/bin` 还没进 `PATH`，可以在 shell 配置里补上：
 
 ```bash
@@ -413,6 +490,7 @@ make release-archive VERSION=v0.1.0 TARGET_GOOS=darwin TARGET_GOARCH=arm64 DIRTY
 
 - [E2E 测试设计](docs/e2e.md)
 - [CI 与发布](docs/release.md)
+- [三种 workflow 与状态机](docs/workflow.md)
 
 ## follow-up / observe / structured parsing
 
@@ -454,12 +532,12 @@ til-consensus session show --config ./til-consensus.yaml --session-id session_xx
 
 provider 执行过程中还会把关键审计文件落到 `artifacts/`：
 
-- `input-<agent>-<task>.json`
+- `input-<agent>-<task>-<taskID>.json`
   - provider 实际收到的结构化任务输入
-- `failure-<agent>-<task>.json`
+- `failure-<agent>-<task>-<taskID>.json`
   - provider 执行失败时的分类结果
   - 会带 `class`、`message`、可选 `statusCode`
-- `raw-<agent>-<task>.*`
+- `raw-<agent>-<task>-<taskID>.*`
   - provider 的原始输出或 parse error 原文
 
 外部源解析现在支持：

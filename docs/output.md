@@ -84,6 +84,28 @@
 
 它主要服务于观察执行过程，不承担核心裁决语义。更关注审计时，优先看 `ledger.jsonl`。
 
+常见事件类型：
+
+- `session_started`
+- `phase_changed`
+- `task_dispatched`
+- `task_retrying`
+- `task_completed`
+- `task_failed`
+- `ledger_appended`
+- `claim_revised`
+- `claim_adjudicated`
+- `observation_added`
+- `session_finalized`
+- `session_failed`
+
+如果事件 payload 的 metadata 里带有模型原始语义，当前也会保留：
+
+- `rawVerdict`
+- `rawTaskVerdict`
+
+这两个字段会在 `view --section debug` 和 `view --web` 的 Debug 区块里直接显示。
+
 ## `summary.md`
 
 给人快速阅读的摘要。
@@ -161,9 +183,9 @@
 
 当 provider 被调用时，`artifacts/` 目录下还会额外生成一组审计文件：
 
-- `input-<agent>-<task>.json`
+- `input-<agent>-<task>-<taskID>.json`
   - provider 实际收到的结构化任务输入
-- `failure-<agent>-<task>.json`
+- `failure-<agent>-<task>-<taskID>.json`
   - provider 执行失败时的分类结果
   - 常见 `class`：
     - `timeout`
@@ -173,6 +195,34 @@
     - `network`
     - `command_not_found`
     - `command_exit`
-- `raw-<agent>-<task>.*`
+- `raw-<agent>-<task>-<taskID>.*`
   - provider 的原始输出
   - 如果输出无法规范化，还会保留 parse error 原文
+
+之所以带上 `<taskID>`，是为了避免同一个 agent / task kind 的多次执行互相覆盖，方便事后逐轮排查。
+
+## 终端运行日志
+
+`run` 和 `followup run` 的实时输出支持：
+
+- 默认
+  - phase 变化
+  - task dispatched / retrying / failed
+- `--verbose`
+  - task completed
+  - phase completed
+  - claim revised
+  - claim adjudicated
+  - observation recorded
+- `--debug`
+  - 完整事件 payload
+  - provider artifact 路径提示
+
+如果 stdout/stderr 连接到真实终端，关键字会自动着色；如果输出被重定向到文件，则不会插入 ANSI 码。
+
+环境变量：
+
+- `NO_COLOR=1`
+  - 关闭彩色输出
+- `FORCE_COLOR=1`
+  - 强制开启彩色输出

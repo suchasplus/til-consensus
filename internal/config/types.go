@@ -239,4 +239,5 @@ type RunOverrides struct {
 	ConvergenceThreshold float64
 	Action               string
 	Verbose              bool
+	Debug                bool
 }

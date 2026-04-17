@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/suchasplus/til-consensus/internal/config"
 	"github.com/suchasplus/til-consensus/internal/consensus"
@@ -170,7 +171,7 @@ func TestParseHelpersAndOutputHelpers(t *testing.T) {
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	output := NewOutput(&stdout, &stderr, false)
+	output := NewOutput(&stdout, &stderr, false, false, "")
 	output.Errorf("boom: %d", 1)
 	if !strings.Contains(stderr.String(), "boom: 1") {
 		t.Fatalf("unexpected stderr: %s", stderr.String())
@@ -233,6 +234,173 @@ func TestParseHelpersAndOutputHelpers(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "task failed: challenger-claude -> challenge (collecting challenges) attempt=1/2 error=__timeout__") {
 		t.Fatalf("unexpected stdout for task failure: %s", stdout.String())
+	}
+}
+
+func TestVerboseOutputShowsDurationsAndPhaseSummaries(t *testing.T) {
+	var stdout bytes.Buffer
+	output := NewOutput(&stdout, &bytes.Buffer{}, true, false, "")
+	observer := output.EventObserver()
+	base := time.Date(2026, 4, 17, 12, 0, 0, 0, time.UTC)
+
+	mustEvent := func(event consensus.RunEvent) {
+		t.Helper()
+		if err := observer.OnEvent(context.Background(), event); err != nil {
+			t.Fatalf("OnEvent failed: %v", err)
+		}
+	}
+
+	mustEvent(consensus.RunEvent{
+		Type:  consensus.RunEventPhaseChanged,
+		Phase: consensus.SessionPhaseRevise,
+		At:    base.Format(time.RFC3339Nano),
+	})
+	mustEvent(consensus.RunEvent{
+		Type: consensus.RunEventTaskDispatched,
+		At:   base.Add(time.Second).Format(time.RFC3339Nano),
+		Payload: map[string]any{
+			"agentId":     "proposer-a",
+			"taskKind":    "revise",
+			"attempt":     1,
+			"maxAttempts": 2,
+		},
+	})
+	mustEvent(consensus.RunEvent{
+		Type: consensus.RunEventTaskCompleted,
+		At:   base.Add(3 * time.Second).Format(time.RFC3339Nano),
+		Payload: map[string]any{
+			"agentId":     "proposer-a",
+			"taskKind":    "revise",
+			"attempt":     1,
+			"maxAttempts": 2,
+		},
+	})
+	mustEvent(consensus.RunEvent{
+		Type:  consensus.RunEventClaimRevised,
+		Phase: consensus.SessionPhaseRevise,
+		At:    base.Add(3200 * time.Millisecond).Format(time.RFC3339Nano),
+		Payload: map[string]any{
+			"claimId":         "claim_1",
+			"action":          "downgrade_confidence",
+			"confidenceDelta": -0.2,
+			"reason":          "Need more evidence",
+		},
+	})
+	mustEvent(consensus.RunEvent{
+		Type:  consensus.RunEventPhaseChanged,
+		Phase: consensus.SessionPhaseAdjudicate,
+		At:    base.Add(4 * time.Second).Format(time.RFC3339Nano),
+	})
+	mustEvent(consensus.RunEvent{
+		Type:  consensus.RunEventClaimAdjudicated,
+		Phase: consensus.SessionPhaseAdjudicate,
+		At:    base.Add(4500 * time.Millisecond).Format(time.RFC3339Nano),
+		Payload: map[string]any{
+			"claimId":         "claim_1",
+			"disposition":     "keep_with_caveat",
+			"verdict":         "supported",
+			"finalConfidence": 0.62,
+			"reason":          "evidence is mixed",
+		},
+	})
+	mustEvent(consensus.RunEvent{
+		Type:  consensus.RunEventPhaseChanged,
+		Phase: consensus.SessionPhaseObserve,
+		At:    base.Add(5 * time.Second).Format(time.RFC3339Nano),
+	})
+	mustEvent(consensus.RunEvent{
+		Type:  consensus.RunEventObservationAdded,
+		Phase: consensus.SessionPhaseObserve,
+		At:    base.Add(5500 * time.Millisecond).Format(time.RFC3339Nano),
+		Payload: map[string]any{
+			"observationId":  "observe_1",
+			"outcome":        "contradicted",
+			"reopen":         true,
+			"followUpCaseId": "case_followup",
+			"summary":        "new evidence contradicts retained claim",
+		},
+	})
+	mustEvent(consensus.RunEvent{
+		Type:  consensus.RunEventSessionFinalized,
+		Phase: consensus.SessionPhaseObserve,
+		At:    base.Add(6 * time.Second).Format(time.RFC3339Nano),
+		Payload: map[string]any{
+			"mode":        "adjudication",
+			"taskVerdict": "undetermined",
+		},
+	})
+
+	text := stdout.String()
+	if !strings.Contains(text, "task completed: proposer-a -> revise attempt=1/2 duration=2s") {
+		t.Fatalf("expected task duration in verbose output, got: %s", text)
+	}
+	if !strings.Contains(text, "claim revised: claim_1 action=downgrade_confidence confidenceDelta=-0.2 reason=Need more evidence") {
+		t.Fatalf("expected claim revised line, got: %s", text)
+	}
+	if !strings.Contains(text, "phase completed: revise duration=4s tasks(d=1 c=1 f=0 r=0) revisions=1 actions=downgrade_confidence=1") {
+		t.Fatalf("expected revise phase summary, got: %s", text)
+	}
+	if !strings.Contains(text, "claim adjudicated: claim_1 disposition=keep_with_caveat verdict=supported confidence=0.62 reason=evidence is mixed") {
+		t.Fatalf("expected claim adjudicated line, got: %s", text)
+	}
+	if !strings.Contains(text, "observation recorded: contradicted reopen=true followUpCaseId=case_followup summary=new evidence contradicts retained claim") {
+		t.Fatalf("expected observation line, got: %s", text)
+	}
+	if !strings.Contains(text, "phase completed: adjudicate duration=1s adjudications=1 dispositions=keep_with_caveat=1") {
+		t.Fatalf("expected adjudicate phase summary, got: %s", text)
+	}
+	if !strings.Contains(text, "phase completed: observe duration=1s observations=1") {
+		t.Fatalf("expected observe phase summary, got: %s", text)
+	}
+}
+
+func TestDebugOutputShowsPayloadAndArtifactPaths(t *testing.T) {
+	var stdout bytes.Buffer
+	output := NewOutput(&stdout, &bytes.Buffer{}, false, true, "/tmp/til-consensus-artifacts")
+	observer := output.EventObserver()
+
+	if err := observer.OnEvent(context.Background(), consensus.RunEvent{
+		Type: consensus.RunEventTaskDispatched,
+		At:   time.Date(2026, 4, 17, 12, 0, 0, 0, time.UTC).Format(time.RFC3339Nano),
+		Payload: map[string]any{
+			"agentId":     "verifier-codex",
+			"taskKind":    "semantic_verify",
+			"attempt":     1,
+			"maxAttempts": 2,
+		},
+	}); err != nil {
+		t.Fatalf("OnEvent debug dispatch failed: %v", err)
+	}
+
+	text := stdout.String()
+	if !strings.Contains(text, "[til-consensus][debug] task_dispatched payload=") {
+		t.Fatalf("expected debug payload line, got: %s", text)
+	}
+	if !strings.Contains(text, "provider artifacts input=/tmp/til-consensus-artifacts/input-verifier-codex-semantic_verify-<taskID>.json") {
+		t.Fatalf("expected debug artifact path, got: %s", text)
+	}
+}
+
+func TestOutputColorizesKeywordsWhenForced(t *testing.T) {
+	t.Setenv("FORCE_COLOR", "1")
+	t.Setenv("NO_COLOR", "")
+	t.Setenv("TERM", "xterm-256color")
+
+	var stdout bytes.Buffer
+	output := NewOutput(&stdout, &bytes.Buffer{}, true, false, "")
+	output.Printf("[til-consensus] task failed: verifier-a -> semantic_verify error=boom supported undetermined\n")
+
+	text := stdout.String()
+	for _, needle := range []string{
+		"\x1b[36m[til-consensus]\x1b[0m",
+		"\x1b[31mtask failed:\x1b[0m",
+		"\x1b[31merror=\x1b[0m",
+		"\x1b[32msupported\x1b[0m",
+		"\x1b[33mundetermined\x1b[0m",
+	} {
+		if !strings.Contains(text, needle) {
+			t.Fatalf("expected colored output to contain %q, got: %q", needle, text)
+		}
 	}
 }
 

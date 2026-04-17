@@ -28,6 +28,7 @@ const (
 	SectionObservations  = "observations"
 	SectionFollowups     = "followups"
 	SectionArtifacts     = "artifacts"
+	SectionDebug         = "debug"
 	SectionRounds        = "rounds"
 	SectionVotes         = "votes"
 	SectionStatements    = "statements"
@@ -40,6 +41,7 @@ type RunFiles struct {
 	LedgerPath   string
 	SummaryPath  string
 	ManifestPath string
+	EventsPath   string
 }
 
 type RenderOptions struct {
@@ -54,6 +56,7 @@ type Bundle struct {
 	Result   consensus.RunResult
 	Ledger   []consensus.EvidenceRecord
 	Manifest []consensus.ArtifactManifestEntry
+	Events   []consensus.RunEventRecord
 	Files    RunFiles
 	Missing  []string
 }
@@ -188,6 +191,20 @@ type ConvergenceView struct {
 	DissentSummary []string `json:"dissentSummary,omitempty"`
 }
 
+type DebugEventView struct {
+	Seq            int                    `json:"seq"`
+	LoggedAt       string                 `json:"loggedAt"`
+	EventAt        string                 `json:"eventAt,omitempty"`
+	Type           consensus.RunEventType `json:"type"`
+	Phase          string                 `json:"phase,omitempty"`
+	Summary        string                 `json:"summary"`
+	RawVerdict     string                 `json:"rawVerdict,omitempty"`
+	RawTaskVerdict string                 `json:"rawTaskVerdict,omitempty"`
+	Payload        map[string]any         `json:"payload,omitempty"`
+	PayloadPretty  string                 `json:"payloadPretty,omitempty"`
+	ArtifactHints  []string               `json:"artifactHints,omitempty"`
+}
+
 type RiskView struct {
 	Category string `json:"category"`
 	TargetID string `json:"targetId"`
@@ -216,6 +233,7 @@ type Document struct {
 	Votes             []VoteView         `json:"votes,omitempty"`
 	Statements        []StatementView    `json:"statements,omitempty"`
 	Convergence       *ConvergenceView   `json:"convergence,omitempty"`
+	DebugEvents       []DebugEventView   `json:"debugEvents,omitempty"`
 	Artifacts         []ArtifactView     `json:"artifacts,omitempty"`
 	Risks             []RiskView         `json:"risks,omitempty"`
 	Files             FileView           `json:"files"`
@@ -229,6 +247,7 @@ func InferRunFiles(resultPath string) RunFiles {
 		LedgerPath:   filepath.Join(runDir, "ledger.jsonl"),
 		SummaryPath:  filepath.Join(runDir, "summary.md"),
 		ManifestPath: filepath.Join(runDir, "artifacts", "manifest.jsonl"),
+		EventsPath:   filepath.Join(runDir, "events.jsonl"),
 	}
 }
 
@@ -249,10 +268,15 @@ func LoadBundle(files RunFiles) (Bundle, error) {
 	if err != nil {
 		return Bundle{}, fmt.Errorf("read artifact manifest: %w", err)
 	}
+	events, err := readOptionalJSONLNoMissing[consensus.RunEventRecord](files.EventsPath)
+	if err != nil {
+		return Bundle{}, fmt.Errorf("read events file: %w", err)
+	}
 	return Bundle{
 		Result:   result,
 		Ledger:   ledger,
 		Manifest: manifest,
+		Events:   events,
 		Files:    files,
 		Missing:  missing,
 	}, nil
@@ -270,6 +294,7 @@ func BuildDocument(bundle Bundle, options RenderOptions) Document {
 		Verifications:     limitVerifications(extractVerifications(bundle.Ledger), limit),
 		Observations:      buildObservations(bundle.Result, bundle.Files.RunDir, limit),
 		FollowUps:         buildFollowUps(bundle.Result, bundle.Files.RunDir, limit),
+		DebugEvents:       buildDebugEvents(bundle.Events, bundle.Files.RunDir),
 		Artifacts:         limitArtifacts(extractArtifacts(bundle.Manifest, bundle.Files.RunDir), limit),
 		Risks:             buildRisks(bundle.Result, bundle.Ledger),
 		Files: FileView{
@@ -552,6 +577,37 @@ func renderText(doc Document, verbose bool) string {
 		}
 	}
 
+	if shouldRenderSection(doc, requested, SectionDebug) {
+		writeTextHeading(&b, "Debug Events")
+		if len(doc.DebugEvents) == 0 {
+			b.WriteString("(无 debug 事件)\n")
+		}
+		for _, item := range doc.DebugEvents {
+			fmt.Fprintf(&b, "- #%d | %s | %s", item.Seq, firstNonEmpty(item.LoggedAt, item.EventAt), item.Type)
+			if item.Phase != "" {
+				fmt.Fprintf(&b, " | %s", item.Phase)
+			}
+			b.WriteString("\n")
+			if item.Summary != "" {
+				fmt.Fprintf(&b, "  %s\n", item.Summary)
+			}
+			if item.RawVerdict != "" {
+				fmt.Fprintf(&b, "  rawVerdict: %s\n", item.RawVerdict)
+			}
+			if item.RawTaskVerdict != "" {
+				fmt.Fprintf(&b, "  rawTaskVerdict: %s\n", item.RawTaskVerdict)
+			}
+			if len(item.ArtifactHints) > 0 {
+				fmt.Fprintf(&b, "  artifacts: %s\n", strings.Join(item.ArtifactHints, ", "))
+			}
+			if verbose && item.PayloadPretty != "" {
+				for _, line := range strings.Split(strings.TrimSpace(item.PayloadPretty), "\n") {
+					fmt.Fprintf(&b, "  %s\n", line)
+				}
+			}
+		}
+	}
+
 	if shouldRenderSection(doc, requested, SectionRounds) {
 		writeTextHeading(&b, "Rounds")
 		if len(doc.Rounds) == 0 {
@@ -695,6 +751,29 @@ func renderMarkdown(doc Document, verbose bool) string {
 		}
 		b.WriteString("\n")
 	}
+	if len(doc.DebugEvents) > 0 {
+		b.WriteString("## Debug Events\n\n")
+		for _, item := range doc.DebugEvents {
+			fmt.Fprintf(&b, "- `#%d` | `%s` | `%s`", item.Seq, firstNonEmpty(item.LoggedAt, item.EventAt), item.Type)
+			if item.Phase != "" {
+				fmt.Fprintf(&b, " | `%s`", item.Phase)
+			}
+			b.WriteString("\n")
+			if item.Summary != "" {
+				fmt.Fprintf(&b, "  %s\n", item.Summary)
+			}
+			if item.RawVerdict != "" {
+				fmt.Fprintf(&b, "  rawVerdict: `%s`\n", item.RawVerdict)
+			}
+			if item.RawTaskVerdict != "" {
+				fmt.Fprintf(&b, "  rawTaskVerdict: `%s`\n", item.RawTaskVerdict)
+			}
+			if len(item.ArtifactHints) > 0 {
+				fmt.Fprintf(&b, "  artifacts: `%s`\n", strings.Join(item.ArtifactHints, "`, `"))
+			}
+		}
+		b.WriteString("\n")
+	}
 	b.WriteString("## 风险与未决项\n\n")
 	if len(doc.Risks) == 0 {
 		b.WriteString("_无明显风险_\n\n")
@@ -812,6 +891,188 @@ func buildFollowUps(result consensus.RunResult, runDir string, limit int) []Foll
 		return out[:limit]
 	}
 	return out
+}
+
+func buildDebugEvents(records []consensus.RunEventRecord, runDir string) []DebugEventView {
+	if len(records) == 0 {
+		return nil
+	}
+	out := make([]DebugEventView, 0, len(records))
+	for _, record := range records {
+		payload := cloneMap(record.Event.Payload)
+		rawVerdict, rawTaskVerdict := extractDebugRawVerdicts(payload)
+		out = append(out, DebugEventView{
+			Seq:            record.Seq,
+			LoggedAt:       record.LoggedAt,
+			EventAt:        record.Event.At,
+			Type:           record.Event.Type,
+			Phase:          string(record.Event.Phase),
+			Summary:        summarizeDebugEvent(record.Event),
+			RawVerdict:     rawVerdict,
+			RawTaskVerdict: rawTaskVerdict,
+			Payload:        payload,
+			PayloadPretty:  prettyPayload(payload),
+			ArtifactHints:  debugArtifactHints(record.Event, runDir),
+		})
+	}
+	return out
+}
+
+func extractDebugRawVerdicts(payload map[string]any) (string, string) {
+	if len(payload) == 0 {
+		return "", ""
+	}
+	var metadata map[string]any
+	if rawMeta, ok := payload["metadata"]; ok {
+		metadata = cloneGenericMap(rawMeta)
+	}
+	rawVerdict := formatDebugValue(firstNonNil(
+		mapValue(metadata, "rawVerdict"),
+		payload["rawVerdict"],
+	))
+	rawTaskVerdict := formatDebugValue(firstNonNil(
+		mapValue(metadata, "rawTaskVerdict"),
+		payload["rawTaskVerdict"],
+	))
+	return rawVerdict, rawTaskVerdict
+}
+
+func summarizeDebugEvent(event consensus.RunEvent) string {
+	payload := event.Payload
+	switch event.Type {
+	case consensus.RunEventPhaseChanged:
+		return fmt.Sprintf("进入阶段 %s", event.Phase)
+	case consensus.RunEventTaskDispatched:
+		return fmt.Sprintf("%s -> %s 已派发", stringValue(payload, "agentId"), stringValue(payload, "taskKind"))
+	case consensus.RunEventTaskRetrying:
+		return fmt.Sprintf("%s -> %s 重试：%s", stringValue(payload, "agentId"), stringValue(payload, "taskKind"), firstNonEmpty(stringValue(payload, "error"), "未知原因"))
+	case consensus.RunEventTaskCompleted:
+		return fmt.Sprintf("%s -> %s 已完成", stringValue(payload, "agentId"), stringValue(payload, "taskKind"))
+	case consensus.RunEventTaskFailed:
+		return fmt.Sprintf("%s -> %s 失败：%s", stringValue(payload, "agentId"), stringValue(payload, "taskKind"), firstNonEmpty(stringValue(payload, "error"), "未知错误"))
+	case consensus.RunEventLedgerAppended:
+		return fmt.Sprintf("ledger 追加：%s -> %s", stringValue(payload, "kind"), firstNonEmpty(stringValue(payload, "claimId"), stringValue(payload, "entryId")))
+	case consensus.RunEventClaimRevised:
+		return fmt.Sprintf("claim %s revised：%s", stringValue(payload, "claimId"), stringValue(payload, "action"))
+	case consensus.RunEventClaimAdjudicated:
+		return fmt.Sprintf("claim %s adjudicated：%s", stringValue(payload, "claimId"), stringValue(payload, "disposition"))
+	case consensus.RunEventObservationAdded:
+		return fmt.Sprintf("observation %s：%s", stringValue(payload, "observationId"), stringValue(payload, "outcome"))
+	case consensus.RunEventSessionFinalized:
+		return fmt.Sprintf("session finalized：%s", firstNonEmpty(stringValue(payload, "terminalState"), stringValue(payload, "taskVerdict")))
+	case consensus.RunEventSessionFailed:
+		return fmt.Sprintf("session failed：%s", firstNonEmpty(stringValue(payload, "error"), "未知错误"))
+	default:
+		return compactPayload(payload)
+	}
+}
+
+func debugArtifactHints(event consensus.RunEvent, runDir string) []string {
+	if len(event.Payload) == 0 {
+		return nil
+	}
+	hints := make([]string, 0, 4)
+	if artifactPath := strings.TrimSpace(stringValue(event.Payload, "artifactPath")); artifactPath != "" {
+		hints = append(hints, displayCompanionPath(runDir, artifactPath))
+	}
+	if followUp := strings.TrimSpace(stringValue(event.Payload, "followUpArtifact")); followUp != "" {
+		hints = append(hints, displayCompanionPath(runDir, followUp))
+	}
+	taskKind := strings.TrimSpace(stringValue(event.Payload, "taskKind"))
+	agentID := strings.TrimSpace(stringValue(event.Payload, "agentId"))
+	if taskKind == "" || agentID == "" {
+		return uniqueStrings(hints)
+	}
+	taskID := strings.TrimSpace(stringValue(event.Payload, "taskId"))
+	if taskID == "" {
+		taskID = "<taskID>"
+	}
+	safeAgent := sanitizeFilename(agentID)
+	safeTask := sanitizeFilename(taskKind)
+	safeTaskID := sanitizeFilename(taskID)
+	baseDir := filepath.Join(runDir, "artifacts")
+	hints = append(hints, displayCompanionPath(runDir, filepath.Join(baseDir, fmt.Sprintf("input-%s-%s-%s.json", safeAgent, safeTask, safeTaskID))))
+	switch event.Type {
+	case consensus.RunEventTaskCompleted:
+		hints = append(hints, displayCompanionPath(runDir, filepath.Join(baseDir, fmt.Sprintf("raw-%s-%s-%s.json", safeAgent, safeTask, safeTaskID))))
+	case consensus.RunEventTaskFailed:
+		hints = append(hints,
+			displayCompanionPath(runDir, filepath.Join(baseDir, fmt.Sprintf("failure-%s-%s-%s.json", safeAgent, safeTask, safeTaskID))),
+			displayCompanionPath(runDir, filepath.Join(baseDir, fmt.Sprintf("raw-error-%s-%s-%s.txt", safeAgent, safeTask, safeTaskID))),
+		)
+	}
+	return uniqueStrings(hints)
+}
+
+func prettyPayload(payload map[string]any) string {
+	if len(payload) == 0 {
+		return ""
+	}
+	body, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return ""
+	}
+	return string(body)
+}
+
+func formatDebugValue(value any) string {
+	if value == nil {
+		return ""
+	}
+	switch typed := value.(type) {
+	case string:
+		return strings.TrimSpace(typed)
+	case fmt.Stringer:
+		return strings.TrimSpace(typed.String())
+	default:
+		body, err := json.Marshal(typed)
+		if err == nil {
+			return strings.TrimSpace(string(body))
+		}
+		return strings.TrimSpace(fmt.Sprint(typed))
+	}
+}
+
+func cloneMap(values map[string]any) map[string]any {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(values))
+	for key, value := range values {
+		out[key] = value
+	}
+	return out
+}
+
+func cloneGenericMap(value any) map[string]any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return cloneMap(typed)
+	case map[string]string:
+		out := make(map[string]any, len(typed))
+		for key, item := range typed {
+			out[key] = item
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func mapValue(values map[string]any, key string) any {
+	if len(values) == 0 {
+		return nil
+	}
+	return values[key]
+}
+
+func firstNonNil(values ...any) any {
+	for _, value := range values {
+		if value != nil {
+			return value
+		}
+	}
+	return nil
 }
 
 func primaryResult(result consensus.RunResult) string {
@@ -1108,6 +1369,8 @@ func shouldRenderSection(doc Document, requested map[string]bool, section string
 		return len(doc.Observations) > 0
 	case SectionFollowups:
 		return len(doc.FollowUps) > 0
+	case SectionDebug:
+		return false
 	case SectionRounds:
 		return doc.Overview.Mode == string(consensus.WorkflowModeFreeDebate) || doc.Overview.Mode == string(consensus.WorkflowModeDelphi)
 	case SectionVotes:
@@ -1165,6 +1428,53 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
+func compactPayload(payload map[string]any) string {
+	if len(payload) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(payload))
+	for key := range payload {
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		value := stringValue(payload, key)
+		if value == "" {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s=%s", key, value))
+	}
+	return strings.Join(parts, " ")
+}
+
+func stringValue(payload map[string]any, key string) string {
+	if len(payload) == 0 {
+		return ""
+	}
+	value, ok := payload[key]
+	if !ok || value == nil {
+		return ""
+	}
+	switch value := payload[key].(type) {
+	case string:
+		return strings.TrimSpace(value)
+	case fmt.Stringer:
+		return strings.TrimSpace(value.String())
+	default:
+		return strings.TrimSpace(fmt.Sprint(value))
+	}
+}
+
+func sanitizeFilename(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return "unknown"
+	}
+	replacer := strings.NewReplacer("/", "-", "\\", "-", " ", "-", ":", "-", "\n", "-", "\t", "-")
+	return replacer.Replace(trimmed)
+}
+
 func readJSONL[T any](path string) ([]T, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -1199,4 +1509,15 @@ func readOptionalJSONL[T any](path string, missingName string) ([]T, []string, e
 		return nil, []string{missingName}, nil
 	}
 	return nil, nil, err
+}
+
+func readOptionalJSONLNoMissing[T any](path string) ([]T, error) {
+	items, err := readJSONL[T](path)
+	if err == nil {
+		return items, nil
+	}
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	return nil, err
 }

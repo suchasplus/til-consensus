@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"math"
 	"os"
 	"os/exec"
@@ -417,6 +418,9 @@ func (v *CompositeVerifier) runSemanticVerification(ctx context.Context, req Ver
 	results := make([]VerificationResult, 0, len(typed.Output.Results))
 	mismatchedClaim := false
 	for _, item := range typed.Output.Results {
+		if item.TargetType != "" && item.TargetType != "claim" {
+			continue
+		}
 		itemClaimID := strings.TrimSpace(item.ClaimID)
 		if itemClaimID == "" {
 			itemClaimID = req.Claim.ClaimID
@@ -443,6 +447,7 @@ func (v *CompositeVerifier) runSemanticVerification(ctx context.Context, req Ver
 			Artifact:          awaited.Artifact,
 			VerdictSuggestion: item.Verdict,
 			Confidence:        item.Confidence,
+			Metadata:          maps.Clone(item.Metadata),
 		})
 	}
 	if len(results) == 0 && mismatchedClaim {

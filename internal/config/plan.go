@@ -24,6 +24,7 @@ type ResolvedRunPlan struct {
 	ErrorPath       string
 	ArtifactsDir    string
 	Verbose         bool
+	Debug           bool
 	StartRequest    consensus.StartRequest
 }
 
@@ -162,12 +163,13 @@ func ResolveRunPlan(loaded LoadedConfig, input RunInput, overrides RunOverrides,
 		SummaryPath:     artifactPaths.SummaryPath,
 		ErrorPath:       artifactPaths.ErrorPath,
 		ArtifactsDir:    artifactPaths.ArtifactsDir,
-		Verbose:         overrides.Verbose,
+		Verbose:         overrides.Verbose || overrides.Debug,
+		Debug:           overrides.Debug,
 		StartRequest:    normalized,
 	}, nil
 }
 
-func ResolveRunPlanForRequest(loaded LoadedConfig, request consensus.StartRequest, verbose bool) (ResolvedRunPlan, error) {
+func ResolveRunPlanForRequest(loaded LoadedConfig, request consensus.StartRequest, verbose bool, debug bool) (ResolvedRunPlan, error) {
 	normalized, err := consensus.NormalizeStartRequest(request)
 	if err != nil {
 		return ResolvedRunPlan{}, err
@@ -189,7 +191,8 @@ func ResolveRunPlanForRequest(loaded LoadedConfig, request consensus.StartReques
 		SummaryPath:     artifactPaths.SummaryPath,
 		ErrorPath:       artifactPaths.ErrorPath,
 		ArtifactsDir:    artifactPaths.ArtifactsDir,
-		Verbose:         verbose,
+		Verbose:         verbose || debug,
+		Debug:           debug,
 		StartRequest:    normalized,
 	}, nil
 }

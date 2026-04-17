@@ -186,6 +186,8 @@ func inferWebSection(sections []string) string {
 		return "observations"
 	case len(values) == 1 && values[0] == SectionFollowups:
 		return "followups"
+	case len(values) == 1 && values[0] == SectionDebug:
+		return "debug"
 	case slicesContainAny(values, SectionRounds, SectionVotes, SectionStatements, SectionConvergence):
 		return "workflow"
 	default:
@@ -259,6 +261,7 @@ func isSupportedWebAPISection(value string) bool {
 		SectionVerifications,
 		SectionObservations,
 		SectionFollowups,
+		SectionDebug,
 		SectionArtifacts,
 		SectionRounds,
 		SectionVotes,
@@ -284,6 +287,8 @@ func expandWebSection(value string) []string {
 		return []string{SectionObservations}
 	case SectionFollowups:
 		return []string{SectionFollowups}
+	case SectionDebug:
+		return []string{SectionDebug}
 	case "files":
 		return []string{SectionArtifacts}
 	case "workflow":

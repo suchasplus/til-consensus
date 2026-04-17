@@ -71,6 +71,38 @@ til-consensus view --config ./til-consensus.yaml --format text
 
 如果同时传了 `--web`，`--format` 会被忽略；页面固定返回 HTML，数据接口固定返回 JSON。
 
+当 `--format text` 且 stdout 连接到真实终端时，`view` 现在也会自动给关键字加颜色，例如：
+
+- 标题
+  - `运行头部`
+  - `关键 Claims`
+  - `验证明细`
+  - `风险与未决项`
+  - `Debug Events`
+- 关键状态词
+  - `supported`
+  - `keep`
+  - `keep_with_caveat`
+  - `refuted`
+  - `reject`
+  - `undetermined`
+  - `inconclusive`
+  - `requires_human_review`
+
+如果你输出的是：
+
+- `--format markdown`
+- `--format json`
+
+则保持纯文本，不插入 ANSI 颜色码。
+
+你也可以用环境变量控制：
+
+- `NO_COLOR=1`
+  - 关闭终端彩色输出
+- `FORCE_COLOR=1`
+  - 强制开启终端彩色输出
+
 ## 通用 section
 
 对所有 mode 都可用：
@@ -78,6 +110,7 @@ til-consensus view --config ./til-consensus.yaml --format text
 - `overview`
 - `observations`
 - `followups`
+- `debug`
 - `artifacts`
 
 示例：
@@ -95,6 +128,31 @@ til-consensus view \
   --section followups \
   --verbose
 ```
+
+如果你要在查看结果时直接展开运行期 debug 事件：
+
+```bash
+til-consensus view \
+  --config ./til-consensus.yaml \
+  --section debug \
+  --verbose
+```
+
+`debug` 会读取同目录下的 `events.jsonl`，显示每条运行事件的时间、类型、payload，以及推导出的 provider artifact 路径提示。
+
+如果事件 metadata 里带有原始模型语义，`debug` 现在还会显式显示：
+
+- `rawVerdict`
+- `rawTaskVerdict`
+
+这样排查模型把：
+
+- `rejected`
+- `upheld`
+- `insufficient_for_claim`
+- `taskVerdict: { verdict: ..., rationale: ... }`
+
+这类外部词表映射成内部 verdict 的过程时，不需要再手动翻完整 payload。
 
 ## `adjudication` 专用 section
 
@@ -219,6 +277,7 @@ til-consensus view \
 - `Evidence`
 - `Observations`
 - `Follow-ups`
+- `Debug`
 - `Workflow`
 - `Files`
 
@@ -229,6 +288,7 @@ til-consensus view \
 - limit 调整
 - verbose 开关
 - `<details>` 折叠
+- Debug 区块直接展示 `rawVerdict` / `rawTaskVerdict`
 
 数据接口：
 

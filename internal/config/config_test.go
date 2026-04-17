@@ -282,7 +282,7 @@ func TestResolveRunPlanForRequestAndSessionStoreDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NormalizeStartRequest failed: %v", err)
 	}
-	plan, err := ResolveRunPlanForRequest(loaded, request, true)
+	plan, err := ResolveRunPlanForRequest(loaded, request, true, false)
 	if err != nil {
 		t.Fatalf("ResolveRunPlanForRequest failed: %v", err)
 	}

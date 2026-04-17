@@ -107,10 +107,12 @@ func (SemanticVerificationTask) Kind() TaskKind   { return TaskKindSemanticVerif
 func (t SemanticVerificationTask) Meta() TaskMeta { return t.TaskMeta }
 
 type SemanticVerificationFinding struct {
-	ClaimID    string       `json:"claimId"`
-	Verdict    ClaimVerdict `json:"verdict"`
-	Confidence float64      `json:"confidence,omitempty"`
-	Rationale  string       `json:"rationale"`
+	ClaimID    string         `json:"claimId"`
+	TargetType string         `json:"targetType,omitempty"`
+	Verdict    ClaimVerdict   `json:"verdict"`
+	Confidence float64        `json:"confidence,omitempty"`
+	Rationale  string         `json:"rationale"`
+	Metadata   map[string]any `json:"metadata,omitempty"`
 }
 
 type SemanticVerificationOutput struct {
@@ -133,6 +135,7 @@ type ClaimRevisionDraft struct {
 	BoundaryConditions []string       `json:"boundaryConditions,omitempty"`
 	Reason             string         `json:"reason,omitempty"`
 	Unresolved         bool           `json:"unresolved,omitempty"`
+	Metadata           map[string]any `json:"metadata,omitempty"`
 }
 
 type ReviseTask struct {
@@ -177,6 +180,7 @@ type ArbiterTaskOutput struct {
 	TaskVerdict TaskVerdict          `json:"taskVerdict"`
 	Decisions   []ArbiterDecision    `json:"decisions"`
 	Records     []AdjudicationRecord `json:"records,omitempty"`
+	Metadata    map[string]any       `json:"metadata,omitempty"`
 }
 
 type ArbiterTaskResult struct {

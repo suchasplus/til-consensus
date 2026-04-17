@@ -19,6 +19,7 @@ til-consensus view --web
 - `Evidence`
 - `Observations`
 - `Follow-ups`
+- `Debug`
 - `Workflow`
 - `Files`
 
@@ -28,6 +29,12 @@ til-consensus view --web
   - 聚合 `Verifications`、`Challenges`、`Artifacts`、`Risks`
 - `Workflow`
   - 按 mode 展示 `free_debate` 或 `delphi` 的额外结构化块
+- `Debug`
+  - 展示 `events.jsonl` 里的运行事件
+  - 会显式显示：
+    - `rawVerdict`
+    - `rawTaskVerdict`
+  - 也会提示关联的 provider artifact 路径
 
 ## HTTP 接口
 
@@ -60,6 +67,12 @@ til-consensus view --web
 - 自动刷新 / websocket
 - 多用户访问控制
 - 默认自动打开浏览器
+
+如果你明确希望自动打开默认浏览器，可以显式加：
+
+```bash
+til-consensus view --web --open
+```
 
 ## 后续更适合继续做的事
 

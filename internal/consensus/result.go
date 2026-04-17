@@ -335,14 +335,16 @@ type AdjudicationRecord struct {
 	BlockingRisks   []string         `json:"blockingRisks,omitempty"`
 	Actionability   Actionability    `json:"actionability,omitempty"`
 	EvidenceRefs    []string         `json:"evidenceRefs,omitempty"`
+	Metadata        map[string]any   `json:"metadata,omitempty"`
 }
 
 type ArbiterDecision struct {
-	ClaimID      string       `json:"claimId"`
-	Verdict      ClaimVerdict `json:"verdict"`
-	Confidence   float64      `json:"confidence,omitempty"`
-	Rationale    string       `json:"rationale,omitempty"`
-	EvidenceRefs []string     `json:"evidenceRefs,omitempty"`
+	ClaimID      string         `json:"claimId"`
+	Verdict      ClaimVerdict   `json:"verdict"`
+	Confidence   float64        `json:"confidence,omitempty"`
+	Rationale    string         `json:"rationale,omitempty"`
+	EvidenceRefs []string       `json:"evidenceRefs,omitempty"`
+	Metadata     map[string]any `json:"metadata,omitempty"`
 }
 
 type ArbiterReport struct {
@@ -350,6 +352,7 @@ type ArbiterReport struct {
 	Summary     string               `json:"summary"`
 	Decisions   []ArbiterDecision    `json:"decisions"`
 	Records     []AdjudicationRecord `json:"records,omitempty"`
+	Metadata    map[string]any       `json:"metadata,omitempty"`
 }
 
 type AdjudicationReport struct {
@@ -403,6 +406,7 @@ type ClaimRevisionRecord struct {
 	Reason             string         `json:"reason,omitempty"`
 	EvidenceRefs       []string       `json:"evidenceRefs,omitempty"`
 	Round              int            `json:"round"`
+	Metadata           map[string]any `json:"metadata,omitempty"`
 }
 
 type ObservationRecord struct {

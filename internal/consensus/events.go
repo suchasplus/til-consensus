@@ -10,6 +10,9 @@ const (
 	RunEventTaskCompleted    RunEventType = "task_completed"
 	RunEventTaskFailed       RunEventType = "task_failed"
 	RunEventLedgerAppended   RunEventType = "ledger_appended"
+	RunEventClaimRevised     RunEventType = "claim_revised"
+	RunEventClaimAdjudicated RunEventType = "claim_adjudicated"
+	RunEventObservationAdded RunEventType = "observation_added"
 	RunEventSessionFinalized RunEventType = "session_finalized"
 	RunEventSessionFailed    RunEventType = "session_failed"
 )

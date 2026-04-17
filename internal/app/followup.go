@@ -22,6 +22,7 @@ func newFollowUpCommand() *cli.Command {
 					&cli.StringFlag{Name: "config", Usage: "配置文件路径"},
 					&cli.StringFlag{Name: "artifact", Usage: "follow-up case artifact 路径", Required: true},
 					&cli.BoolFlag{Name: "verbose", Usage: "输出详细事件"},
+					&cli.BoolFlag{Name: "debug", Usage: "输出完整事件 payload 以及 provider 输入/输出 artifact 路径"},
 				},
 				Action: func(ctx context.Context, cmd *cli.Command) error {
 					return runFollowUpCommand(ctx, cmd)
@@ -48,7 +49,7 @@ func runFollowUpCommand(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
-	plan, err := config.ResolveRunPlanForRequest(loaded, followup.Request, cmd.Bool("verbose"))
+	plan, err := config.ResolveRunPlanForRequest(loaded, followup.Request, cmd.Bool("verbose"), cmd.Bool("debug"))
 	if err != nil {
 		return err
 	}

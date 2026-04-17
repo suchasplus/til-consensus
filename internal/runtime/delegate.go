@@ -82,19 +82,19 @@ func (d *Delegate) Dispatch(ctx context.Context, task consensus.Task) (consensus
 	d.tasks[taskID] = &taskEntry{cancel: cancel, done: done, task: task}
 	d.mu.Unlock()
 
-	go func() {
-		inputArtifact, inputErr := d.persistTaskInput(task, agent)
+	go func(taskID string) {
+		inputArtifact, inputErr := d.persistTaskInput(taskID, task, agent)
 		if inputErr != nil {
 			done <- taskOutcome{err: inputErr}
 			return
 		}
 		raw, err := runner.RunTask(taskCtx, ProviderTaskRequest{Task: task, Agent: agent})
 		if err != nil {
-			artifact, _ := d.persistTaskFailure(task, agent, err, inputArtifact)
+			artifact, _ := d.persistTaskFailure(taskID, task, agent, err, inputArtifact)
 			done <- taskOutcome{artifact: artifact, err: err}
 			return
 		}
-		artifact, persistErr := d.persistRawOutput(task, raw)
+		artifact, persistErr := d.persistRawOutput(taskID, task, raw)
 		if persistErr != nil {
 			done <- taskOutcome{err: persistErr}
 			return
@@ -102,13 +102,13 @@ func (d *Delegate) Dispatch(ctx context.Context, task consensus.Task) (consensus
 		result, err := NormalizeTaskOutput(task, raw)
 		if err != nil {
 			if parseErr, ok := err.(*JSONParseError); ok {
-				artifact, _ = d.persistRawParseError(task, parseErr)
+				artifact, _ = d.persistRawParseError(taskID, task, parseErr)
 			}
 			done <- taskOutcome{artifact: artifact, err: err}
 			return
 		}
 		done <- taskOutcome{result: result, artifact: artifact}
-	}()
+	}(taskID)
 	return consensus.DispatchReceipt{
 		TaskID:  taskID,
 		AgentID: task.Meta().AgentID,
@@ -230,7 +230,7 @@ func (d *Delegate) getRunnerLocked(agent ResolvedAgentRuntime) (ProviderRunner, 
 	return runner, nil
 }
 
-func (d *Delegate) persistRawOutput(task consensus.Task, raw any) (*consensus.ArtifactRef, error) {
+func (d *Delegate) persistRawOutput(taskID string, task consensus.Task, raw any) (*consensus.ArtifactRef, error) {
 	if strings.TrimSpace(d.artifactDir) == "" {
 		return nil, nil
 	}
@@ -250,11 +250,11 @@ func (d *Delegate) persistRawOutput(task consensus.Task, raw any) (*consensus.Ar
 		}
 		body = append(body, '\n')
 	}
-	filename := filepath.Join(d.artifactDir, buildRawFilename(task))
+	filename := filepath.Join(d.artifactDir, buildRawFilename(task, taskID))
 	return writeArtifact(filename, body, mediaType)
 }
 
-func (d *Delegate) persistRawParseError(task consensus.Task, parseErr *JSONParseError) (*consensus.ArtifactRef, error) {
+func (d *Delegate) persistRawParseError(taskID string, task consensus.Task, parseErr *JSONParseError) (*consensus.ArtifactRef, error) {
 	if strings.TrimSpace(d.artifactDir) == "" {
 		return nil, nil
 	}
@@ -272,11 +272,11 @@ func (d *Delegate) persistRawParseError(task consensus.Task, parseErr *JSONParse
 		parseErr.ExtractedCandidate,
 		"",
 	}, "\n")
-	filename := filepath.Join(d.artifactDir, buildParseErrorFilename(task))
+	filename := filepath.Join(d.artifactDir, buildParseErrorFilename(task, taskID))
 	return writeArtifact(filename, []byte(body), "text/plain")
 }
 
-func (d *Delegate) persistTaskInput(task consensus.Task, agent ResolvedAgentRuntime) (*consensus.ArtifactRef, error) {
+func (d *Delegate) persistTaskInput(taskID string, task consensus.Task, agent ResolvedAgentRuntime) (*consensus.ArtifactRef, error) {
 	if strings.TrimSpace(d.artifactDir) == "" {
 		return nil, nil
 	}
@@ -296,11 +296,11 @@ func (d *Delegate) persistTaskInput(task consensus.Task, agent ResolvedAgentRunt
 		return nil, fmt.Errorf("marshal task input: %w", err)
 	}
 	body = append(body, '\n')
-	filename := filepath.Join(d.artifactDir, buildInputFilename(task))
+	filename := filepath.Join(d.artifactDir, buildInputFilename(task, taskID))
 	return writeArtifact(filename, body, "application/json")
 }
 
-func (d *Delegate) persistTaskFailure(task consensus.Task, agent ResolvedAgentRuntime, err error, inputArtifact *consensus.ArtifactRef) (*consensus.ArtifactRef, error) {
+func (d *Delegate) persistTaskFailure(taskID string, task consensus.Task, agent ResolvedAgentRuntime, err error, inputArtifact *consensus.ArtifactRef) (*consensus.ArtifactRef, error) {
 	if strings.TrimSpace(d.artifactDir) == "" {
 		return nil, nil
 	}
@@ -315,6 +315,7 @@ func (d *Delegate) persistTaskFailure(task consensus.Task, agent ResolvedAgentRu
 			"providerModel": agent.ProviderModel,
 		},
 		"task": map[string]any{
+			"taskId":    taskID,
 			"kind":      task.Kind(),
 			"requestId": task.Meta().RequestID,
 			"sessionId": task.Meta().SessionID,
@@ -335,28 +336,28 @@ func (d *Delegate) persistTaskFailure(task consensus.Task, agent ResolvedAgentRu
 		return nil, fmt.Errorf("marshal task failure: %w", marshalErr)
 	}
 	body = append(body, '\n')
-	filename := filepath.Join(d.artifactDir, buildFailureFilename(task))
+	filename := filepath.Join(d.artifactDir, buildFailureFilename(task, taskID))
 	return writeArtifact(filename, body, "application/json")
 }
 
-func buildRawFilename(task consensus.Task) string {
+func buildRawFilename(task consensus.Task, taskID string) string {
 	safeAgent := sanitizeFilename(task.Meta().AgentID)
-	return fmt.Sprintf("raw-%s-%s.json", safeAgent, task.Kind())
+	return fmt.Sprintf("raw-%s-%s-%s.json", safeAgent, task.Kind(), sanitizeFilename(taskID))
 }
 
-func buildInputFilename(task consensus.Task) string {
+func buildInputFilename(task consensus.Task, taskID string) string {
 	safeAgent := sanitizeFilename(task.Meta().AgentID)
-	return fmt.Sprintf("input-%s-%s.json", safeAgent, task.Kind())
+	return fmt.Sprintf("input-%s-%s-%s.json", safeAgent, task.Kind(), sanitizeFilename(taskID))
 }
 
-func buildParseErrorFilename(task consensus.Task) string {
+func buildParseErrorFilename(task consensus.Task, taskID string) string {
 	safeAgent := sanitizeFilename(task.Meta().AgentID)
-	return fmt.Sprintf("raw-error-%s-%s.txt", safeAgent, task.Kind())
+	return fmt.Sprintf("raw-error-%s-%s-%s.txt", safeAgent, task.Kind(), sanitizeFilename(taskID))
 }
 
-func buildFailureFilename(task consensus.Task) string {
+func buildFailureFilename(task consensus.Task, taskID string) string {
 	safeAgent := sanitizeFilename(task.Meta().AgentID)
-	return fmt.Sprintf("failure-%s-%s.json", safeAgent, task.Kind())
+	return fmt.Sprintf("failure-%s-%s-%s.json", safeAgent, task.Kind(), sanitizeFilename(taskID))
 }
 
 func writeArtifact(path string, body []byte, mediaType string) (*consensus.ArtifactRef, error) {

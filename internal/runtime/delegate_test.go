@@ -141,7 +141,7 @@ func TestDelegatePersistsInputAndFailureArtifacts(t *testing.T) {
 	if awaited.OK || awaited.Artifact == nil {
 		t.Fatalf("expected failed task with artifact, got %#v", awaited)
 	}
-	inputPath := filepath.Join(tmp, "input-proposer-a-propose.json")
+	inputPath := filepath.Join(tmp, "input-proposer-a-propose-"+receipt.TaskID+".json")
 	if _, err := os.Stat(inputPath); err != nil {
 		t.Fatalf("expected input artifact: %v", err)
 	}
@@ -151,5 +151,64 @@ func TestDelegatePersistsInputAndFailureArtifacts(t *testing.T) {
 	}
 	if !strings.Contains(string(body), `"class": "command_exit"`) {
 		t.Fatalf("expected command_exit classification, got %s", string(body))
+	}
+}
+
+func TestDelegateUsesUniqueArtifactPathsPerTask(t *testing.T) {
+	tmp := t.TempDir()
+	delegate, err := NewDelegate(config.Normalize(config.Config{
+		SchemaVersion: 1,
+		Providers: map[string]config.ProviderConfig{
+			"mock": {
+				Type:   config.ProviderTypeMock,
+				Models: map[string]config.ProviderModelConfig{"default": {ProviderModel: "mock"}},
+			},
+		},
+		Agents: []config.AgentConfig{
+			{ID: "proposer-a", Provider: "mock", Model: "default"},
+		},
+		Roles: config.RolesConfig{
+			Proposers: []string{"proposer-a"},
+		},
+	}), tmp)
+	if err != nil {
+		t.Fatalf("NewDelegate failed: %v", err)
+	}
+
+	dispatchAndAwait := func(req string) (*consensus.ArtifactRef, string) {
+		t.Helper()
+		receipt, err := delegate.Dispatch(context.Background(), consensus.ProposalTask{
+			TaskMeta: consensus.TaskMeta{
+				RequestID: req,
+				SessionID: "session-" + req,
+				AgentID:   "proposer-a",
+			},
+		})
+		if err != nil {
+			t.Fatalf("Dispatch failed: %v", err)
+		}
+		awaited, err := delegate.Await(context.Background(), receipt.TaskID, time.Second)
+		if err != nil {
+			t.Fatalf("Await failed: %v", err)
+		}
+		if !awaited.OK || awaited.Artifact == nil {
+			t.Fatalf("expected artifact, got %#v", awaited)
+		}
+		return awaited.Artifact, receipt.TaskID
+	}
+
+	firstArtifact, firstTaskID := dispatchAndAwait("req-1")
+	secondArtifact, secondTaskID := dispatchAndAwait("req-2")
+	if firstArtifact.Path == secondArtifact.Path {
+		t.Fatalf("expected unique artifact paths, got %s", firstArtifact.Path)
+	}
+	if !strings.Contains(firstArtifact.Path, firstTaskID) || !strings.Contains(secondArtifact.Path, secondTaskID) {
+		t.Fatalf("expected task ids in artifact paths: %s / %s", firstArtifact.Path, secondArtifact.Path)
+	}
+	if _, err := os.Stat(firstArtifact.Path); err != nil {
+		t.Fatalf("first artifact missing: %v", err)
+	}
+	if _, err := os.Stat(secondArtifact.Path); err != nil {
+		t.Fatalf("second artifact missing: %v", err)
 	}
 }

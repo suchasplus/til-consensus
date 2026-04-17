@@ -110,7 +110,7 @@ func NormalizeTaskOutputFromText(task consensus.Task, text string) (consensus.Ta
 }
 
 func normalizeTaskOutputFromJSON(task consensus.Task, payload []byte) (consensus.TaskResult, error) {
-	normalizedPayload, err := coerceTaskOutputNumericStrings(payload)
+	normalizedPayload, err := normalizeTaskOutputPayload(task, payload)
 	if err != nil {
 		return nil, fmt.Errorf("normalize task output payload: %w", err)
 	}
@@ -266,9 +266,10 @@ var (
 		"lastRound":     {},
 		"round":         {},
 	}
+	claimStatementAliases = []string{"claim", "text", "statementText"}
 )
 
-func coerceTaskOutputNumericStrings(payload []byte) ([]byte, error) {
+func normalizeTaskOutputPayload(task consensus.Task, payload []byte) ([]byte, error) {
 	decoder := json.NewDecoder(bytes.NewReader(payload))
 	decoder.UseNumber()
 
@@ -280,6 +281,7 @@ func coerceTaskOutputNumericStrings(payload []byte) ([]byte, error) {
 		return nil, fmt.Errorf("unexpected trailing data: %w", err)
 	}
 
+	normalizeTaskShape(task, value)
 	coerceNumericStrings(value)
 
 	normalized, err := json.Marshal(value)
@@ -289,9 +291,152 @@ func coerceTaskOutputNumericStrings(payload []byte) ([]byte, error) {
 	return normalized, nil
 }
 
+func normalizeTaskShape(task consensus.Task, value any) {
+	root, ok := value.(map[string]any)
+	if !ok {
+		return
+	}
+	switch task.(type) {
+	case consensus.ProposalTask, consensus.InitialProposalTask:
+		normalizeClaimDraftList(root["claims"])
+	case consensus.SemanticVerificationTask:
+		normalizeSemanticResults(root["results"])
+	case consensus.ReviseTask:
+		normalizeRevisionDrafts(root["revisions"])
+	case consensus.ArbiterTask:
+		normalizeArbiterOutput(root)
+	}
+}
+
+func normalizeClaimDraftList(value any) {
+	items, ok := value.([]any)
+	if !ok {
+		return
+	}
+	for _, item := range items {
+		entry, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		normalizeOutputAliases(entry)
+	}
+}
+
+func normalizeSemanticResults(value any) {
+	items, ok := value.([]any)
+	if !ok {
+		return
+	}
+	for _, item := range items {
+		entry, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		targetType := strings.ToLower(strings.TrimSpace(stringMapValue(entry, "targetType")))
+		rawVerdict := strings.TrimSpace(stringMapValue(entry, "verdict"))
+		if _, ok := entry["claimId"]; !ok {
+			if targetID := firstNonEmpty(stringMapValue(entry, "targetId"), stringMapValue(entry, "claim")); targetID != "" && (targetType == "" || targetType == "claim") {
+				entry["claimId"] = targetID
+			}
+		}
+		if _, ok := entry["rationale"]; !ok {
+			if rationale := firstNonEmpty(stringMapValue(entry, "reasoning"), stringMapValue(entry, "reason")); rationale != "" {
+				entry["rationale"] = rationale
+			}
+		}
+		if verdict := normalizeClaimVerdictString(rawVerdict); verdict != "" {
+			entry["verdict"] = verdict
+		}
+		attachMetadata(entry, map[string]any{
+			"rawVerdict":  rawVerdict,
+			"rawTargetId": stringMapValue(entry, "targetId"),
+		})
+	}
+}
+
+func normalizeRevisionDrafts(value any) {
+	items, ok := value.([]any)
+	if !ok {
+		return
+	}
+	for _, item := range items {
+		entry, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		rawVerdict := strings.TrimSpace(stringMapValue(entry, "verdict"))
+		if _, ok := entry["targetClaimId"]; !ok {
+			if claimID := firstNonEmpty(stringMapValue(entry, "claimId"), stringMapValue(entry, "targetId")); claimID != "" {
+				entry["targetClaimId"] = claimID
+			}
+		}
+		if _, ok := entry["reason"]; !ok {
+			if reason := firstNonEmpty(stringMapValue(entry, "rationale"), stringMapValue(entry, "reasoning")); reason != "" {
+				entry["reason"] = reason
+			}
+		}
+		if verdict := normalizeClaimVerdictString(rawVerdict); verdict == string(consensus.ClaimVerdictUndetermined) {
+			if _, ok := entry["unresolved"]; !ok {
+				entry["unresolved"] = true
+			}
+		}
+		attachMetadata(entry, map[string]any{
+			"rawVerdict": rawVerdict,
+			"rawClaimId": stringMapValue(entry, "claimId"),
+		})
+	}
+}
+
+func normalizeArbiterOutput(root map[string]any) {
+	metadata := map[string]any{}
+	if rawTaskVerdict, ok := root["taskVerdict"].(map[string]any); ok {
+		metadata["rawTaskVerdict"] = cloneAnyMap(rawTaskVerdict)
+		if verdict := normalizeTaskVerdictString(stringMapValue(rawTaskVerdict, "verdict")); verdict != "" {
+			root["taskVerdict"] = verdict
+		}
+	}
+	items, ok := root["decisions"].([]any)
+	if !ok {
+		return
+	}
+	for _, item := range items {
+		entry, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		rawVerdict := strings.TrimSpace(stringMapValue(entry, "verdict"))
+		if _, ok := entry["claimId"]; !ok {
+			if claimID := firstNonEmpty(stringMapValue(entry, "targetClaimId"), stringMapValue(entry, "targetId")); claimID != "" {
+				entry["claimId"] = claimID
+			}
+		}
+		if _, ok := entry["rationale"]; !ok {
+			if rationale := firstNonEmpty(stringMapValue(entry, "reasoning"), stringMapValue(entry, "reason")); rationale != "" {
+				entry["rationale"] = rationale
+			}
+		}
+		if _, ok := entry["evidenceRefs"]; !ok {
+			if refs, ok := entry["keyEvidenceRefs"]; ok {
+				entry["evidenceRefs"] = refs
+			}
+		}
+		if verdict := normalizeClaimVerdictString(rawVerdict); verdict != "" {
+			entry["verdict"] = verdict
+		}
+		attachMetadata(entry, map[string]any{
+			"rawVerdict":       rawVerdict,
+			"rawTargetClaimId": stringMapValue(entry, "targetClaimId"),
+		})
+	}
+	if len(metadata) > 0 {
+		attachMetadata(root, metadata)
+	}
+}
+
 func coerceNumericStrings(value any) {
 	switch typed := value.(type) {
 	case map[string]any:
+		normalizeOutputAliases(typed)
 		for key, item := range typed {
 			switch raw := item.(type) {
 			case string:
@@ -317,16 +462,148 @@ func coerceNumericStrings(value any) {
 	}
 }
 
+func normalizeOutputAliases(values map[string]any) {
+	if values == nil {
+		return
+	}
+	if _, ok := values["statement"]; !ok {
+		for _, key := range claimStatementAliases {
+			if raw, ok := values[key]; ok {
+				if text, ok := raw.(string); ok && strings.TrimSpace(text) != "" {
+					values["statement"] = text
+					break
+				}
+			}
+		}
+	}
+}
+
+func normalizeClaimVerdictString(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "unknown":
+		return ""
+	case "supported", "support", "upheld", "relevant", "partially_supported", "partially-supported":
+		return string(consensus.ClaimVerdictSupported)
+	case "refuted", "rejected", "reject", "not_supported", "not-supported", "overstated":
+		return string(consensus.ClaimVerdictRefuted)
+	case "insufficient_for_claim", "insufficient-for-claim", "insufficient_evidence", "insufficient-evidence":
+		return string(consensus.ClaimVerdictInsufficientEvidence)
+	case "undetermined", "uncertain", "inconclusive", "mixed":
+		return string(consensus.ClaimVerdictUndetermined)
+	default:
+		return raw
+	}
+}
+
+func normalizeTaskVerdictString(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "unknown":
+		return ""
+	case "supported", "support", "keep":
+		return string(consensus.TaskVerdictSupported)
+	case "partially_supported", "partially-supported", "keep_with_caveat", "keep-with-caveat", "mixed":
+		return string(consensus.TaskVerdictPartiallySupported)
+	case "undetermined", "unresolved", "insufficient_evidence", "insufficient-evidence":
+		return string(consensus.TaskVerdictUndetermined)
+	case "failed", "reject", "rejected":
+		return string(consensus.TaskVerdictFailed)
+	default:
+		return raw
+	}
+}
+
 func parseFlexibleFloat(raw string) (float64, bool) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
 		return 0, false
+	}
+	if value, ok := parseConfidenceLabel(trimmed); ok {
+		return value, true
+	}
+	if strings.HasSuffix(trimmed, "%") {
+		percent := strings.TrimSpace(strings.TrimSuffix(trimmed, "%"))
+		value, err := strconv.ParseFloat(percent, 64)
+		if err != nil {
+			return 0, false
+		}
+		return value / 100, true
 	}
 	value, err := strconv.ParseFloat(trimmed, 64)
 	if err != nil {
 		return 0, false
 	}
 	return value, true
+}
+
+func stringMapValue(values map[string]any, key string) string {
+	if values == nil {
+		return ""
+	}
+	raw, ok := values[key]
+	if !ok || raw == nil {
+		return ""
+	}
+	switch typed := raw.(type) {
+	case string:
+		return strings.TrimSpace(typed)
+	default:
+		return strings.TrimSpace(fmt.Sprint(typed))
+	}
+}
+
+func attachMetadata(values map[string]any, additions map[string]any) {
+	if values == nil || len(additions) == 0 {
+		return
+	}
+	meta, _ := values["metadata"].(map[string]any)
+	if meta == nil {
+		meta = map[string]any{}
+		values["metadata"] = meta
+	}
+	for key, value := range additions {
+		if value == nil {
+			continue
+		}
+		switch typed := value.(type) {
+		case string:
+			if strings.TrimSpace(typed) == "" {
+				continue
+			}
+		}
+		meta[key] = value
+	}
+}
+
+func cloneAnyMap(values map[string]any) map[string]any {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(values))
+	for key, value := range values {
+		out[key] = value
+	}
+	return out
+}
+
+func parseConfidenceLabel(raw string) (float64, bool) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "very_low", "very-low", "very low":
+		return 0.15, true
+	case "low":
+		return 0.35, true
+	case "medium", "moderate":
+		return 0.6, true
+	case "medium_high", "medium-high", "medium high":
+		return 0.7, true
+	case "high":
+		return 0.82, true
+	case "very_high", "very-high", "very high":
+		return 0.93, true
+	case "uncertain", "unknown":
+		return 0.5, true
+	default:
+		return 0, false
+	}
 }
 
 func parseFlexibleInt(raw string) (int64, bool) {

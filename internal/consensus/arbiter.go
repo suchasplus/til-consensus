@@ -3,6 +3,7 @@ package consensus
 import (
 	"context"
 	"fmt"
+	"maps"
 	"math"
 	"strings"
 	"time"
@@ -74,6 +75,7 @@ func (a *DefaultArbiter) tryDelegateArbiter(ctx context.Context, input ArbiterIn
 		Summary:     strings.TrimSpace(typed.Output.Summary),
 		Decisions:   typed.Output.Decisions,
 		Records:     typed.Output.Records,
+		Metadata:    maps.Clone(typed.Output.Metadata),
 	}
 	if len(report.Records) == 0 {
 		report.Records = deriveRecordsFromDecisions(input.Request, input.Claims, report.Decisions)
@@ -269,6 +271,7 @@ func deriveRecordsFromDecisions(request StartRequest, claims []ClaimNode, decisi
 			FinalConfidence: decision.Confidence,
 			Actionability:   actionability,
 			EvidenceRefs:    append([]string(nil), decision.EvidenceRefs...),
+			Metadata:        maps.Clone(decision.Metadata),
 		})
 	}
 	return out
