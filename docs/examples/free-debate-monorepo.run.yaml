@@ -1,0 +1,43 @@
+request_id: free-debate-monorepo-001
+
+mode: free_debate
+
+task_spec:
+  goal: 评估当前微服务体系在未来 12 个月内，是更适合维持 polyrepo，还是逐步收敛到 monorepo
+  task_type: strategy
+  success_criteria:
+    - 必须明确主要支持理由和主要反对理由
+    - 必须指出适用前提，而不是给绝对化结论
+    - 必须保留尚未解决的分歧点
+  materials:
+    - id: current-repo-shape
+      title: 当前仓库结构
+      kind: text
+      content: |
+        当前共有 36 个活跃代码仓库，其中 24 个服务仓库、6 个前端仓库、6 个基础设施与共享组件仓库。
+        跨仓库改动通常需要 3 到 5 个 PR，依赖升级和契约变更需要多个团队同步排期。
+        过去两个季度内，跨仓库重构平均需要 6 个工作日才能完成合并与验证。
+    - id: team-constraints
+      title: 团队约束
+      kind: text
+      content: |
+        平台团队 3 人，需要同时维护 CI、共享库和构建缓存。
+        各业务团队希望保留相对独立的发布节奏，不接受因为单仓库构建阻塞而整体降速。
+        现有代码共享方式主要依赖内部 package registry，但版本漂移问题较明显。
+    - id: decision-focus
+      title: 讨论重点
+      kind: text
+      content: |
+        讨论时请重点比较：
+        - 跨服务改动协调成本
+        - 依赖管理复杂度
+        - CI / build 扩展性
+        - 代码所有权与团队边界
+        - 渐进迁移是否可行
+
+debate_policy:
+  min_rounds: 2
+  max_rounds: 3
+  vote_threshold: 0.67
+  enable_early_stop: true
+  peer_context_mode: summary+active_claims

@@ -61,6 +61,24 @@ til-consensus config init --mode adjudication --provider-profile gemini --config
 
 如果你想把三者合并到一份配置里，可以从这三份文件里直接拷贝 `providers / agents / roles`。
 
+如果你要直接跑 Delphi 的三模型分工，也可以直接用：
+
+- [Delphi 三模型综合配置：delphi-tri-model.config.yaml](examples/delphi-tri-model.config.yaml)
+- [Free Debate 三模型综合配置：free-debate-tri-model.config.yaml](examples/free-debate-tri-model.config.yaml)
+
+这份配置已经按模型特点分好了角色：
+
+- `participant-claude`
+  - 偏谨慎、擅长补 caveat 和边界条件
+- `participant-gemini`
+  - 偏发散、擅长扩展备选方案和比较路径
+- `participant-codex`
+  - 偏执行、强调迁移顺序、依赖和落地成本
+- `facilitator-claude`
+  - 负责匿名汇总和分歧归纳
+- `reporter-codex`
+  - 负责把最终建议压成可执行摘要
+
 ## 一对一组合包
 
 下面这 4 组是“配置 + run 输入”一对一配套的最小可复制组合：
@@ -102,6 +120,8 @@ til-consensus view --config ./til-consensus.yaml
 
 - [文档完善](examples/document-refinement.run.yaml)
 - [架构选择](examples/architecture-decision.run.yaml)
+- [Free Debate 仓库策略辩论](examples/free-debate-monorepo.run.yaml)
+- [Delphi 决策收敛](examples/delphi-ci-migration.run.yaml)
 - [coding review](examples/coding-review.run.yaml)
 - [事实冲突与 freshness](examples/factual-conflict.run.yaml)
 - [observe 否定 action 后 reopen](examples/observe-reopen.run.yaml)
@@ -110,6 +130,26 @@ til-consensus view --config ./til-consensus.yaml
 
 - 文档完善 / 架构选择：
   - `codex.config.yaml` 或 `claude.config.yaml`
+- Free Debate 仓库策略辩论：
+  - `til-consensus config init --mode free-debate --provider-profile mock --config ./til-consensus.yaml`
+  - 或者直接使用三模型分工：
+
+```bash
+cp docs/examples/free-debate-tri-model.config.yaml ./til-consensus.yaml
+til-consensus run --config ./til-consensus.yaml --input ./docs/examples/free-debate-monorepo.run.yaml
+til-consensus view --config ./til-consensus.yaml --section rounds --section votes
+```
+- Delphi 决策收敛：
+  - `til-consensus config init --mode delphi --provider-profile mock --config ./til-consensus.yaml`
+  - 或现有 `claude / gemini / codex` 配置，但 roles 需要包含 `participants / facilitator / reporter`
+  - `delphi-ci-migration.run.yaml` 故意不内嵌 `roles`，默认继承 config 里的角色映射；如果你在 `run.yaml` 里写了 `roles`，它会覆盖 config
+  - 如果你要直接用三模型分工：
+
+```bash
+cp docs/examples/delphi-tri-model.config.yaml ./til-consensus.yaml
+til-consensus run --config ./til-consensus.yaml --input ./docs/examples/delphi-ci-migration.run.yaml
+til-consensus view --config ./til-consensus.yaml --section rounds --section statements --section convergence
+```
 - coding review：
   - `--mode adjudication --provider-profile mock --task-profile coding` 或 `codex.config.yaml`
 - factual conflict：

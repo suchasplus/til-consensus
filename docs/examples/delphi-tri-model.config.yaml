@@ -1,0 +1,90 @@
+schema_version: 1
+
+defaults:
+  mode: delphi
+  success_criteria:
+    - 让参与者匿名给出候选结论和评分
+    - 每轮基于匿名汇总修订意见
+    - 输出推荐结论、收敛度和异议摘要
+  per_task_timeout: 20m
+  task_retry_attempts: 1
+  delphi_policy:
+    min_rounds: 2
+    max_rounds: 3
+    convergence_threshold: 0.78
+    rating_scale_min: 1
+    rating_scale_max: 5
+    anonymous: true
+    facilitator_summary_style: anonymous-aggregate
+
+output:
+  directory: ./out/{requestId}
+
+providers:
+  claude-cli:
+    type: cli
+    cli_type: claude
+    command: claude
+    models:
+      default:
+        provider_model: claude-opus-4-6
+        reasoning: medium
+
+  gemini-cli:
+    type: cli
+    cli_type: gemini
+    command: gemini
+    models:
+      default:
+        provider_model: gemini-3.1-pro-preview
+        reasoning: medium
+
+  codex-cli:
+    type: cli
+    cli_type: codex
+    command: codex
+    models:
+      default:
+        provider_model: gpt-5.4
+        reasoning: medium
+
+agents:
+  # Claude 更适合吸收分歧、整理 caveat 和前提，因此同时承担：
+  # - 一个 participant：提供偏谨慎、强调边界条件的判断
+  # - facilitator：做匿名汇总与分歧归纳
+  - id: participant-claude
+    provider: claude-cli
+    model: default
+    role: participant
+  - id: facilitator-claude
+    provider: claude-cli
+    model: default
+    role: facilitator
+
+  # Gemini 更适合扩展备选方案和比较多个方向，因此放在 participant：
+  # - 拉开选项空间
+  # - 补充“如果不选主方案，还有什么次优路径”
+  - id: participant-gemini
+    provider: gemini-cli
+    model: default
+    role: participant
+
+  # Codex 更偏执行性、约束敏感和落地细节，因此承担：
+  # - 一个 participant：强调迁移顺序、依赖、实施成本
+  # - reporter：把最终建议压缩成可执行摘要
+  - id: participant-codex
+    provider: codex-cli
+    model: default
+    role: participant
+  - id: reporter-codex
+    provider: codex-cli
+    model: default
+    role: reporter
+
+roles:
+  participants:
+    - participant-claude
+    - participant-gemini
+    - participant-codex
+  facilitator: facilitator-claude
+  reporter: reporter-codex

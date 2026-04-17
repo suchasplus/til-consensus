@@ -1,0 +1,82 @@
+schema_version: 1
+
+defaults:
+  mode: free_debate
+  success_criteria:
+    - 让参与者提出初始主张并公开辩论
+    - 明确保留主要分歧，而不是过早收敛
+    - 输出可供后续决策使用的总结
+  per_task_timeout: 20m
+  task_retry_attempts: 1
+  debate_policy:
+    min_rounds: 2
+    max_rounds: 3
+    vote_threshold: 0.67
+    enable_early_stop: true
+    peer_context_mode: summary+active_claims
+
+output:
+  directory: ./out/{requestId}
+
+providers:
+  claude-cli:
+    type: cli
+    cli_type: claude
+    command: claude
+    models:
+      default:
+        provider_model: claude-opus-4-6
+        reasoning: medium
+
+  gemini-cli:
+    type: cli
+    cli_type: gemini
+    command: gemini
+    models:
+      default:
+        provider_model: gemini-3.1-pro-preview
+        reasoning: medium
+
+  codex-cli:
+    type: cli
+    cli_type: codex
+    command: codex
+    models:
+      default:
+        provider_model: gpt-5.4
+        reasoning: medium
+
+agents:
+  # Claude 更适合挑出论证中的边界和隐藏假设，因此放到 participant 与 reporter：
+  # - participant：持续指出 caveat、范围和失败条件
+  # - reporter：压缩成可读总结
+  - id: participant-claude
+    provider: claude-cli
+    model: default
+    role: participant
+  - id: reporter-claude
+    provider: claude-cli
+    model: default
+    role: reporter
+
+  # Gemini 更适合快速扩展备选方向，因此用于 participant：
+  # - 拉开选项空间
+  # - 补充可替代路径和折中方案
+  - id: participant-gemini
+    provider: gemini-cli
+    model: default
+    role: participant
+
+  # Codex 更偏执行和落地约束，因此用于 participant：
+  # - 强调实施顺序、仓库边界、CI 成本和协作负担
+  - id: participant-codex
+    provider: codex-cli
+    model: default
+    role: participant
+
+roles:
+  participants:
+    - participant-claude
+    - participant-gemini
+    - participant-codex
+  reporter: reporter-claude

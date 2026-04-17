@@ -267,6 +267,96 @@ func TestResolveTaskOverride(t *testing.T) {
 	}
 }
 
+func TestParseModeEmptyDoesNotForceAdjudication(t *testing.T) {
+	if got := parseMode(""); got != "" {
+		t.Fatalf("expected empty mode when flag is absent, got %q", got)
+	}
+	if got := parseMode("adjudication"); got != consensus.WorkflowModeAdjudication {
+		t.Fatalf("unexpected adjudication parse result: %q", got)
+	}
+	if got := parseMode("free-debate"); got != consensus.WorkflowModeFreeDebate {
+		t.Fatalf("unexpected free-debate parse result: %q", got)
+	}
+	if got := parseMode("delphi"); got != consensus.WorkflowModeDelphi {
+		t.Fatalf("unexpected delphi parse result: %q", got)
+	}
+}
+
+func TestRunCommandDoesNotOverrideDelphiModeWhenFlagAbsent(t *testing.T) {
+	tmp := t.TempDir()
+	configPath := filepath.Join(tmp, "til-delphi.yaml")
+	inputPath := filepath.Join(tmp, "delphi.run.yaml")
+	writeFile(t, configPath, fmt.Sprintf(`schema_version: 1
+defaults:
+  mode: delphi
+  per_task_timeout: 1s
+  task_retry_attempts: 0
+  delphi_policy:
+    min_rounds: 2
+    max_rounds: 2
+output:
+  directory: %q
+providers:
+  mock:
+    type: mock
+    models:
+      default:
+        provider_model: mock
+agents:
+  - id: participant-a
+    provider: mock
+    model: default
+    role: participant
+  - id: participant-b
+    provider: mock
+    model: default
+    role: participant
+  - id: facilitator-a
+    provider: mock
+    model: default
+    role: facilitator
+  - id: reporter-a
+    provider: mock
+    model: default
+    role: reporter
+roles:
+  participants: [participant-a, participant-b]
+  facilitator: facilitator-a
+  reporter: reporter-a
+`, filepath.Join(tmp, "out", "{requestId}")))
+	writeFile(t, inputPath, `request_id: delphi-run-001
+mode: delphi
+task_spec:
+  goal: 评估是否应迁移 CI 平台
+roles:
+  participants: [participant-a, participant-b]
+  facilitator: facilitator-a
+  reporter: reporter-a
+delphi_policy:
+  min_rounds: 2
+  max_rounds: 2
+`)
+
+	runCmd := newRunCommand()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	runCmd.Writer = &stdout
+	runCmd.ErrWriter = &stderr
+	if err := runCmd.Run(context.Background(), []string{
+		"run",
+		"--config", configPath,
+		"--input", inputPath,
+	}); err != nil {
+		t.Fatalf("expected delphi run to succeed without --mode override, got %v\nstderr=%s", err, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "mode: delphi") {
+		t.Fatalf("expected delphi mode in output, got %s", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "phase: delphi_questionnaire") {
+		t.Fatalf("expected delphi workflow phases in output, got %s", stdout.String())
+	}
+}
+
 func TestRunCommandTaskFileOverridesInputGoal(t *testing.T) {
 	tmp := t.TempDir()
 	configPath := filepath.Join(tmp, "til-consensus.yaml")

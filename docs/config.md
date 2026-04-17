@@ -432,6 +432,11 @@ roles:
   reporter: reporter-a
 ```
 
+如果你同时使用 `--input ./run.yaml`：
+
+- `run.yaml` 里的 `roles` 会覆盖 config 里的 `roles`
+- 如果你希望同一份 `run.yaml` 能复用不同 provider/profile，建议把角色映射放在 config 里，把 `run.yaml` 只用于 `task_spec` 和 policy
+
 ## 增量编辑
 
 如果模板已经生成，后面只想补一个 provider 或 agent，可以用：

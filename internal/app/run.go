@@ -262,15 +262,18 @@ func executeResumedSession(ctx context.Context, loaded config.LoadedConfig, plan
 }
 
 func parseMode(value string) consensus.WorkflowMode {
-	switch strings.TrimSpace(strings.ToLower(value)) {
-	case "", string(consensus.WorkflowModeAdjudication):
+	normalized := strings.TrimSpace(strings.ToLower(value))
+	switch normalized {
+	case "":
+		return ""
+	case string(consensus.WorkflowModeAdjudication):
 		return consensus.WorkflowModeAdjudication
 	case "free-debate", string(consensus.WorkflowModeFreeDebate):
 		return consensus.WorkflowModeFreeDebate
 	case string(consensus.WorkflowModeDelphi):
 		return consensus.WorkflowModeDelphi
 	default:
-		return consensus.WorkflowMode(value)
+		return consensus.WorkflowMode(strings.TrimSpace(value))
 	}
 }
 

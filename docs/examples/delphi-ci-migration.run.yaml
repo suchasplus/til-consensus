@@ -1,0 +1,56 @@
+request_id: delphi-ci-migration-001
+
+mode: delphi
+
+task_spec:
+  goal: 评估未来两个季度内，是否应将现有 CI/CD 平台从自建 Jenkins 迁移到 GitHub Actions
+  task_type: strategy
+  success_criteria:
+    - 必须给出推荐、不推荐或部分推荐
+    - 必须明确主要前提、风险和迁移边界
+    - 必须输出分歧摘要，而不是只给单句结论
+  materials:
+    - id: current-state
+      title: 当前平台状态
+      kind: text
+      content: |
+        当前共有 48 个活跃仓库，其中 31 个服务仓库、9 个前端仓库、8 个基础设施仓库。
+        自建 Jenkins 已运行 4 年，插件较多，最近 3 个月出现了多次构建队列阻塞和节点漂移问题。
+        平台组 2 人需要同时维护 Jenkins、runner 镜像和凭据轮换。
+        当前大多数仓库都已经托管在 GitHub，少量历史仓库仍依赖 Jenkins 共享库。
+    - id: constraints
+      title: 决策约束
+      kind: text
+      content: |
+        未来两个季度平台团队人力不会增加。
+        不能接受一次性大爆炸迁移导致研发停摆。
+        合规要求必须保留完整审计日志，并限制生产凭据暴露范围。
+        如果迁移，优先考虑可以逐仓、逐流水线分批切换的方案。
+    - id: candidate-options
+      title: 候选方向
+      kind: text
+      content: |
+        候选方向包括：
+        1. 在两个季度内完成大部分仓库迁移到 GitHub Actions
+        2. 只迁移新服务和低风险仓库，核心流水线继续留在 Jenkins
+        3. 继续使用 Jenkins，但缩减插件和共享库复杂度
+        4. 先做双轨运行验证，确认 runner、secret 和审计能力后再扩大范围
+    - id: decision-focus
+      title: 评估重点
+      kind: text
+      content: |
+        评估时请重点比较：
+        - 平台维护成本
+        - 流水线稳定性
+        - 审计和权限边界
+        - 渐进迁移可操作性
+        - 对研发团队日常体验的影响
+
+delphi_policy:
+  min_rounds: 2
+  max_rounds: 3
+  convergence_threshold: 0.78
+  rating_scale_min: 1
+  rating_scale_max: 5
+  anonymous: true
+  facilitator_summary_style: anonymous-aggregate
