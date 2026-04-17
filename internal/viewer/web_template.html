@@ -550,7 +550,7 @@
       }
 
       function renderDebug(doc) {
-        return renderList(doc.debugEvents, "没有 debug 事件。", (item) => `
+        const debugHtml = renderList(doc.debugEvents, "没有 debug 事件。", (item) => `
           <details class="card">
             <summary>
               <span class="pill">${escapeHtml(String(item.seq ?? "-"))}</span>
@@ -568,6 +568,42 @@
             </div>
           </details>
         `);
+        const telemetry = doc.telemetry || {};
+        const summary = telemetry.summary || [];
+        const reports = telemetry.reports || [];
+        const telemetryHtml = `
+          <h3>Telemetry</h3>
+          ${telemetry.generatedAt ? `<div class="meta-card" style="margin-bottom:10px;"><div class="label">Generated</div><div class="value mono">${escapeHtml(telemetry.generatedAt)}</div></div>` : ""}
+          <h3>Summary</h3>
+          ${renderList(summary, "没有 telemetry summary。", (item) => `
+            <div class="list-item">
+              <strong>${escapeHtml(item.provider || "-")} · ${escapeHtml(item.providerModel || "-")} · ${escapeHtml(item.taskKind || "-")}</strong>
+              <div class="mono">total=${escapeHtml(String(item.total || 0))} strict=${escapeHtml(String(item.strict || 0))} normalized=${escapeHtml(String(item.normalized || 0))} repaired=${escapeHtml(String(item.repaired || 0))} failed=${escapeHtml(String(item.failed || 0))}</div>
+            </div>
+          `)}
+          <h3>Reports</h3>
+          ${renderList(reports, "没有 telemetry reports。", (item) => `
+            <details class="card">
+              <summary>
+                <span class="pill">${escapeHtml(item.finalStatus || "-")}</span>
+                <span class="pill mono">${escapeHtml(item.taskId || "-")}</span>
+                <span class="pill">${escapeHtml(item.taskKind || "-")}</span>
+                <span class="pill">${escapeHtml(item.provider || "-")}</span>
+              </summary>
+              <div class="card-body">
+                <div><strong>agent:</strong> ${escapeHtml(item.agentId || "-")}</div>
+                <div><strong>provider model:</strong> <span class="mono">${escapeHtml(item.providerModel || "-")}</span></div>
+                <div><strong>flags:</strong> strict=${escapeHtml(String(!!item.strictCompliant))} normalized=${escapeHtml(String(!!item.normalizedWithoutFix))} repair=${escapeHtml(String(!!item.repairAttempted))}/${escapeHtml(String(!!item.repairSucceeded))}</div>
+                ${item.strictError ? `<div><strong>strictError:</strong> ${escapeHtml(item.strictError)}</div>` : ""}
+                ${item.finalError ? `<div><strong>finalError:</strong> ${escapeHtml(item.finalError)}</div>` : ""}
+                ${item.rawArtifact ? `<div><strong>rawArtifact:</strong> <span class="mono">${escapeHtml(item.rawArtifact)}</span></div>` : ""}
+                ${item.initialErrorArtifact ? `<div><strong>initialErrorArtifact:</strong> <span class="mono">${escapeHtml(item.initialErrorArtifact)}</span></div>` : ""}
+                ${item.finalArtifact ? `<div><strong>finalArtifact:</strong> <span class="mono">${escapeHtml(item.finalArtifact)}</span></div>` : ""}
+              </div>
+            </details>
+          `)}
+        `;
+        return `<h3>Events</h3>${debugHtml}${telemetryHtml}`;
       }
 
       function renderWorkflow(doc) {

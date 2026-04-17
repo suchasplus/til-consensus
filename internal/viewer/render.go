@@ -36,12 +36,14 @@ const (
 )
 
 type RunFiles struct {
-	RunDir       string
-	ResultPath   string
-	LedgerPath   string
-	SummaryPath  string
-	ManifestPath string
-	EventsPath   string
+	RunDir                string
+	ArtifactsDir          string
+	ResultPath            string
+	LedgerPath            string
+	SummaryPath           string
+	ManifestPath          string
+	EventsPath            string
+	ComplianceSummaryPath string
 }
 
 type RenderOptions struct {
@@ -53,12 +55,14 @@ type RenderOptions struct {
 }
 
 type Bundle struct {
-	Result   consensus.RunResult
-	Ledger   []consensus.EvidenceRecord
-	Manifest []consensus.ArtifactManifestEntry
-	Events   []consensus.RunEventRecord
-	Files    RunFiles
-	Missing  []string
+	Result            consensus.RunResult
+	Ledger            []consensus.EvidenceRecord
+	Manifest          []consensus.ArtifactManifestEntry
+	Events            []consensus.RunEventRecord
+	ComplianceSummary ComplianceSummaryFile
+	ComplianceReports []ComplianceReportFile
+	Files             RunFiles
+	Missing           []string
 }
 
 type Overview struct {
@@ -205,6 +209,43 @@ type DebugEventView struct {
 	ArtifactHints  []string               `json:"artifactHints,omitempty"`
 }
 
+type ComplianceSummaryEntryView struct {
+	Provider      string `json:"provider"`
+	ProviderType  string `json:"providerType"`
+	ProviderModel string `json:"providerModel"`
+	TaskKind      string `json:"taskKind"`
+	Total         int    `json:"total"`
+	Strict        int    `json:"strict"`
+	Normalized    int    `json:"normalized"`
+	Repaired      int    `json:"repaired"`
+	Failed        int    `json:"failed"`
+}
+
+type ComplianceReportView struct {
+	TaskID               string `json:"taskId"`
+	TaskKind             string `json:"taskKind"`
+	AgentID              string `json:"agentId"`
+	Provider             string `json:"provider"`
+	ProviderType         string `json:"providerType"`
+	ProviderModel        string `json:"providerModel"`
+	StrictCompliant      bool   `json:"strictCompliant"`
+	NormalizedWithoutFix bool   `json:"normalizedWithoutFix"`
+	RepairAttempted      bool   `json:"repairAttempted"`
+	RepairSucceeded      bool   `json:"repairSucceeded"`
+	FinalStatus          string `json:"finalStatus"`
+	StrictError          string `json:"strictError,omitempty"`
+	FinalError           string `json:"finalError,omitempty"`
+	RawArtifact          string `json:"rawArtifact,omitempty"`
+	InitialErrorArtifact string `json:"initialErrorArtifact,omitempty"`
+	FinalArtifact        string `json:"finalArtifact,omitempty"`
+}
+
+type TelemetryView struct {
+	GeneratedAt string                       `json:"generatedAt,omitempty"`
+	Summary     []ComplianceSummaryEntryView `json:"summary,omitempty"`
+	Reports     []ComplianceReportView       `json:"reports,omitempty"`
+}
+
 type RiskView struct {
 	Category string `json:"category"`
 	TargetID string `json:"targetId"`
@@ -234,24 +275,86 @@ type Document struct {
 	Statements        []StatementView    `json:"statements,omitempty"`
 	Convergence       *ConvergenceView   `json:"convergence,omitempty"`
 	DebugEvents       []DebugEventView   `json:"debugEvents,omitempty"`
+	Telemetry         *TelemetryView     `json:"telemetry,omitempty"`
 	Artifacts         []ArtifactView     `json:"artifacts,omitempty"`
 	Risks             []RiskView         `json:"risks,omitempty"`
 	Files             FileView           `json:"files"`
 }
 
+type ComplianceSummaryFile struct {
+	Version     int                      `json:"version"`
+	GeneratedAt string                   `json:"generatedAt,omitempty"`
+	Entries     []ComplianceSummaryEntry `json:"entries,omitempty"`
+}
+
+type ComplianceSummaryEntry struct {
+	Provider      string             `json:"provider"`
+	ProviderType  string             `json:"providerType"`
+	ProviderModel string             `json:"providerModel"`
+	TaskKind      consensus.TaskKind `json:"taskKind"`
+	Total         int                `json:"total"`
+	Strict        int                `json:"strict"`
+	Normalized    int                `json:"normalized"`
+	Repaired      int                `json:"repaired"`
+	Failed        int                `json:"failed"`
+}
+
+type ComplianceReportFile struct {
+	Version int `json:"version"`
+	Agent   struct {
+		ID            string `json:"id"`
+		Role          string `json:"role"`
+		Provider      string `json:"provider"`
+		ProviderType  string `json:"providerType"`
+		ProviderModel string `json:"providerModel"`
+	} `json:"agent"`
+	Task struct {
+		TaskID    string `json:"taskId"`
+		Kind      string `json:"kind"`
+		RequestID string `json:"requestId"`
+		SessionID string `json:"sessionId"`
+		AgentID   string `json:"agentId"`
+	} `json:"task"`
+	Compliance struct {
+		StrictCompliant      bool                   `json:"strictCompliant"`
+		NormalizedWithoutFix bool                   `json:"normalizedWithoutFix"`
+		RepairAttempted      bool                   `json:"repairAttempted"`
+		RepairSucceeded      bool                   `json:"repairSucceeded"`
+		FinalStatus          string                 `json:"finalStatus"`
+		StrictError          string                 `json:"strictError,omitempty"`
+		FinalError           string                 `json:"finalError,omitempty"`
+		RawArtifact          *consensus.ArtifactRef `json:"rawArtifact,omitempty"`
+		InitialErrorArtifact *consensus.ArtifactRef `json:"initialErrorArtifact,omitempty"`
+		FinalArtifact        *consensus.ArtifactRef `json:"finalArtifact,omitempty"`
+	} `json:"compliance"`
+}
+
 func InferRunFiles(resultPath string) RunFiles {
 	runDir := filepath.Dir(resultPath)
+	artifactsDir := filepath.Join(runDir, "artifacts")
 	return RunFiles{
-		RunDir:       runDir,
-		ResultPath:   resultPath,
-		LedgerPath:   filepath.Join(runDir, "ledger.jsonl"),
-		SummaryPath:  filepath.Join(runDir, "summary.md"),
-		ManifestPath: filepath.Join(runDir, "artifacts", "manifest.jsonl"),
-		EventsPath:   filepath.Join(runDir, "events.jsonl"),
+		RunDir:                runDir,
+		ArtifactsDir:          artifactsDir,
+		ResultPath:            resultPath,
+		LedgerPath:            filepath.Join(runDir, "ledger.jsonl"),
+		SummaryPath:           filepath.Join(runDir, "summary.md"),
+		ManifestPath:          filepath.Join(artifactsDir, "manifest.jsonl"),
+		EventsPath:            filepath.Join(runDir, "events.jsonl"),
+		ComplianceSummaryPath: filepath.Join(artifactsDir, "strict-compliance-summary.json"),
 	}
 }
 
 func LoadBundle(files RunFiles) (Bundle, error) {
+	if strings.TrimSpace(files.ArtifactsDir) == "" {
+		if strings.TrimSpace(files.ManifestPath) != "" {
+			files.ArtifactsDir = filepath.Dir(files.ManifestPath)
+		} else if strings.TrimSpace(files.RunDir) != "" {
+			files.ArtifactsDir = filepath.Join(files.RunDir, "artifacts")
+		}
+	}
+	if strings.TrimSpace(files.ComplianceSummaryPath) == "" && strings.TrimSpace(files.ArtifactsDir) != "" {
+		files.ComplianceSummaryPath = filepath.Join(files.ArtifactsDir, "strict-compliance-summary.json")
+	}
 	body, err := os.ReadFile(files.ResultPath)
 	if err != nil {
 		return Bundle{}, fmt.Errorf("read result file: %w", err)
@@ -272,13 +375,23 @@ func LoadBundle(files RunFiles) (Bundle, error) {
 	if err != nil {
 		return Bundle{}, fmt.Errorf("read events file: %w", err)
 	}
+	complianceSummary, err := readOptionalJSONFile[ComplianceSummaryFile](files.ComplianceSummaryPath)
+	if err != nil {
+		return Bundle{}, fmt.Errorf("read strict compliance summary: %w", err)
+	}
+	complianceReports, err := readOptionalComplianceReports(files.ArtifactsDir)
+	if err != nil {
+		return Bundle{}, fmt.Errorf("read compliance reports: %w", err)
+	}
 	return Bundle{
-		Result:   result,
-		Ledger:   ledger,
-		Manifest: manifest,
-		Events:   events,
-		Files:    files,
-		Missing:  missing,
+		Result:            result,
+		Ledger:            ledger,
+		Manifest:          manifest,
+		Events:            events,
+		ComplianceSummary: complianceSummary,
+		ComplianceReports: complianceReports,
+		Files:             files,
+		Missing:           missing,
 	}, nil
 }
 
@@ -295,6 +408,7 @@ func BuildDocument(bundle Bundle, options RenderOptions) Document {
 		Observations:      buildObservations(bundle.Result, bundle.Files.RunDir, limit),
 		FollowUps:         buildFollowUps(bundle.Result, bundle.Files.RunDir, limit),
 		DebugEvents:       buildDebugEvents(bundle.Events, bundle.Files.RunDir),
+		Telemetry:         buildTelemetry(bundle, limit),
 		Artifacts:         limitArtifacts(extractArtifacts(bundle.Manifest, bundle.Files.RunDir), limit),
 		Risks:             buildRisks(bundle.Result, bundle.Ledger),
 		Files: FileView{
@@ -606,6 +720,44 @@ func renderText(doc Document, verbose bool) string {
 				}
 			}
 		}
+		writeTextHeading(&b, "Telemetry")
+		if doc.Telemetry == nil || (len(doc.Telemetry.Summary) == 0 && len(doc.Telemetry.Reports) == 0) {
+			b.WriteString("(无 telemetry 数据)\n")
+		} else {
+			if doc.Telemetry.GeneratedAt != "" {
+				fmt.Fprintf(&b, "generated at: %s\n", doc.Telemetry.GeneratedAt)
+			}
+			if len(doc.Telemetry.Summary) > 0 {
+				b.WriteString("summary:\n")
+				for _, item := range doc.Telemetry.Summary {
+					fmt.Fprintf(&b, "- %s/%s | %s | total=%d strict=%d normalized=%d repaired=%d failed=%d\n", item.Provider, item.ProviderModel, item.TaskKind, item.Total, item.Strict, item.Normalized, item.Repaired, item.Failed)
+				}
+			}
+			if len(doc.Telemetry.Reports) > 0 {
+				b.WriteString("reports:\n")
+				for _, item := range doc.Telemetry.Reports {
+					fmt.Fprintf(&b, "- %s | %s/%s | %s\n", firstNonEmpty(item.TaskID, "-"), item.Provider, item.ProviderModel, item.FinalStatus)
+					fmt.Fprintf(&b, "  task=%s agent=%s strict=%t normalized=%t repair=%t/%t\n", firstNonEmpty(item.TaskKind, "-"), firstNonEmpty(item.AgentID, "-"), item.StrictCompliant, item.NormalizedWithoutFix, item.RepairAttempted, item.RepairSucceeded)
+					if item.StrictError != "" {
+						fmt.Fprintf(&b, "  strictError: %s\n", item.StrictError)
+					}
+					if item.FinalError != "" {
+						fmt.Fprintf(&b, "  finalError: %s\n", item.FinalError)
+					}
+					if verbose {
+						if item.RawArtifact != "" {
+							fmt.Fprintf(&b, "  rawArtifact: %s\n", item.RawArtifact)
+						}
+						if item.InitialErrorArtifact != "" {
+							fmt.Fprintf(&b, "  initialErrorArtifact: %s\n", item.InitialErrorArtifact)
+						}
+						if item.FinalArtifact != "" {
+							fmt.Fprintf(&b, "  finalArtifact: %s\n", item.FinalArtifact)
+						}
+					}
+				}
+			}
+		}
 	}
 
 	if shouldRenderSection(doc, requested, SectionRounds) {
@@ -770,6 +922,25 @@ func renderMarkdown(doc Document, verbose bool) string {
 			}
 			if len(item.ArtifactHints) > 0 {
 				fmt.Fprintf(&b, "  artifacts: `%s`\n", strings.Join(item.ArtifactHints, "`, `"))
+			}
+		}
+		b.WriteString("\n")
+	}
+	if doc.Telemetry != nil && (len(doc.Telemetry.Summary) > 0 || len(doc.Telemetry.Reports) > 0) {
+		b.WriteString("## Telemetry\n\n")
+		if doc.Telemetry.GeneratedAt != "" {
+			fmt.Fprintf(&b, "- generatedAt: `%s`\n", doc.Telemetry.GeneratedAt)
+		}
+		for _, item := range doc.Telemetry.Summary {
+			fmt.Fprintf(&b, "- summary | `%s/%s` | `%s` | total=%d strict=%d normalized=%d repaired=%d failed=%d\n", item.Provider, item.ProviderModel, item.TaskKind, item.Total, item.Strict, item.Normalized, item.Repaired, item.Failed)
+		}
+		for _, item := range doc.Telemetry.Reports {
+			fmt.Fprintf(&b, "- report | `%s` | `%s/%s` | `%s`\n", firstNonEmpty(item.TaskID, "-"), item.Provider, item.ProviderModel, item.FinalStatus)
+			if item.StrictError != "" {
+				fmt.Fprintf(&b, "  strictError: `%s`\n", item.StrictError)
+			}
+			if item.FinalError != "" {
+				fmt.Fprintf(&b, "  finalError: `%s`\n", item.FinalError)
 			}
 		}
 		b.WriteString("\n")
@@ -1031,6 +1202,100 @@ func formatDebugValue(value any) string {
 		}
 		return strings.TrimSpace(fmt.Sprint(typed))
 	}
+}
+
+func buildTelemetry(bundle Bundle, limit int) *TelemetryView {
+	if len(bundle.ComplianceSummary.Entries) == 0 && len(bundle.ComplianceReports) == 0 {
+		return nil
+	}
+	view := &TelemetryView{
+		GeneratedAt: bundle.ComplianceSummary.GeneratedAt,
+	}
+	for _, item := range bundle.ComplianceSummary.Entries {
+		view.Summary = append(view.Summary, ComplianceSummaryEntryView{
+			Provider:      item.Provider,
+			ProviderType:  item.ProviderType,
+			ProviderModel: item.ProviderModel,
+			TaskKind:      string(item.TaskKind),
+			Total:         item.Total,
+			Strict:        item.Strict,
+			Normalized:    item.Normalized,
+			Repaired:      item.Repaired,
+			Failed:        item.Failed,
+		})
+	}
+	for _, item := range bundle.ComplianceReports[:min(limit, len(bundle.ComplianceReports))] {
+		view.Reports = append(view.Reports, ComplianceReportView{
+			TaskID:               item.Task.TaskID,
+			TaskKind:             item.Task.Kind,
+			AgentID:              firstNonEmpty(item.Task.AgentID, item.Agent.ID),
+			Provider:             item.Agent.Provider,
+			ProviderType:         item.Agent.ProviderType,
+			ProviderModel:        item.Agent.ProviderModel,
+			StrictCompliant:      item.Compliance.StrictCompliant,
+			NormalizedWithoutFix: item.Compliance.NormalizedWithoutFix,
+			RepairAttempted:      item.Compliance.RepairAttempted,
+			RepairSucceeded:      item.Compliance.RepairSucceeded,
+			FinalStatus:          item.Compliance.FinalStatus,
+			StrictError:          item.Compliance.StrictError,
+			FinalError:           item.Compliance.FinalError,
+			RawArtifact:          displayCompanionPath(bundle.Files.RunDir, artifactRefPath(item.Compliance.RawArtifact)),
+			InitialErrorArtifact: displayCompanionPath(bundle.Files.RunDir, artifactRefPath(item.Compliance.InitialErrorArtifact)),
+			FinalArtifact:        displayCompanionPath(bundle.Files.RunDir, artifactRefPath(item.Compliance.FinalArtifact)),
+		})
+	}
+	if len(view.Summary) == 0 && len(view.Reports) == 0 {
+		return nil
+	}
+	return view
+}
+
+func readOptionalJSONFile[T any](path string) (T, error) {
+	var zero T
+	if strings.TrimSpace(path) == "" {
+		return zero, nil
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return zero, nil
+		}
+		return zero, err
+	}
+	if len(bytes.TrimSpace(body)) == 0 {
+		return zero, nil
+	}
+	var out T
+	if err := json.Unmarshal(body, &out); err != nil {
+		return zero, err
+	}
+	return out, nil
+}
+
+func readOptionalComplianceReports(artifactsDir string) ([]ComplianceReportFile, error) {
+	if strings.TrimSpace(artifactsDir) == "" {
+		return nil, nil
+	}
+	paths, err := filepath.Glob(filepath.Join(artifactsDir, "compliance-report-*.json"))
+	if err != nil {
+		return nil, err
+	}
+	if len(paths) == 0 {
+		return nil, nil
+	}
+	slices.Sort(paths)
+	out := make([]ComplianceReportFile, 0, len(paths))
+	for _, path := range paths {
+		item, err := readOptionalJSONFile[ComplianceReportFile](path)
+		if err != nil {
+			return nil, err
+		}
+		if item.Task.TaskID == "" && item.Agent.ID == "" {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out, nil
 }
 
 func cloneMap(values map[string]any) map[string]any {

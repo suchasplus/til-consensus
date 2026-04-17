@@ -25,6 +25,7 @@ type Delegate struct {
 	agents      map[string]ResolvedAgentRuntime
 	runners     map[string]ProviderRunner
 	tasks       map[string]*taskEntry
+	compliance  map[string]*complianceSummaryEntry
 	artifactDir string
 	seq         int
 }
@@ -59,6 +60,7 @@ func NewDelegate(cfg config.Config, artifactDir string) (*Delegate, error) {
 		agents:      agents,
 		runners:     map[string]ProviderRunner{},
 		tasks:       map[string]*taskEntry{},
+		compliance:  map[string]*complianceSummaryEntry{},
 		artifactDir: artifactDir,
 	}, nil
 }
@@ -99,14 +101,58 @@ func (d *Delegate) Dispatch(ctx context.Context, task consensus.Task) (consensus
 			done <- taskOutcome{err: persistErr}
 			return
 		}
-		result, err := NormalizeTaskOutput(task, raw)
-		if err != nil {
-			if parseErr, ok := err.(*JSONParseError); ok {
-				artifact, _ = d.persistRawParseError(taskID, task, parseErr)
-			}
-			done <- taskOutcome{artifact: artifact, err: err}
+		strictResult, strictErr := StrictDecodeTaskOutput(task, raw)
+		if strictErr == nil {
+			_, _ = d.persistComplianceTelemetry(taskID, task, agent, complianceTelemetry{
+				StrictCompliant: true,
+				FinalStatus:     complianceStatusStrict,
+				RawArtifact:     artifact,
+				FinalArtifact:   artifact,
+			})
+			done <- taskOutcome{result: strictResult, artifact: artifact}
 			return
 		}
+		result, err := NormalizeTaskOutput(task, raw)
+		if err != nil {
+			parseArtifact := d.persistParseErrorArtifact(taskID, task, err)
+			repairedResult, repairedArtifact, repairErr := d.attemptRepair(taskCtx, taskID, task, agent, runner, raw, err, artifact, parseArtifact)
+			if repairErr == nil {
+				_, _ = d.persistComplianceTelemetry(taskID, task, agent, complianceTelemetry{
+					StrictCompliant:      false,
+					StrictError:          strictErr,
+					RepairAttempted:      true,
+					RepairSucceeded:      true,
+					FinalStatus:          complianceStatusRepaired,
+					RawArtifact:          artifact,
+					InitialErrorArtifact: parseArtifact,
+					FinalArtifact:        repairedArtifact,
+				})
+				done <- taskOutcome{result: repairedResult, artifact: repairedArtifact}
+				return
+			}
+			finalArtifact := chooseArtifact(repairedArtifact, parseArtifact, artifact)
+			_, _ = d.persistComplianceTelemetry(taskID, task, agent, complianceTelemetry{
+				StrictCompliant:      false,
+				StrictError:          strictErr,
+				RepairAttempted:      true,
+				RepairSucceeded:      false,
+				FinalStatus:          complianceStatusFailed,
+				RawArtifact:          artifact,
+				InitialErrorArtifact: parseArtifact,
+				FinalArtifact:        finalArtifact,
+				FinalError:           repairErr,
+			})
+			done <- taskOutcome{artifact: finalArtifact, err: repairErr}
+			return
+		}
+		_, _ = d.persistComplianceTelemetry(taskID, task, agent, complianceTelemetry{
+			StrictCompliant:      false,
+			StrictError:          strictErr,
+			NormalizedWithoutFix: true,
+			FinalStatus:          complianceStatusNormalized,
+			RawArtifact:          artifact,
+			FinalArtifact:        artifact,
+		})
 		done <- taskOutcome{result: result, artifact: artifact}
 	}(taskID)
 	return consensus.DispatchReceipt{
@@ -186,9 +232,13 @@ func (d *Delegate) getRunnerLocked(agent ResolvedAgentRuntime) (ProviderRunner, 
 	case config.ProviderTypeAPI:
 		apiRunner := apirunner.NewRunner(agent.Provider)
 		runner = providerRunnerFunc(func(ctx context.Context, req ProviderTaskRequest) (any, error) {
+			prompt := req.PromptOverride
+			if strings.TrimSpace(prompt) == "" {
+				prompt = BuildTaskPrompt(req.Task, req.Agent, true)
+			}
 			return apiRunner.RunTask(
 				ctx,
-				BuildTaskPrompt(req.Task, req.Agent, true),
+				prompt,
 				req.Agent.SystemPrompt,
 				req.Agent.ProviderModel,
 				req.Agent.EffectiveTemperature(),
@@ -200,10 +250,14 @@ func (d *Delegate) getRunnerLocked(agent ResolvedAgentRuntime) (ProviderRunner, 
 	case config.ProviderTypeCLI:
 		cliRunner := clirunner.NewRunner(agent.Provider)
 		runner = providerRunnerFunc(func(ctx context.Context, req ProviderTaskRequest) (any, error) {
+			prompt := req.PromptOverride
+			if strings.TrimSpace(prompt) == "" {
+				prompt = BuildTaskPrompt(req.Task, req.Agent, true)
+			}
 			return cliRunner.RunTask(
 				ctx,
 				req.Task,
-				BuildTaskPrompt(req.Task, req.Agent, true),
+				prompt,
 				req.Agent.ID,
 				req.Agent.Role,
 				req.Agent.ProviderModel,
@@ -214,10 +268,14 @@ func (d *Delegate) getRunnerLocked(agent ResolvedAgentRuntime) (ProviderRunner, 
 	case config.ProviderTypeSDK:
 		sdkRunner := sdkrunner.NewRunner(agent.Provider)
 		runner = providerRunnerFunc(func(ctx context.Context, req ProviderTaskRequest) (any, error) {
+			prompt := req.PromptOverride
+			if strings.TrimSpace(prompt) == "" {
+				prompt = BuildTaskPrompt(req.Task, req.Agent, true)
+			}
 			return sdkRunner.RunTask(
 				ctx,
 				req.Task,
-				BuildTaskPrompt(req.Task, req.Agent, true),
+				prompt,
 				req.Agent.AgentConfig,
 				req.Agent.ProviderModel,
 				req.Agent.ModelConfig,
@@ -274,6 +332,73 @@ func (d *Delegate) persistRawParseError(taskID string, task consensus.Task, pars
 	}, "\n")
 	filename := filepath.Join(d.artifactDir, buildParseErrorFilename(task, taskID))
 	return writeArtifact(filename, []byte(body), "text/plain")
+}
+
+func (d *Delegate) persistDecodeErrorArtifact(taskID string, task consensus.Task, err error) (*consensus.ArtifactRef, error) {
+	if strings.TrimSpace(d.artifactDir) == "" {
+		return nil, nil
+	}
+	body := strings.Join([]string{
+		"# til-consensus output normalization error",
+		"# error: " + err.Error(),
+		"# agent_id: " + task.Meta().AgentID,
+		"# request_id: " + task.Meta().RequestID,
+		"# session_id: " + task.Meta().SessionID,
+		"",
+	}, "\n")
+	filename := filepath.Join(d.artifactDir, buildDecodeErrorFilename(task, taskID))
+	return writeArtifact(filename, []byte(body), "text/plain")
+}
+
+func (d *Delegate) persistParseErrorArtifact(taskID string, task consensus.Task, err error) *consensus.ArtifactRef {
+	parseErr, ok := err.(*JSONParseError)
+	if ok {
+		artifact, _ := d.persistRawParseError(taskID, task, parseErr)
+		return artifact
+	}
+	artifact, _ := d.persistDecodeErrorArtifact(taskID, task, err)
+	return artifact
+}
+
+func (d *Delegate) attemptRepair(
+	ctx context.Context,
+	taskID string,
+	task consensus.Task,
+	agent ResolvedAgentRuntime,
+	runner ProviderRunner,
+	raw any,
+	normalizeErr error,
+	initialRawArtifact *consensus.ArtifactRef,
+	initialErrorArtifact *consensus.ArtifactRef,
+) (consensus.TaskResult, *consensus.ArtifactRef, error) {
+	repairPrompt := BuildRepairPrompt(task, agent, stringifyRawOutput(raw), normalizeErr, true)
+	repairTaskID := buildRepairAttemptTaskID(taskID, 1)
+	repairRequestArtifact, requestErr := d.persistRepairRequestArtifact(repairTaskID, task, agent, repairPrompt, normalizeErr, initialRawArtifact, initialErrorArtifact)
+	if requestErr != nil {
+		return nil, nil, fmt.Errorf("persist repair request artifact: %w", requestErr)
+	}
+	repairedRaw, runErr := runner.RunTask(ctx, ProviderTaskRequest{
+		Task:           task,
+		Agent:          agent,
+		PromptOverride: repairPrompt,
+	})
+	if runErr != nil {
+		failureArtifact, _ := d.persistTaskFailure(repairTaskID, task, agent, runErr, repairRequestArtifact)
+		_, _ = d.persistRepairReportArtifact(repairTaskID, task, agent, normalizeErr, false, initialRawArtifact, initialErrorArtifact, repairRequestArtifact, nil, nil, failureArtifact, runErr)
+		return nil, chooseArtifact(failureArtifact, repairRequestArtifact, initialErrorArtifact, initialRawArtifact), fmt.Errorf("task output repair attempt failed: initial error: %v; repair provider error: %w", normalizeErr, runErr)
+	}
+	repairedRawArtifact, persistErr := d.persistRawOutput(repairTaskID, task, repairedRaw)
+	if persistErr != nil {
+		return nil, nil, fmt.Errorf("persist repaired raw output: %w", persistErr)
+	}
+	result, decodeErr := NormalizeTaskOutput(task, repairedRaw)
+	if decodeErr != nil {
+		repairedErrorArtifact := d.persistParseErrorArtifact(repairTaskID, task, decodeErr)
+		_, _ = d.persistRepairReportArtifact(repairTaskID, task, agent, normalizeErr, false, initialRawArtifact, initialErrorArtifact, repairRequestArtifact, repairedRawArtifact, repairedErrorArtifact, nil, decodeErr)
+		return nil, chooseArtifact(repairedErrorArtifact, repairedRawArtifact, repairRequestArtifact, initialErrorArtifact, initialRawArtifact), fmt.Errorf("task output repair attempt failed: initial error: %v; repaired output error: %w", normalizeErr, decodeErr)
+	}
+	_, _ = d.persistRepairReportArtifact(repairTaskID, task, agent, normalizeErr, true, initialRawArtifact, initialErrorArtifact, repairRequestArtifact, repairedRawArtifact, nil, nil, nil)
+	return result, repairedRawArtifact, nil
 }
 
 func (d *Delegate) persistTaskInput(taskID string, task consensus.Task, agent ResolvedAgentRuntime) (*consensus.ArtifactRef, error) {
@@ -355,9 +480,147 @@ func buildParseErrorFilename(task consensus.Task, taskID string) string {
 	return fmt.Sprintf("raw-error-%s-%s-%s.txt", safeAgent, task.Kind(), sanitizeFilename(taskID))
 }
 
+func buildDecodeErrorFilename(task consensus.Task, taskID string) string {
+	safeAgent := sanitizeFilename(task.Meta().AgentID)
+	return fmt.Sprintf("decode-error-%s-%s-%s.txt", safeAgent, task.Kind(), sanitizeFilename(taskID))
+}
+
 func buildFailureFilename(task consensus.Task, taskID string) string {
 	safeAgent := sanitizeFilename(task.Meta().AgentID)
 	return fmt.Sprintf("failure-%s-%s-%s.json", safeAgent, task.Kind(), sanitizeFilename(taskID))
+}
+
+func buildRepairRequestFilename(task consensus.Task, taskID string) string {
+	safeAgent := sanitizeFilename(task.Meta().AgentID)
+	return fmt.Sprintf("repair-request-%s-%s-%s.json", safeAgent, task.Kind(), sanitizeFilename(taskID))
+}
+
+func buildRepairReportFilename(task consensus.Task, taskID string) string {
+	safeAgent := sanitizeFilename(task.Meta().AgentID)
+	return fmt.Sprintf("repair-report-%s-%s-%s.json", safeAgent, task.Kind(), sanitizeFilename(taskID))
+}
+
+func buildRepairAttemptTaskID(taskID string, attempt int) string {
+	return fmt.Sprintf("%s-repair-%d", taskID, attempt)
+}
+
+func stringifyRawOutput(raw any) string {
+	switch typed := raw.(type) {
+	case string:
+		return typed
+	default:
+		body, err := json.MarshalIndent(raw, "", "  ")
+		if err != nil {
+			return fmt.Sprint(raw)
+		}
+		return string(body)
+	}
+}
+
+func chooseArtifact(candidates ...*consensus.ArtifactRef) *consensus.ArtifactRef {
+	for _, item := range candidates {
+		if item != nil {
+			return item
+		}
+	}
+	return nil
+}
+
+func (d *Delegate) persistRepairRequestArtifact(taskID string, task consensus.Task, agent ResolvedAgentRuntime, prompt string, decodeErr error, initialRawArtifact *consensus.ArtifactRef, initialErrorArtifact *consensus.ArtifactRef) (*consensus.ArtifactRef, error) {
+	if strings.TrimSpace(d.artifactDir) == "" {
+		return nil, nil
+	}
+	payload := map[string]any{
+		"version": 1,
+		"agent": map[string]any{
+			"id":            agent.ID,
+			"role":          agent.Role,
+			"provider":      agent.ProviderName,
+			"providerType":  agent.Provider.Type,
+			"providerModel": agent.ProviderModel,
+		},
+		"task": map[string]any{
+			"taskId":    taskID,
+			"kind":      task.Kind(),
+			"requestId": task.Meta().RequestID,
+			"sessionId": task.Meta().SessionID,
+			"agentId":   task.Meta().AgentID,
+		},
+		"repair": map[string]any{
+			"initialError": decodeErr.Error(),
+			"prompt":       prompt,
+		},
+	}
+	if initialRawArtifact != nil {
+		payload["repair"].(map[string]any)["initialRawArtifact"] = initialRawArtifact
+	}
+	if initialErrorArtifact != nil {
+		payload["repair"].(map[string]any)["initialErrorArtifact"] = initialErrorArtifact
+	}
+	body, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("marshal repair request: %w", err)
+	}
+	body = append(body, '\n')
+	filename := filepath.Join(d.artifactDir, buildRepairRequestFilename(task, taskID))
+	return writeArtifact(filename, body, "application/json")
+}
+
+func (d *Delegate) persistRepairReportArtifact(taskID string, task consensus.Task, agent ResolvedAgentRuntime, initialErr error, succeeded bool, initialRawArtifact *consensus.ArtifactRef, initialErrorArtifact *consensus.ArtifactRef, repairRequestArtifact *consensus.ArtifactRef, repairRawArtifact *consensus.ArtifactRef, repairErrorArtifact *consensus.ArtifactRef, repairFailureArtifact *consensus.ArtifactRef, finalErr error) (*consensus.ArtifactRef, error) {
+	if strings.TrimSpace(d.artifactDir) == "" {
+		return nil, nil
+	}
+	payload := map[string]any{
+		"version": 1,
+		"agent": map[string]any{
+			"id":            agent.ID,
+			"role":          agent.Role,
+			"provider":      agent.ProviderName,
+			"providerType":  agent.Provider.Type,
+			"providerModel": agent.ProviderModel,
+		},
+		"task": map[string]any{
+			"taskId":    taskID,
+			"kind":      task.Kind(),
+			"requestId": task.Meta().RequestID,
+			"sessionId": task.Meta().SessionID,
+			"agentId":   task.Meta().AgentID,
+		},
+		"repair": map[string]any{
+			"attempted":    true,
+			"succeeded":    succeeded,
+			"initialError": initialErr.Error(),
+		},
+	}
+	repair := payload["repair"].(map[string]any)
+	if initialRawArtifact != nil {
+		repair["initialRawArtifact"] = initialRawArtifact
+	}
+	if initialErrorArtifact != nil {
+		repair["initialErrorArtifact"] = initialErrorArtifact
+	}
+	if repairRequestArtifact != nil {
+		repair["repairRequestArtifact"] = repairRequestArtifact
+	}
+	if repairRawArtifact != nil {
+		repair["repairRawArtifact"] = repairRawArtifact
+	}
+	if repairErrorArtifact != nil {
+		repair["repairErrorArtifact"] = repairErrorArtifact
+	}
+	if repairFailureArtifact != nil {
+		repair["repairFailureArtifact"] = repairFailureArtifact
+	}
+	if finalErr != nil {
+		repair["finalError"] = finalErr.Error()
+	}
+	body, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("marshal repair report: %w", err)
+	}
+	body = append(body, '\n')
+	filename := filepath.Join(d.artifactDir, buildRepairReportFilename(task, taskID))
+	return writeArtifact(filename, body, "application/json")
 }
 
 func writeArtifact(path string, body []byte, mediaType string) (*consensus.ArtifactRef, error) {

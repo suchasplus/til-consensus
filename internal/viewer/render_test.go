@@ -96,7 +96,7 @@ func TestRenderDocumentSections(t *testing.T) {
 		{
 			name:     "debug only",
 			sections: []string{SectionDebug},
-			contains: []string{"Debug Events", "task_dispatched", "artifacts: ./artifacts/input-proposer-a-propose-task-1.json", "rawVerdict: rejected", "rawTaskVerdict: {\"rationale\":\"Need more evidence\",\"verdict\":\"undetermined\"}"},
+			contains: []string{"Debug Events", "task_dispatched", "artifacts: ./artifacts/input-proposer-a-propose-task-1.json", "rawVerdict: rejected", "rawTaskVerdict: {\"rationale\":\"Need more evidence\",\"verdict\":\"undetermined\"}", "Telemetry", "summary:", "codex/gpt-5.4 | propose | total=3 strict=1 normalized=1 repaired=1 failed=0", "reports:", "task-2 | codex/gpt-5.4 | repaired"},
 			excludes: []string{"关键 Claims", "相关文件"},
 		},
 	}
@@ -164,6 +164,9 @@ func TestBuildDocumentIncludesLineageAndFollowUps(t *testing.T) {
 	}
 	if !sawRawVerdict || !sawRawTaskVerdict {
 		t.Fatalf("expected raw verdict fields in debug events: %#v", doc.DebugEvents)
+	}
+	if doc.Telemetry == nil || len(doc.Telemetry.Summary) == 0 || len(doc.Telemetry.Reports) == 0 {
+		t.Fatalf("expected telemetry in debug document: %#v", doc.Telemetry)
 	}
 }
 
@@ -357,6 +360,55 @@ func bundleWithObservationData(t *testing.T) Bundle {
 		Trigger:         "observe_contradiction",
 	}
 	bundle.Result.CaseManifest = &consensus.CaseManifest{CaseID: "child-case-2"}
+	bundle.ComplianceSummary = ComplianceSummaryFile{
+		Version:     1,
+		GeneratedAt: "2026-04-17T10:00:05Z",
+		Entries: []ComplianceSummaryEntry{
+			{Provider: "codex", ProviderType: "cli", ProviderModel: "gpt-5.4", TaskKind: consensus.TaskKindPropose, Total: 3, Strict: 1, Normalized: 1, Repaired: 1, Failed: 0},
+			{Provider: "gemini", ProviderType: "cli", ProviderModel: "gemini-3.1-pro-preview", TaskKind: consensus.TaskKindSemanticVerify, Total: 2, Strict: 0, Normalized: 1, Repaired: 0, Failed: 1},
+		},
+	}
+	bundle.ComplianceReports = []ComplianceReportFile{
+		{
+			Version: 1,
+			Task: struct {
+				TaskID    string "json:\"taskId\""
+				Kind      string "json:\"kind\""
+				RequestID string "json:\"requestId\""
+				SessionID string "json:\"sessionId\""
+				AgentID   string "json:\"agentId\""
+			}{TaskID: "task-2", Kind: "propose", RequestID: bundle.Result.RequestID, SessionID: bundle.Result.SessionID, AgentID: "proposer-a"},
+			Agent: struct {
+				ID            string "json:\"id\""
+				Role          string "json:\"role\""
+				Provider      string "json:\"provider\""
+				ProviderType  string "json:\"providerType\""
+				ProviderModel string "json:\"providerModel\""
+			}{ID: "proposer-a", Role: "proposer", Provider: "codex", ProviderType: "cli", ProviderModel: "gpt-5.4"},
+			Compliance: struct {
+				StrictCompliant      bool                   "json:\"strictCompliant\""
+				NormalizedWithoutFix bool                   "json:\"normalizedWithoutFix\""
+				RepairAttempted      bool                   "json:\"repairAttempted\""
+				RepairSucceeded      bool                   "json:\"repairSucceeded\""
+				FinalStatus          string                 "json:\"finalStatus\""
+				StrictError          string                 "json:\"strictError,omitempty\""
+				FinalError           string                 "json:\"finalError,omitempty\""
+				RawArtifact          *consensus.ArtifactRef "json:\"rawArtifact,omitempty\""
+				InitialErrorArtifact *consensus.ArtifactRef "json:\"initialErrorArtifact,omitempty\""
+				FinalArtifact        *consensus.ArtifactRef "json:\"finalArtifact,omitempty\""
+			}{
+				StrictCompliant:      false,
+				NormalizedWithoutFix: false,
+				RepairAttempted:      true,
+				RepairSucceeded:      true,
+				FinalStatus:          "repaired",
+				StrictError:          "decode proposal output: json: cannot unmarshal string into Go struct field ClaimDraft.claims.confidence of type float64",
+				RawArtifact:          &consensus.ArtifactRef{Path: filepath.Join(bundle.Files.RunDir, "artifacts", "raw-proposer-a-propose-task-2.json")},
+				InitialErrorArtifact: &consensus.ArtifactRef{Path: filepath.Join(bundle.Files.RunDir, "artifacts", "decode-error-proposer-a-propose-task-2.txt")},
+				FinalArtifact:        &consensus.ArtifactRef{Path: filepath.Join(bundle.Files.RunDir, "artifacts", "raw-proposer-a-propose-task-2-repair-1.json")},
+			},
+		},
+	}
 	bundle.Events = []consensus.RunEventRecord{
 		{
 			SchemaVersion: 1,

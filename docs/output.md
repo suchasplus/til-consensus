@@ -198,8 +198,81 @@
 - `raw-<agent>-<task>-<taskID>.*`
   - provider 的原始输出
   - 如果输出无法规范化，还会保留 parse error 原文
+- `decode-error-<agent>-<task>-<taskID>.txt`
+  - strict decode 或 normalize 失败时的原始错误文本
+- `repair-request-<agent>-<task>-<taskID>.json`
+  - 同源 provider repair retry 的请求记录
+- `repair-report-<agent>-<task>-<taskID>.json`
+  - repair 的输入、错误和结果摘要
+- `compliance-report-<agent>-<task>-<taskID>.json`
+  - 单个 task 的 strict compliance 报告
+- `strict-compliance-summary.json`
+  - 当前 run 的 compliance 汇总
 
 之所以带上 `<taskID>`，是为了避免同一个 agent / task kind 的多次执行互相覆盖，方便事后逐轮排查。
+
+## strict compliance telemetry
+
+strict compliance telemetry 用来回答一个更具体的问题：
+
+- 某个 provider 的某类 task，有多少次是第一次就严格符合 schema
+- 又有多少次需要 normalize 或 repair 才能通过
+
+### `compliance-report-*.json`
+
+每个 task 一份，典型字段包括：
+
+- `provider`
+- `providerType`
+- `providerModel`
+- `agentID`
+- `taskKind`
+- `taskID`
+- `strict`
+- `normalized`
+- `repairAttempted`
+- `finalStatus`
+- `strictError`
+- `finalError`
+- `rawArtifact`
+- `initialErrorArtifact`
+- `finalArtifact`
+
+`finalStatus` 目前固定是四种之一：
+
+- `strict`
+  - 原始输出直接通过 strict decode 和 task 校验
+- `normalized`
+  - 只靠无歧义的类型转换后通过
+  - 例如 `"0.8" -> 0.8`
+- `repaired`
+  - strict/normalize 失败后，经过同源 provider repair retry 修复成功
+- `failed`
+  - strict、normalize、repair 都失败
+
+### `strict-compliance-summary.json`
+
+按下面维度聚合：
+
+- `provider`
+- `providerType`
+- `providerModel`
+- `taskKind`
+
+统计字段：
+
+- `total`
+- `strict`
+- `normalized`
+- `repaired`
+- `failed`
+
+这些汇总会直接出现在：
+
+- `til-consensus view --section debug`
+- `til-consensus view --web --section debug`
+
+也就是说，排查 provider 漂移时，不需要只靠翻 raw artifact；终端和 Web 都能直接看到本次 run 的 compliance 分布和每个 task 的最终状态。
 
 ## 终端运行日志
 

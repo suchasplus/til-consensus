@@ -212,3 +212,289 @@ func TestDelegateUsesUniqueArtifactPathsPerTask(t *testing.T) {
 		t.Fatalf("second artifact missing: %v", err)
 	}
 }
+
+func TestDelegatePersistsStrictComplianceTelemetryForCanonicalOutput(t *testing.T) {
+	tmp := t.TempDir()
+	delegate, err := NewDelegate(config.Normalize(config.Config{
+		SchemaVersion: 1,
+		Providers: map[string]config.ProviderConfig{
+			"mock": {
+				Type:   config.ProviderTypeMock,
+				Models: map[string]config.ProviderModelConfig{"default": {ProviderModel: "mock"}},
+			},
+		},
+		Agents: []config.AgentConfig{
+			{ID: "proposer-a", Provider: "mock", Model: "default"},
+		},
+	}), tmp)
+	if err != nil {
+		t.Fatalf("NewDelegate failed: %v", err)
+	}
+
+	receipt, err := delegate.Dispatch(context.Background(), consensus.ProposalTask{
+		TaskMeta: consensus.TaskMeta{
+			RequestID: "req-1",
+			SessionID: "session-1",
+			AgentID:   "proposer-a",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Dispatch failed: %v", err)
+	}
+	awaited, err := delegate.Await(context.Background(), receipt.TaskID, 5*time.Second)
+	if err != nil {
+		t.Fatalf("Await failed: %v", err)
+	}
+	if !awaited.OK {
+		t.Fatalf("expected strict path to succeed, got %#v", awaited)
+	}
+
+	reportPath := filepath.Join(tmp, buildComplianceReportFilename(consensus.ProposalTask{
+		TaskMeta: consensus.TaskMeta{AgentID: "proposer-a"},
+	}, receipt.TaskID))
+	body, readErr := os.ReadFile(reportPath)
+	if readErr != nil {
+		t.Fatalf("read compliance report: %v", readErr)
+	}
+	for _, fragment := range []string{`"strictCompliant": true`, `"finalStatus": "strict"`} {
+		if !strings.Contains(string(body), fragment) {
+			t.Fatalf("expected strict compliance report to contain %q, got %s", fragment, string(body))
+		}
+	}
+
+	summaryPath := filepath.Join(tmp, "strict-compliance-summary.json")
+	summaryBody, readSummaryErr := os.ReadFile(summaryPath)
+	if readSummaryErr != nil {
+		t.Fatalf("read compliance summary: %v", readSummaryErr)
+	}
+	if !strings.Contains(string(summaryBody), `"strict": 1`) {
+		t.Fatalf("expected strict summary count, got %s", string(summaryBody))
+	}
+}
+
+func TestDelegatePersistsNormalizedComplianceTelemetryForNumericStringFix(t *testing.T) {
+	tmp := t.TempDir()
+	scriptPath := filepath.Join(tmp, "runner.sh")
+	script := `#!/bin/sh
+printf '{"summary":"proposal","claims":[{"statement":"fixed claim","confidence":"0.8"}]}'
+`
+	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
+
+	delegate, err := NewDelegate(config.Normalize(config.Config{
+		SchemaVersion: 1,
+		Providers: map[string]config.ProviderConfig{
+			"cli": {
+				Type:    config.ProviderTypeCLI,
+				CLIType: config.CLITypeGeneric,
+				Command: "sh",
+				Args:    []string{scriptPath},
+				Models:  map[string]config.ProviderModelConfig{"default": {ProviderModel: "mock"}},
+			},
+		},
+		Agents: []config.AgentConfig{
+			{ID: "proposer-a", Provider: "cli", Model: "default"},
+		},
+	}), tmp)
+	if err != nil {
+		t.Fatalf("NewDelegate failed: %v", err)
+	}
+
+	receipt, err := delegate.Dispatch(context.Background(), consensus.ProposalTask{
+		TaskMeta: consensus.TaskMeta{
+			RequestID: "req-1",
+			SessionID: "session-1",
+			AgentID:   "proposer-a",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Dispatch failed: %v", err)
+	}
+	awaited, err := delegate.Await(context.Background(), receipt.TaskID, 5*time.Second)
+	if err != nil {
+		t.Fatalf("Await failed: %v", err)
+	}
+	if !awaited.OK {
+		t.Fatalf("expected normalized path to succeed, got %#v", awaited)
+	}
+
+	reportPath := filepath.Join(tmp, buildComplianceReportFilename(consensus.ProposalTask{
+		TaskMeta: consensus.TaskMeta{AgentID: "proposer-a"},
+	}, receipt.TaskID))
+	body, readErr := os.ReadFile(reportPath)
+	if readErr != nil {
+		t.Fatalf("read compliance report: %v", readErr)
+	}
+	for _, fragment := range []string{`"strictCompliant": false`, `"normalizedWithoutFix": true`, `"finalStatus": "normalized"`} {
+		if !strings.Contains(string(body), fragment) {
+			t.Fatalf("expected normalized compliance report to contain %q, got %s", fragment, string(body))
+		}
+	}
+
+	summaryPath := filepath.Join(tmp, "strict-compliance-summary.json")
+	summaryBody, readSummaryErr := os.ReadFile(summaryPath)
+	if readSummaryErr != nil {
+		t.Fatalf("read compliance summary: %v", readSummaryErr)
+	}
+	if !strings.Contains(string(summaryBody), `"normalized": 1`) {
+		t.Fatalf("expected normalized summary count, got %s", string(summaryBody))
+	}
+}
+
+func TestDelegateRepairsMalformedOutputWithSameProvider(t *testing.T) {
+	tmp := t.TempDir()
+	scriptPath := filepath.Join(tmp, "runner.sh")
+	script := `#!/bin/sh
+input="$(cat)"
+case "$input" in
+  *"repairing your own previous output"*)
+    printf '{"summary":"proposal repaired","claims":[{"statement":"fixed claim"}]}'
+    ;;
+  *)
+    printf 'not json'
+    ;;
+esac
+`
+	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
+
+	delegate, err := NewDelegate(config.Normalize(config.Config{
+		SchemaVersion: 1,
+		Providers: map[string]config.ProviderConfig{
+			"cli": {
+				Type:    config.ProviderTypeCLI,
+				CLIType: config.CLITypeGeneric,
+				Command: "sh",
+				Args:    []string{scriptPath},
+				Models:  map[string]config.ProviderModelConfig{"default": {ProviderModel: "mock"}},
+			},
+		},
+		Agents: []config.AgentConfig{
+			{ID: "proposer-a", Provider: "cli", Model: "default"},
+		},
+	}), tmp)
+	if err != nil {
+		t.Fatalf("NewDelegate failed: %v", err)
+	}
+
+	receipt, err := delegate.Dispatch(context.Background(), consensus.ProposalTask{
+		TaskMeta: consensus.TaskMeta{
+			RequestID: "req-1",
+			SessionID: "session-1",
+			AgentID:   "proposer-a",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Dispatch failed: %v", err)
+	}
+	awaited, err := delegate.Await(context.Background(), receipt.TaskID, 5*time.Second)
+	if err != nil {
+		t.Fatalf("Await failed: %v", err)
+	}
+	if !awaited.OK {
+		t.Fatalf("expected repair retry to succeed, got %#v", awaited)
+	}
+	if awaited.Artifact == nil || !strings.Contains(awaited.Artifact.Path, buildRepairAttemptTaskID(receipt.TaskID, 1)) {
+		t.Fatalf("expected repaired raw artifact, got %#v", awaited.Artifact)
+	}
+	reportPath := filepath.Join(tmp, buildRepairReportFilename(consensus.ProposalTask{
+		TaskMeta: consensus.TaskMeta{AgentID: "proposer-a"},
+	}, buildRepairAttemptTaskID(receipt.TaskID, 1)))
+	body, readErr := os.ReadFile(reportPath)
+	if readErr != nil {
+		t.Fatalf("read repair report: %v", readErr)
+	}
+	if !strings.Contains(string(body), `"succeeded": true`) {
+		t.Fatalf("expected successful repair report, got %s", string(body))
+	}
+	compliancePath := filepath.Join(tmp, buildComplianceReportFilename(consensus.ProposalTask{
+		TaskMeta: consensus.TaskMeta{AgentID: "proposer-a"},
+	}, receipt.TaskID))
+	complianceBody, complianceErr := os.ReadFile(compliancePath)
+	if complianceErr != nil {
+		t.Fatalf("read compliance report: %v", complianceErr)
+	}
+	for _, fragment := range []string{`"repairAttempted": true`, `"repairSucceeded": true`, `"finalStatus": "repaired"`} {
+		if !strings.Contains(string(complianceBody), fragment) {
+			t.Fatalf("expected repaired compliance report to contain %q, got %s", fragment, string(complianceBody))
+		}
+	}
+}
+
+func TestDelegateReturnsRepairFailureAfterSecondMalformedOutput(t *testing.T) {
+	tmp := t.TempDir()
+	scriptPath := filepath.Join(tmp, "runner.sh")
+	script := `#!/bin/sh
+printf 'not json'
+`
+	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
+
+	delegate, err := NewDelegate(config.Normalize(config.Config{
+		SchemaVersion: 1,
+		Providers: map[string]config.ProviderConfig{
+			"cli": {
+				Type:    config.ProviderTypeCLI,
+				CLIType: config.CLITypeGeneric,
+				Command: "sh",
+				Args:    []string{scriptPath},
+				Models:  map[string]config.ProviderModelConfig{"default": {ProviderModel: "mock"}},
+			},
+		},
+		Agents: []config.AgentConfig{
+			{ID: "proposer-a", Provider: "cli", Model: "default"},
+		},
+	}), tmp)
+	if err != nil {
+		t.Fatalf("NewDelegate failed: %v", err)
+	}
+
+	receipt, err := delegate.Dispatch(context.Background(), consensus.ProposalTask{
+		TaskMeta: consensus.TaskMeta{
+			RequestID: "req-1",
+			SessionID: "session-1",
+			AgentID:   "proposer-a",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Dispatch failed: %v", err)
+	}
+	awaited, err := delegate.Await(context.Background(), receipt.TaskID, 5*time.Second)
+	if err != nil {
+		t.Fatalf("Await failed: %v", err)
+	}
+	if awaited.OK {
+		t.Fatalf("expected repair retry to fail, got %#v", awaited)
+	}
+	if !strings.Contains(awaited.Error, "repair attempt failed") {
+		t.Fatalf("expected repair failure marker, got %#v", awaited)
+	}
+	if awaited.Artifact == nil || !strings.Contains(awaited.Artifact.Path, buildRepairAttemptTaskID(receipt.TaskID, 1)) {
+		t.Fatalf("expected repair-stage artifact, got %#v", awaited.Artifact)
+	}
+	reportPath := filepath.Join(tmp, buildRepairReportFilename(consensus.ProposalTask{
+		TaskMeta: consensus.TaskMeta{AgentID: "proposer-a"},
+	}, buildRepairAttemptTaskID(receipt.TaskID, 1)))
+	body, readErr := os.ReadFile(reportPath)
+	if readErr != nil {
+		t.Fatalf("read repair report: %v", readErr)
+	}
+	if !strings.Contains(string(body), `"succeeded": false`) {
+		t.Fatalf("expected failed repair report, got %s", string(body))
+	}
+	compliancePath := filepath.Join(tmp, buildComplianceReportFilename(consensus.ProposalTask{
+		TaskMeta: consensus.TaskMeta{AgentID: "proposer-a"},
+	}, receipt.TaskID))
+	complianceBody, complianceErr := os.ReadFile(compliancePath)
+	if complianceErr != nil {
+		t.Fatalf("read compliance report: %v", complianceErr)
+	}
+	for _, fragment := range []string{`"repairAttempted": true`, `"repairSucceeded": false`, `"finalStatus": "failed"`} {
+		if !strings.Contains(string(complianceBody), fragment) {
+			t.Fatalf("expected failed compliance report to contain %q, got %s", fragment, string(complianceBody))
+		}
+	}
+}

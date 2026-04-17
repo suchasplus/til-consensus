@@ -30,8 +30,9 @@ func (r ResolvedAgentRuntime) EffectiveReasoning() string {
 }
 
 type ProviderTaskRequest struct {
-	Task  consensus.Task
-	Agent ResolvedAgentRuntime
+	Task           consensus.Task
+	Agent          ResolvedAgentRuntime
+	PromptOverride string
 }
 
 type ProviderRunner interface {

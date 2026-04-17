@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/suchasplus/til-consensus/internal/config"
@@ -61,12 +62,14 @@ func runViewCommand(ctx context.Context, cmd *cli.Command) error {
 			resultPath = strings.ReplaceAll(template, "{requestId}", requestID)
 			artifactPaths := config.ResolveRunArtifacts(loaded, requestID)
 			related = viewer.RunFiles{
-				RunDir:       artifactPaths.RunDir,
-				ResultPath:   artifactPaths.ResultPath,
-				LedgerPath:   artifactPaths.LedgerPath,
-				SummaryPath:  artifactPaths.SummaryPath,
-				ManifestPath: artifactPaths.ManifestPath,
-				EventsPath:   artifactPaths.EventsPath,
+				RunDir:                artifactPaths.RunDir,
+				ArtifactsDir:          artifactPaths.ArtifactsDir,
+				ResultPath:            artifactPaths.ResultPath,
+				LedgerPath:            artifactPaths.LedgerPath,
+				SummaryPath:           artifactPaths.SummaryPath,
+				ManifestPath:          artifactPaths.ManifestPath,
+				EventsPath:            artifactPaths.EventsPath,
+				ComplianceSummaryPath: filepath.Join(artifactPaths.ArtifactsDir, "strict-compliance-summary.json"),
 			}
 		} else {
 			latest, err := viewer.ResolveLatestRun(template)
@@ -79,12 +82,14 @@ func runViewCommand(ctx context.Context, cmd *cli.Command) error {
 			resultPath = latest.ResultPath
 			artifactPaths := config.ResolveRunArtifacts(loaded, latest.RequestID)
 			related = viewer.RunFiles{
-				RunDir:       artifactPaths.RunDir,
-				ResultPath:   artifactPaths.ResultPath,
-				LedgerPath:   artifactPaths.LedgerPath,
-				SummaryPath:  artifactPaths.SummaryPath,
-				ManifestPath: artifactPaths.ManifestPath,
-				EventsPath:   artifactPaths.EventsPath,
+				RunDir:                artifactPaths.RunDir,
+				ArtifactsDir:          artifactPaths.ArtifactsDir,
+				ResultPath:            artifactPaths.ResultPath,
+				LedgerPath:            artifactPaths.LedgerPath,
+				SummaryPath:           artifactPaths.SummaryPath,
+				ManifestPath:          artifactPaths.ManifestPath,
+				EventsPath:            artifactPaths.EventsPath,
+				ComplianceSummaryPath: filepath.Join(artifactPaths.ArtifactsDir, "strict-compliance-summary.json"),
 			}
 		}
 	}

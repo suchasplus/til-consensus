@@ -140,6 +140,21 @@ til-consensus view \
 
 `debug` 会读取同目录下的 `events.jsonl`，显示每条运行事件的时间、类型、payload，以及推导出的 provider artifact 路径提示。
 
+如果同一次 run 里生成了 strict compliance telemetry，`debug` 还会继续显示：
+
+- `Telemetry`
+  - `summary`
+    - 按 `provider / providerModel / taskKind` 聚合
+    - 显示 `total / strict / normalized / repaired / failed`
+  - `reports`
+    - 每个 task 一条
+    - 显示 `finalStatus`
+    - 显示是否发生 `strict -> normalized -> repair`
+    - verbose 模式下还会展示：
+      - `rawArtifact`
+      - `initialErrorArtifact`
+      - `finalArtifact`
+
 如果事件 metadata 里带有原始模型语义，`debug` 现在还会显式显示：
 
 - `rawVerdict`
@@ -288,7 +303,23 @@ til-consensus view \
 - limit 调整
 - verbose 开关
 - `<details>` 折叠
-- Debug 区块直接展示 `rawVerdict` / `rawTaskVerdict`
+- Debug 区块直接展示：
+  - `rawVerdict`
+  - `rawTaskVerdict`
+  - strict compliance `Telemetry`
+
+Web 的 `Debug` 面板现在分成两部分：
+
+- `Events`
+  - 运行期事件、payload、provider artifact 路径提示
+- `Telemetry`
+  - `summary`
+    - `provider / providerModel / taskKind`
+    - `strict / normalized / repaired / failed`
+  - `reports`
+    - 每个 task 的最终状态
+    - `strictError / finalError`
+    - `rawArtifact / initialErrorArtifact / finalArtifact`
 
 数据接口：
 

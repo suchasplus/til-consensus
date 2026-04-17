@@ -99,6 +99,12 @@ func TestWebHandlerServesIndexAndDocumentAPI(t *testing.T) {
 	if !sawRawVerdict || !sawRawTaskVerdict {
 		t.Fatalf("expected raw verdict fields in web debug document: %#v", debugDoc.DebugEvents)
 	}
+	if debugDoc.Telemetry == nil || len(debugDoc.Telemetry.Summary) == 0 || len(debugDoc.Telemetry.Reports) == 0 {
+		t.Fatalf("expected telemetry in web debug document: %#v", debugDoc.Telemetry)
+	}
+	if debugDoc.Telemetry.Reports[0].FinalStatus == "" {
+		t.Fatalf("expected telemetry report final status: %#v", debugDoc.Telemetry.Reports[0])
+	}
 }
 
 func TestWebHandlerMissingManifestDegrades(t *testing.T) {

@@ -332,6 +332,15 @@ til-consensus view --config ./til-consensus.yaml --web --section observations --
 til-consensus view --config ./til-consensus.yaml --web --section debug --verbose --open
 ```
 
+`debug` 区块现在除了运行事件，还会直接展示 strict compliance telemetry：
+
+- summary
+  - 按 `provider × taskKind` 汇总
+  - 显示 `strict / normalized / repaired / failed`
+- reports
+  - 每个 task 一条
+  - 显示最终状态、是否触发 repair，以及相关 artifact 路径
+
 - free_debate：
 
 ```bash
@@ -373,6 +382,16 @@ til-consensus view --config ./til-consensus.yaml --section rounds --section conv
   - 人可读摘要
 - `artifacts/manifest.jsonl`
   - artifact 与 ledger entry 的反向索引
+- `artifacts/strict-compliance-summary.json`
+  - strict compliance 汇总
+  - 按 `provider / providerModel / taskKind` 聚合
+- `artifacts/compliance-report-*.json`
+  - 单个 task 的 compliance 报告
+  - 会标出本次是：
+    - `strict`
+    - `normalized`
+    - `repaired`
+    - `failed`
 
 ## 构建与安装
 
@@ -429,6 +448,18 @@ make install
   - 在 `--verbose` 基础上
   - 再打印完整事件 payload
   - 再打印 `input/raw/failure` artifact 路径提示
+
+运行时还会同步记录 strict compliance telemetry：
+
+- `strict`
+  - 原始输出直接满足 schema 和 task 校验
+- `normalized`
+  - 只靠无歧义的类型转换后通过
+  - 例如 `"0.8" -> 0.8`
+- `repaired`
+  - 首次 decode 失败后，经过同源 provider repair retry 修复成功
+- `failed`
+  - strict、normalize、repair 都失败
 
 如果输出连接到真实终端，关键字会自动着色；如果输出被重定向到文件，则保持纯文本。
 
