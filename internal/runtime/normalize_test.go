@@ -182,3 +182,71 @@ func TestStrictDecodeTaskOutputRejectsWrappedJSONAndStringNumbers(t *testing.T) 
 		t.Fatal("expected strict decode to reject wrapped JSON and string numbers")
 	}
 }
+
+func TestDebateRoundSchemaIncludesJudgementEnumAndRequiredFields(t *testing.T) {
+	schema := TaskOutputJSONSchema(consensus.DebateRoundTask{})
+	properties, ok := schema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected debate schema properties, got %#v", schema)
+	}
+	judgements, ok := properties["judgements"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected judgements schema, got %#v", properties["judgements"])
+	}
+	items, ok := judgements["items"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected judgements item schema, got %#v", judgements["items"])
+	}
+	required, ok := items["required"].([]string)
+	if !ok {
+		t.Fatalf("expected judgements required list, got %#v", items["required"])
+	}
+	if len(required) != 2 || required[0] != "claimId" || required[1] != "judgement" {
+		t.Fatalf("unexpected required fields: %#v", required)
+	}
+	itemProperties, ok := items["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected judgements properties, got %#v", items["properties"])
+	}
+	judgementProperty, ok := itemProperties["judgement"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected judgement property schema, got %#v", itemProperties["judgement"])
+	}
+	enumValues, ok := judgementProperty["enum"].([]string)
+	if !ok {
+		t.Fatalf("expected judgement enum, got %#v", judgementProperty["enum"])
+	}
+	want := []string{"agree", "disagree", "revise", "no_change"}
+	for idx, value := range want {
+		if enumValues[idx] != value {
+			t.Fatalf("unexpected judgement enum: %#v", enumValues)
+		}
+	}
+}
+
+func TestNormalizeDebateRoundOutputRejectsDuplicateClaimIDs(t *testing.T) {
+	_, err := NormalizeTaskOutputFromText(consensus.DebateRoundTask{
+		TaskMeta: consensus.TaskMeta{AgentID: "participant-1"},
+	}, `{"summary":"debate","judgements":[{"claimId":"claim-1","judgement":"agree"},{"claimId":"claim-1","judgement":"no_change"}]}`)
+	if err == nil {
+		t.Fatal("expected duplicate claimId to fail validation")
+	}
+}
+
+func TestNormalizeDebateRoundOutputRequiresRevisedStatementForRevise(t *testing.T) {
+	_, err := NormalizeTaskOutputFromText(consensus.DebateRoundTask{
+		TaskMeta: consensus.TaskMeta{AgentID: "participant-1"},
+	}, `{"summary":"debate","judgements":[{"claimId":"claim-1","judgement":"revise","rationale":"needs narrowing"}]}`)
+	if err == nil {
+		t.Fatal("expected revise judgement without revisedStatement to fail validation")
+	}
+}
+
+func TestNormalizeDebateRoundOutputRejectsRevisedStatementOutsideRevise(t *testing.T) {
+	_, err := NormalizeTaskOutputFromText(consensus.DebateRoundTask{
+		TaskMeta: consensus.TaskMeta{AgentID: "participant-1"},
+	}, `{"summary":"debate","judgements":[{"claimId":"claim-1","judgement":"agree","revisedStatement":"unexpected"}]}`)
+	if err == nil {
+		t.Fatal("expected non-revise judgement with revisedStatement to fail validation")
+	}
+}

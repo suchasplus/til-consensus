@@ -151,6 +151,22 @@ func taskSpecificContract(task consensus.Task) []string {
 			"- Revise action allowed: revise, downgrade_confidence, withdraw, mark_unresolved, unchanged.",
 			"- Revise confidenceDelta must be a JSON number, not a string.",
 		}
+	case consensus.DebateRoundTask:
+		return []string{
+			"- Debate-round fields: summary, newClaims[], judgements[].claimId, judgements[].judgement, judgements[].rationale, judgements[].revisedStatement, judgements[].mergeWithClaims.",
+			"- Debate-round claimId must copy an existing peerClaims[].claimId exactly.",
+			"- Debate-round aliases forbidden: claim, targetId, verdict, vote, stance, opinion.",
+			"- Debate-round judgement allowed: agree, disagree, revise, no_change.",
+			"- Debate-round if judgement=revise, revisedStatement is required. Otherwise omit revisedStatement.",
+			"- Debate-round prefer one judgement row per peer claim. Use no_change instead of skipping a peer claim you reviewed.",
+		}
+	case consensus.FinalVoteTask:
+		return []string{
+			"- Final-vote fields: summary, votes[].claimId, votes[].vote, votes[].rationale.",
+			"- Final-vote claimId must copy an existing claims[].claimId exactly.",
+			"- Final-vote vote allowed: accept, reject, abstain.",
+			"- Final-vote aliases forbidden: targetId, verdict, judgement, stance.",
+		}
 	case consensus.ArbiterTask:
 		return []string{
 			"- Arbiter fields: summary, taskVerdict, decisions[].claimId, decisions[].verdict, decisions[].confidence, decisions[].rationale, decisions[].evidenceRefs.",

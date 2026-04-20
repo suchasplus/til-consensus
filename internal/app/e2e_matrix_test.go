@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -266,7 +267,7 @@ func runCLICommand(ctx context.Context, cmd *cli.Command, args []string) (string
 	return stdout.String(), stderr.String(), err
 }
 
-func setCommandWriters(cmd *cli.Command, stdout *bytes.Buffer, stderr *bytes.Buffer) {
+func setCommandWriters(cmd *cli.Command, stdout io.Writer, stderr io.Writer) {
 	cmd.Writer = stdout
 	cmd.ErrWriter = stderr
 	for _, child := range cmd.Commands {

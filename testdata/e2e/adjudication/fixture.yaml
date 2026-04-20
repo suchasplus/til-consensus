@@ -1,0 +1,11 @@
+name: adjudication
+mode: adjudication
+description: 使用 claim/challenge/verification/arbiter 全链路验证 adjudication 模式
+view_sections:
+  - claims
+  - verifications
+  - debug
+expected_view_fragments:
+  - "关键 Claims"
+  - "验证明细"
+  - "Telemetry"

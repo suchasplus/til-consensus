@@ -1,0 +1,11 @@
+name: free-debate
+mode: free_debate
+description: 使用 participant 公开辩论与 final vote 验证 free_debate 模式
+view_sections:
+  - rounds
+  - votes
+  - debug
+expected_view_fragments:
+  - "Rounds"
+  - "Votes"
+  - "Telemetry"

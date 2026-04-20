@@ -88,3 +88,18 @@ func TestHardenPromptForCLIAddsArbiterAndProposalFieldContracts(t *testing.T) {
 		}
 	}
 }
+
+func TestHardenPromptForCLIAddsDebateRoundContract(t *testing.T) {
+	debatePrompt := hardenPromptForCLI("gemini", consensus.DebateRoundTask{}, "base")
+	for _, fragment := range []string{
+		"Debate-round fields: summary, newClaims[], judgements[].claimId, judgements[].judgement, judgements[].rationale, judgements[].revisedStatement, judgements[].mergeWithClaims.",
+		"Debate-round claimId must copy an existing peerClaims[].claimId exactly.",
+		"Debate-round judgement allowed: agree, disagree, revise, no_change.",
+		"Debate-round if judgement=revise, revisedStatement is required. Otherwise omit revisedStatement.",
+		"Gemini-specific: do not replace canonical fields with aliases like verificationStatus/claim/text/accepted/verified.",
+	} {
+		if !strings.Contains(debatePrompt, fragment) {
+			t.Fatalf("expected debate hardened prompt to contain %q, got:\n%s", fragment, debatePrompt)
+		}
+	}
+}

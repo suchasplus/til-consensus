@@ -1,0 +1,13 @@
+name: delphi
+mode: delphi
+description: 使用匿名问卷、汇总与修订验证 delphi 模式
+view_sections:
+  - rounds
+  - statements
+  - convergence
+  - debug
+expected_view_fragments:
+  - "Rounds"
+  - "Statements"
+  - "Convergence"
+  - "Telemetry"

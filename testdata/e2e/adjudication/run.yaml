@@ -1,0 +1,49 @@
+request_id: e2e-adjudication-repo-strategy-001
+
+mode: adjudication
+
+task_spec:
+  goal: 评估未来 12 个月内，当前微服务体系是否应该从 polyrepo 渐进收敛到 monorepo
+  task_type: strategy
+  success_criteria:
+    - 必须给出 claim 级裁决
+    - 对证据不足部分明确标记 undetermined 或 unresolved
+    - 必须指出主要适用前提和迁移边界
+  materials:
+    - id: current-state
+      title: 当前仓库形态
+      kind: text
+      content: |
+        当前共有 28 个活跃代码仓库，其中 19 个服务仓库、5 个前端仓库、4 个基础设施仓库。
+        跨仓库改动通常需要 3 到 4 个 PR，依赖升级与契约变更常常需要多个团队同步排期。
+        过去两个季度内，跨仓库重构平均需要 5 个工作日才能完成合并与验证。
+    - id: engineering-constraints
+      title: 工程约束
+      kind: text
+      content: |
+        平台团队 3 人，需要同时维护 CI、共享库、构建缓存和仓库模板。
+        业务团队希望保留相对独立的发布节奏，不接受因为单仓库构建拥堵而整体降速。
+        现有共享库主要通过内部 package registry 分发，但版本漂移明显。
+    - id: decision-focus
+      title: 评估重点
+      kind: text
+      content: |
+        请重点比较：
+        - 跨服务改动协调成本
+        - 依赖管理复杂度
+        - CI / build 扩展性
+        - 代码所有权与团队边界
+        - 渐进迁移是否可操作
+
+proposal_policy:
+  max_passes: 1
+  max_claims_per_worker: 3
+  dedupe_strategy: normalized-statement
+
+verification_policy:
+  allow_semantic_verifier: true
+  max_parallel_checks: 1
+
+arbiter_policy:
+  allow_undetermined: true
+  blind_review: true

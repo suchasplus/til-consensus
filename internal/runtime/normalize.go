@@ -35,8 +35,52 @@ func TaskOutputJSONSchema(task consensus.Task) map[string]any {
 		}
 	case consensus.DebateRoundTask:
 		return map[string]any{
-			"type":     "object",
-			"required": []string{"summary", "judgements"},
+			"type":                 "object",
+			"additionalProperties": false,
+			"required":             []string{"summary", "judgements"},
+			"properties": map[string]any{
+				"summary": map[string]any{
+					"type": "string",
+				},
+				"newClaims": map[string]any{
+					"type":  "array",
+					"items": claimDraftSchema(),
+				},
+				"judgements": map[string]any{
+					"type": "array",
+					"items": map[string]any{
+						"type":                 "object",
+						"additionalProperties": false,
+						"required":             []string{"claimId", "judgement"},
+						"properties": map[string]any{
+							"claimId": map[string]any{
+								"type": "string",
+							},
+							"judgement": map[string]any{
+								"type": "string",
+								"enum": []string{
+									string(consensus.DebateJudgementAgree),
+									string(consensus.DebateJudgementDisagree),
+									string(consensus.DebateJudgementRevise),
+									string(consensus.DebateJudgementNoChange),
+								},
+							},
+							"rationale": map[string]any{
+								"type": "string",
+							},
+							"revisedStatement": map[string]any{
+								"type": "string",
+							},
+							"mergeWithClaims": map[string]any{
+								"type": "array",
+								"items": map[string]any{
+									"type": "string",
+								},
+							},
+						},
+					},
+				},
+			},
 		}
 	case consensus.FinalVoteTask:
 		return map[string]any{
@@ -299,6 +343,55 @@ func truncateSummary(text string) string {
 	return text[:200] + "..."
 }
 
+func claimDraftSchema() map[string]any {
+	return map[string]any{
+		"type":                 "object",
+		"additionalProperties": false,
+		"required":             []string{"statement"},
+		"properties": map[string]any{
+			"id": map[string]any{
+				"type": "string",
+			},
+			"title": map[string]any{
+				"type": "string",
+			},
+			"statement": map[string]any{
+				"type": "string",
+			},
+			"claimType": map[string]any{
+				"type": "string",
+				"enum": []string{
+					string(consensus.ClaimTypeFact),
+					string(consensus.ClaimTypeInference),
+					string(consensus.ClaimTypeRecommendation),
+					string(consensus.ClaimTypeAssumption),
+				},
+			},
+			"confidence": map[string]any{
+				"type": "number",
+			},
+			"rationale": map[string]any{
+				"type": "string",
+			},
+			"evidenceRef": map[string]any{
+				"type": "string",
+			},
+			"touchedPaths": map[string]any{
+				"type": "array",
+				"items": map[string]any{
+					"type": "string",
+				},
+			},
+			"verificationPlan": map[string]any{
+				"type": "array",
+				"items": map[string]any{
+					"type": "string",
+				},
+			},
+		},
+	}
+}
+
 var (
 	floatOutputKeys = map[string]struct{}{
 		"confidence":      {},
@@ -425,12 +518,24 @@ func validateRevisionDrafts(revisions []consensus.ClaimRevisionDraft) error {
 }
 
 func validateDebateJudgements(judgements []consensus.DebateJudgementDraft) error {
+	seen := make(map[string]struct{}, len(judgements))
 	for idx, judgement := range judgements {
-		if strings.TrimSpace(judgement.ClaimID) == "" {
+		claimID := strings.TrimSpace(judgement.ClaimID)
+		if claimID == "" {
 			return fmt.Errorf("judgements[%d].claimId is required", idx)
 		}
+		if _, exists := seen[claimID]; exists {
+			return fmt.Errorf("judgements[%d].claimId duplicates earlier entry for %q", idx, claimID)
+		}
+		seen[claimID] = struct{}{}
 		if !isAllowedDebateJudgement(judgement.Judgement) {
 			return fmt.Errorf("judgements[%d].judgement must be one of agree|disagree|revise|no_change", idx)
+		}
+		if judgement.Judgement == consensus.DebateJudgementRevise && strings.TrimSpace(judgement.RevisedStatement) == "" {
+			return fmt.Errorf("judgements[%d].revisedStatement is required when judgement=revise", idx)
+		}
+		if judgement.Judgement != consensus.DebateJudgementRevise && strings.TrimSpace(judgement.RevisedStatement) != "" {
+			return fmt.Errorf("judgements[%d].revisedStatement is only allowed when judgement=revise", idx)
 		}
 	}
 	return nil
