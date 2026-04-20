@@ -114,6 +114,10 @@ func TestBuildTaskPromptAddsSemanticVerificationHints(t *testing.T) {
 	for _, fragment := range []string{
 		"Return exactly one semantic result row for the current claim.",
 		`The only valid claimId for this task is claim-current.`,
+		"supported confidence must be between 0.60 and 1.00.",
+		"refuted confidence must be between 0.60 and 1.00.",
+		"insufficient_evidence confidence must be between 0.01 and 0.60.",
+		"undetermined confidence must stay between 0.35 and 0.65.",
 		`Valid supported example: {"summary":"The current claim is directly backed by the record.","results":[{"claimId":"claim-current","targetType":"claim","verdict":"supported"`,
 		`Valid refuted example: {"summary":"The current claim overstates what the record proves.","results":[{"claimId":"claim-current","targetType":"claim","verdict":"refuted"`,
 		`Valid insufficient_evidence example: {"summary":"The current claim is plausible but under-supported.","results":[{"claimId":"claim-current","targetType":"claim","verdict":"insufficient_evidence"`,
@@ -136,6 +140,7 @@ func TestBuildRepairPromptAddsSemanticVerificationRepairHints(t *testing.T) {
 	for _, fragment := range []string{
 		"Task-specific repair rules:",
 		"Rewrite the output to exactly one canonical result row for the current claim.",
+		"Repair confidence to match the canonical verdict bands",
 		`The repaired results[0].claimId must be exactly claim-current.`,
 	} {
 		if !strings.Contains(prompt, fragment) {

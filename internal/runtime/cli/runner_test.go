@@ -110,6 +110,7 @@ func TestHardenPromptForCLIAddsProviderSpecificContract(t *testing.T) {
 		"Semantic output must not emit rows for challenges, evidence, or source materials.",
 		"Semantic targetType is optional, but if present it must be claim.",
 		"Semantic verdict allowed: supported, refuted, insufficient_evidence, undetermined.",
+		"Semantic confidence bands: supported/refuted must be 0.60-1.00, insufficient_evidence must be 0.01-0.60, undetermined must be 0.35-0.65.",
 		"Semantic insufficient_evidence is preferred when evidence is simply too weak or missing.",
 		"Semantic claimId must be exactly claim-1.",
 		"Gemini-specific: do not replace canonical fields with aliases like verificationStatus/claim/text/accepted/verified.",

@@ -141,6 +141,36 @@ func TestNormalizeSemanticVerificationOutputRejectsNonClaimTargetType(t *testing
 	}
 }
 
+func TestNormalizeSemanticVerificationOutputRejectsLowConfidenceSupported(t *testing.T) {
+	_, err := NormalizeTaskOutputFromText(consensus.SemanticVerificationTask{
+		TaskMeta: consensus.TaskMeta{AgentID: "verifier-1"},
+		Claim:    consensus.ClaimNode{ClaimID: "claim-1"},
+	}, `{"summary":"semantic","results":[{"claimId":"claim-1","verdict":"supported","confidence":"0.41","rationale":"too low for supported"}]}`)
+	if err == nil {
+		t.Fatal("expected low-confidence supported verdict to fail normalization")
+	}
+}
+
+func TestNormalizeSemanticVerificationOutputRejectsHighConfidenceInsufficientEvidence(t *testing.T) {
+	_, err := NormalizeTaskOutputFromText(consensus.SemanticVerificationTask{
+		TaskMeta: consensus.TaskMeta{AgentID: "verifier-1"},
+		Claim:    consensus.ClaimNode{ClaimID: "claim-1"},
+	}, `{"summary":"semantic","results":[{"claimId":"claim-1","verdict":"insufficient_evidence","confidence":"0.82","rationale":"too high for insufficient evidence"}]}`)
+	if err == nil {
+		t.Fatal("expected high-confidence insufficient_evidence verdict to fail normalization")
+	}
+}
+
+func TestNormalizeSemanticVerificationOutputRejectsOutOfBandUndeterminedConfidence(t *testing.T) {
+	_, err := NormalizeTaskOutputFromText(consensus.SemanticVerificationTask{
+		TaskMeta: consensus.TaskMeta{AgentID: "verifier-1"},
+		Claim:    consensus.ClaimNode{ClaimID: "claim-1"},
+	}, `{"summary":"semantic","results":[{"claimId":"claim-1","verdict":"undetermined","confidence":"0.9","rationale":"too confident for undetermined"}]}`)
+	if err == nil {
+		t.Fatal("expected out-of-band undetermined confidence to fail normalization")
+	}
+}
+
 func TestNormalizeArbiterOutputRejectsMissingVerdict(t *testing.T) {
 	_, err := NormalizeTaskOutput(consensus.ArbiterTask{
 		TaskMeta: consensus.TaskMeta{AgentID: "arbiter-1"},

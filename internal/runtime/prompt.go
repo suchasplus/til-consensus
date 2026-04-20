@@ -131,10 +131,15 @@ func semanticVerificationPromptHints(task consensus.SemanticVerificationTask) []
 		"- Return exactly one semantic result row for the current claim. Do not emit separate rows for challenges, source materials, or other targets.",
 		"- If targetType is included, it must be exactly \"claim\".",
 		"- supported: use only when the current materials directly back the claim after considering caveats and open challenges.",
+		"- supported confidence must be between 0.60 and 1.00.",
 		"- refuted: use when the claim is contradicted, materially overstated, or internally inconsistent with the available materials.",
+		"- refuted confidence must be between 0.60 and 1.00.",
 		"- insufficient_evidence: use when the claim may be plausible but the available materials are too weak to support or refute it.",
+		"- insufficient_evidence confidence must be between 0.01 and 0.60.",
 		"- undetermined: use only for genuinely mixed or ambiguous evidence after considering the full record; do not use it as a safe default.",
+		"- undetermined confidence must stay between 0.35 and 0.65.",
 		"- Prefer supported, refuted, or insufficient_evidence whenever the evidence direction is clear.",
+		"- confidence measures certainty in the verdict classification, not confidence that the underlying project decision is good.",
 		"- rationale must explain why this verdict follows from the current claim and challenges; do not only say \"need more evidence\".",
 	}
 	if claimID != "" {
@@ -152,6 +157,7 @@ func semanticVerificationRepairHints(task consensus.SemanticVerificationTask) []
 		"- Drop any rows about challenges, evidence, or source materials. Keep only the claim-level judgement.",
 		"- If targetType is present, set it to \"claim\".",
 		"- If the previous verdict was a vague safe fallback, choose insufficient_evidence when support is missing, and choose undetermined only when the evidence is genuinely mixed.",
+		"- Repair confidence to match the canonical verdict bands: supported/refuted 0.60-1.00, insufficient_evidence 0.01-0.60, undetermined 0.35-0.65.",
 		"- Preserve the original judgment intent, but make the rationale concrete and claim-focused.",
 	}
 	if claimID != "" {

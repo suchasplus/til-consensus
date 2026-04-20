@@ -717,8 +717,32 @@ func validateSemanticFindings(expectedClaimID string, results []consensus.Semant
 		if !isAllowedClaimVerdict(finding.Verdict) {
 			return fmt.Errorf("results[%d].verdict must be one of supported|refuted|insufficient_evidence|undetermined", idx)
 		}
+		if err := validateSemanticConfidence(idx, finding.Verdict, finding.Confidence); err != nil {
+			return err
+		}
 		if strings.TrimSpace(finding.Rationale) == "" {
 			return fmt.Errorf("results[%d].rationale is required", idx)
+		}
+	}
+	return nil
+}
+
+func validateSemanticConfidence(idx int, verdict consensus.ClaimVerdict, confidence float64) error {
+	if confidence <= 0 || confidence > 1 {
+		return fmt.Errorf("results[%d].confidence must be within (0, 1]", idx)
+	}
+	switch verdict {
+	case consensus.ClaimVerdictSupported, consensus.ClaimVerdictRefuted:
+		if confidence < 0.60 {
+			return fmt.Errorf("results[%d].confidence must be at least 0.60 when verdict=%s", idx, verdict)
+		}
+	case consensus.ClaimVerdictInsufficientEvidence:
+		if confidence > 0.60 {
+			return fmt.Errorf("results[%d].confidence must be at most 0.60 when verdict=insufficient_evidence", idx)
+		}
+	case consensus.ClaimVerdictUndetermined:
+		if confidence < 0.35 || confidence > 0.65 {
+			return fmt.Errorf("results[%d].confidence must be between 0.35 and 0.65 when verdict=undetermined", idx)
 		}
 	}
 	return nil

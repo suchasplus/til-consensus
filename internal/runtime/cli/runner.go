@@ -218,6 +218,7 @@ func taskSpecificContract(task consensus.Task) []string {
 			"- Semantic output must not emit rows for challenges, evidence, or source materials.",
 			"- Semantic targetType is optional, but if present it must be claim.",
 			"- Semantic verdict allowed: supported, refuted, insufficient_evidence, undetermined.",
+			"- Semantic confidence bands: supported/refuted must be 0.60-1.00, insufficient_evidence must be 0.01-0.60, undetermined must be 0.35-0.65.",
 			"- Semantic undetermined is only for genuinely mixed evidence. Do not use it as a default safe fallback.",
 			"- Semantic insufficient_evidence is preferred when evidence is simply too weak or missing.",
 			"- Semantic confidence must be a JSON number, not a string.",
