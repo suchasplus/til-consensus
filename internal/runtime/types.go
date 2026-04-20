@@ -33,6 +33,7 @@ type ProviderTaskRequest struct {
 	Task           consensus.Task
 	Agent          ResolvedAgentRuntime
 	PromptOverride string
+	OutputSchema   map[string]any
 }
 
 type ProviderRunner interface {

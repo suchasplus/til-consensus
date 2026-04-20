@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 
@@ -18,7 +19,7 @@ func TestGenericCLIRunnerPassesPromptViaStdin(t *testing.T) {
 	})
 	out, err := runner.RunTask(context.Background(), consensus.ProposalTask{
 		TaskMeta: consensus.TaskMeta{RequestID: "req-1", SessionID: "session-1", AgentID: "agent-1"},
-	}, "hello-cli", "agent-1", "role", "model-x", "", nil)
+	}, "hello-cli", "agent-1", "role", "model-x", "", nil, nil)
 	if err != nil {
 		t.Fatalf("RunTask failed: %v", err)
 	}
@@ -39,14 +40,78 @@ func TestBuildBaseArgsCodexIsOneShot(t *testing.T) {
 	}
 }
 
+func TestBuildStructuredOutputArgsClaudeInlinesSchema(t *testing.T) {
+	args, cleanup, err := buildStructuredOutputArgs("claude", map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"ok": map[string]any{"type": "boolean"},
+		},
+		"required": []string{"ok"},
+	})
+	if err != nil {
+		t.Fatalf("buildStructuredOutputArgs failed: %v", err)
+	}
+	defer cleanup()
+	if len(args) != 4 || args[0] != "--json-schema" || args[2] != "--output-format" || args[3] != "json" {
+		t.Fatalf("unexpected claude schema args: %#v", args)
+	}
+	if !strings.Contains(args[1], `"ok"`) {
+		t.Fatalf("expected inlined schema, got %q", args[1])
+	}
+}
+
+func TestNormalizeStructuredCLIOutputExtractsClaudeStructuredOutput(t *testing.T) {
+	out, err := normalizeStructuredCLIOutput("claude", map[string]any{"type": "object"}, `{"type":"result","structured_output":{"ok":true}}`)
+	if err != nil {
+		t.Fatalf("normalizeStructuredCLIOutput failed: %v", err)
+	}
+	if out != `{"ok":true}` {
+		t.Fatalf("unexpected normalized output: %s", out)
+	}
+}
+
+func TestBuildStructuredOutputArgsCodexWritesTempFile(t *testing.T) {
+	args, cleanup, err := buildStructuredOutputArgs("codex", map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"ok": map[string]any{"type": "boolean"},
+		},
+		"required": []string{"ok"},
+	})
+	if err != nil {
+		t.Fatalf("buildStructuredOutputArgs failed: %v", err)
+	}
+	if len(args) != 2 || args[0] != "--output-schema" {
+		t.Fatalf("unexpected codex schema args: %#v", args)
+	}
+	body, readErr := os.ReadFile(args[1])
+	if readErr != nil {
+		t.Fatalf("read schema file: %v", readErr)
+	}
+	if !strings.Contains(string(body), `"ok"`) {
+		t.Fatalf("expected schema file body, got %s", string(body))
+	}
+	cleanup()
+	if _, statErr := os.Stat(args[1]); !os.IsNotExist(statErr) {
+		t.Fatalf("expected schema temp file removed, statErr=%v", statErr)
+	}
+}
+
 func TestHardenPromptForCLIAddsProviderSpecificContract(t *testing.T) {
 	base := "Return exactly one JSON object only."
-	prompt := hardenPromptForCLI("gemini", consensus.SemanticVerificationTask{}, base)
+	prompt := hardenPromptForCLI("gemini", consensus.SemanticVerificationTask{
+		Claim: consensus.ClaimNode{ClaimID: "claim-1"},
+	}, base)
 	for _, fragment := range []string{
 		"CLI output contract (strict):",
 		"Semantic fields: summary, results[].claimId, results[].verdict, results[].confidence, results[].rationale.",
 		"Semantic aliases forbidden: targetId, verificationStatus, reasoning, reason.",
+		"Semantic output must contain exactly one results[] row for the current claim.",
+		"Semantic output must not emit rows for challenges, evidence, or source materials.",
+		"Semantic targetType is optional, but if present it must be claim.",
 		"Semantic verdict allowed: supported, refuted, insufficient_evidence, undetermined.",
+		"Semantic insufficient_evidence is preferred when evidence is simply too weak or missing.",
+		"Semantic claimId must be exactly claim-1.",
 		"Gemini-specific: do not replace canonical fields with aliases like verificationStatus/claim/text/accepted/verified.",
 	} {
 		if !strings.Contains(prompt, fragment) {
@@ -65,10 +130,12 @@ func TestHardenPromptForCLILeavesGenericPromptUnchanged(t *testing.T) {
 func TestHardenPromptForCLIAddsArbiterAndProposalFieldContracts(t *testing.T) {
 	proposalPrompt := hardenPromptForCLI("codex", consensus.ProposalTask{}, "base")
 	for _, fragment := range []string{
-		"Proposal fields: summary, claims[].statement, claims[].claimType, claims[].confidence.",
+		"Proposal fields: summary, claims[].title, claims[].statement, claims[].claimType, claims[].confidence, claims[].applicability, claims[].boundaryConditions.",
 		"Proposal aliases forbidden: claim, text, statementText.",
+		"Proposal relationship fields forbidden: dependencies, parentClaimIds.",
 		"Proposal confidence must be a JSON number, not a string.",
 		"Codex-specific: suppress all preambles, reflections, and trailing notes. Output JSON only.",
+		"Codex-specific: when a schema field exists, include it explicitly. Use empty strings, empty arrays, 0, or false for not-applicable optional values instead of omitting the field.",
 	} {
 		if !strings.Contains(proposalPrompt, fragment) {
 			t.Fatalf("expected proposal hardened prompt to contain %q, got:\n%s", fragment, proposalPrompt)

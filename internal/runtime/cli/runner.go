@@ -30,6 +30,7 @@ func (r *Runner) RunTask(
 	providerModel string,
 	reasoning string,
 	temperature *float64,
+	outputSchema map[string]any,
 ) (string, error) {
 	cliType := r.provider.CLIType
 	if cliType == "" {
@@ -59,9 +60,79 @@ func (r *Runner) RunTask(
 		commandName = cliType
 	}
 	args, stdin := buildBaseArgs(cliType, providerModel, finalPrompt, reasoning)
+	schemaArgs, cleanup, err := buildStructuredOutputArgs(cliType, outputSchema)
+	if err != nil {
+		return "", err
+	}
+	defer cleanup()
+	args = append(args, schemaArgs...)
 	args = append(args, renderArgs(r.provider.Args, task, agentID, role, providerModel)...)
 	env := append(os.Environ(), renderEnv(r.provider.Env, task, agentID, role, providerModel)...)
-	return runCommand(ctx, commandName, args, env, stdin)
+	raw, err := runCommand(ctx, commandName, args, env, stdin)
+	if err != nil {
+		return "", err
+	}
+	return normalizeStructuredCLIOutput(cliType, outputSchema, raw)
+}
+
+func buildStructuredOutputArgs(cliType string, outputSchema map[string]any) ([]string, func(), error) {
+	if len(outputSchema) == 0 {
+		return nil, func() {}, nil
+	}
+	switch cliType {
+	case "claude":
+		body, err := json.Marshal(outputSchema)
+		if err != nil {
+			return nil, nil, fmt.Errorf("marshal claude json schema: %w", err)
+		}
+		return []string{"--json-schema", string(body), "--output-format", "json"}, func() {}, nil
+	case "codex":
+		body, err := json.MarshalIndent(outputSchema, "", "  ")
+		if err != nil {
+			return nil, nil, fmt.Errorf("marshal codex output schema: %w", err)
+		}
+		file, err := os.CreateTemp("", "til-consensus-codex-schema-*.json")
+		if err != nil {
+			return nil, nil, fmt.Errorf("create codex output schema temp file: %w", err)
+		}
+		if _, err := file.Write(append(body, '\n')); err != nil {
+			_ = file.Close()
+			_ = os.Remove(file.Name())
+			return nil, nil, fmt.Errorf("write codex output schema temp file: %w", err)
+		}
+		if err := file.Close(); err != nil {
+			_ = os.Remove(file.Name())
+			return nil, nil, fmt.Errorf("close codex output schema temp file: %w", err)
+		}
+		return []string{"--output-schema", file.Name()}, func() { _ = os.Remove(file.Name()) }, nil
+	default:
+		return nil, func() {}, nil
+	}
+}
+
+func normalizeStructuredCLIOutput(cliType string, outputSchema map[string]any, raw string) (string, error) {
+	if cliType != "claude" || len(outputSchema) == 0 {
+		return raw, nil
+	}
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return raw, nil
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal([]byte(trimmed), &envelope); err != nil {
+		return raw, nil
+	}
+	if structured, ok := envelope["structured_output"]; ok && structured != nil {
+		body, err := json.Marshal(structured)
+		if err != nil {
+			return "", fmt.Errorf("marshal claude structured_output: %w", err)
+		}
+		return string(body), nil
+	}
+	if result, ok := envelope["result"].(string); ok && strings.TrimSpace(result) != "" {
+		return result, nil
+	}
+	return raw, nil
 }
 
 func buildBaseArgs(cliType string, providerModel string, prompt string, reasoning string) ([]string, string) {
@@ -110,6 +181,7 @@ func buildCLIOutputContract(cliType string, task consensus.Task) string {
 	case "codex":
 		lines = append(lines,
 			"- Codex-specific: suppress all preambles, reflections, and trailing notes. Output JSON only.",
+			"- Codex-specific: when a schema field exists, include it explicitly. Use empty strings, empty arrays, 0, or false for not-applicable optional values instead of omitting the field.",
 		)
 	case "claude":
 		lines = append(lines,
@@ -124,11 +196,12 @@ func buildCLIOutputContract(cliType string, task consensus.Task) string {
 }
 
 func taskSpecificContract(task consensus.Task) []string {
-	switch task.(type) {
+	switch typed := task.(type) {
 	case consensus.ProposalTask, consensus.InitialProposalTask:
 		return []string{
-			"- Proposal fields: summary, claims[].statement, claims[].claimType, claims[].confidence.",
+			"- Proposal fields: summary, claims[].title, claims[].statement, claims[].claimType, claims[].confidence, claims[].applicability, claims[].boundaryConditions.",
 			"- Proposal aliases forbidden: claim, text, statementText.",
+			"- Proposal relationship fields forbidden: dependencies, parentClaimIds.",
 			"- Proposal claimType allowed: fact, inference, recommendation, assumption.",
 			"- Proposal confidence must be a JSON number, not a string.",
 		}
@@ -138,12 +211,21 @@ func taskSpecificContract(task consensus.Task) []string {
 			"- Challenge severity allowed: low, medium, high.",
 		}
 	case consensus.SemanticVerificationTask:
-		return []string{
+		lines := []string{
 			"- Semantic fields: summary, results[].claimId, results[].verdict, results[].confidence, results[].rationale.",
 			"- Semantic aliases forbidden: targetId, verificationStatus, reasoning, reason.",
+			"- Semantic output must contain exactly one results[] row for the current claim.",
+			"- Semantic output must not emit rows for challenges, evidence, or source materials.",
+			"- Semantic targetType is optional, but if present it must be claim.",
 			"- Semantic verdict allowed: supported, refuted, insufficient_evidence, undetermined.",
+			"- Semantic undetermined is only for genuinely mixed evidence. Do not use it as a default safe fallback.",
+			"- Semantic insufficient_evidence is preferred when evidence is simply too weak or missing.",
 			"- Semantic confidence must be a JSON number, not a string.",
 		}
+		if typed.Claim.ClaimID != "" {
+			lines = append(lines, "- Semantic claimId must be exactly "+typed.Claim.ClaimID+".")
+		}
+		return lines
 	case consensus.ReviseTask:
 		return []string{
 			"- Revise fields: summary, revisions[].targetClaimId, revisions[].action, revisions[].reason, revisions[].confidenceDelta, revisions[].unresolved.",

@@ -3,6 +3,7 @@ package runtime
 import (
 	"testing"
 
+	"github.com/suchasplus/til-consensus/internal/config"
 	"github.com/suchasplus/til-consensus/internal/consensus"
 )
 
@@ -47,6 +48,15 @@ func TestNormalizeProposalOutputRejectsConfidenceLabelsAndClaimAlias(t *testing.
 	}
 }
 
+func TestNormalizeProposalOutputRejectsRelationshipFields(t *testing.T) {
+	_, err := NormalizeTaskOutputFromText(consensus.ProposalTask{
+		TaskMeta: consensus.TaskMeta{AgentID: "proposer-1"},
+	}, `{"summary":"proposal","claims":[{"statement":"prefer monorepo","dependencies":["engineering-constraints"]}]}`)
+	if err == nil {
+		t.Fatal("expected proposal relationship fields to fail normalization")
+	}
+}
+
 func TestNormalizeProposalOutputEnforcesSchemaAfterSyntaxRecovery(t *testing.T) {
 	_, err := NormalizeTaskOutputFromText(consensus.ProposalTask{
 		TaskMeta: consensus.TaskMeta{AgentID: "proposer-1"},
@@ -59,6 +69,7 @@ func TestNormalizeProposalOutputEnforcesSchemaAfterSyntaxRecovery(t *testing.T) 
 func TestNormalizeSemanticVerificationOutput(t *testing.T) {
 	result, err := NormalizeTaskOutput(consensus.SemanticVerificationTask{
 		TaskMeta: consensus.TaskMeta{AgentID: "verifier-1"},
+		Claim:    consensus.ClaimNode{ClaimID: "claim-1"},
 	}, map[string]any{
 		"summary": "semantic",
 		"results": []map[string]any{{
@@ -83,6 +94,7 @@ func TestNormalizeSemanticVerificationOutput(t *testing.T) {
 func TestNormalizeSemanticVerificationOutputRejectsAliasesAndVerdictLabels(t *testing.T) {
 	_, err := NormalizeTaskOutputFromText(consensus.SemanticVerificationTask{
 		TaskMeta: consensus.TaskMeta{AgentID: "verifier-1"},
+		Claim:    consensus.ClaimNode{ClaimID: "claim-1"},
 	}, `{"summary":"semantic","results":[{"targetId":"claim-1","targetType":"claim","verdict":"rejected","confidence":"high","reasoning":"too strong"}]}`)
 	if err == nil {
 		t.Fatal("expected non-canonical semantic verification output to fail normalization")
@@ -92,9 +104,40 @@ func TestNormalizeSemanticVerificationOutputRejectsAliasesAndVerdictLabels(t *te
 func TestNormalizeSemanticVerificationOutputRejectsVerificationStatusAlias(t *testing.T) {
 	_, err := NormalizeTaskOutputFromText(consensus.SemanticVerificationTask{
 		TaskMeta: consensus.TaskMeta{AgentID: "verifier-1"},
+		Claim:    consensus.ClaimNode{ClaimID: "claim-1"},
 	}, `{"summary":"semantic","results":[{"targetId":"claim-1","targetType":"claim","verificationStatus":"verified","reasoning":"looks verified"}]}`)
 	if err == nil {
 		t.Fatal("expected verificationStatus alias to fail normalization")
+	}
+}
+
+func TestNormalizeSemanticVerificationOutputRejectsMismatchedClaimID(t *testing.T) {
+	_, err := NormalizeTaskOutputFromText(consensus.SemanticVerificationTask{
+		TaskMeta: consensus.TaskMeta{AgentID: "verifier-1"},
+		Claim:    consensus.ClaimNode{ClaimID: "claim-1"},
+	}, `{"summary":"semantic","results":[{"claimId":"claim-2","verdict":"supported","confidence":"0.7","rationale":"wrong target"}]}`)
+	if err == nil {
+		t.Fatal("expected mismatched semantic claimId to fail normalization")
+	}
+}
+
+func TestNormalizeSemanticVerificationOutputRejectsMultipleRows(t *testing.T) {
+	_, err := NormalizeTaskOutputFromText(consensus.SemanticVerificationTask{
+		TaskMeta: consensus.TaskMeta{AgentID: "verifier-1"},
+		Claim:    consensus.ClaimNode{ClaimID: "claim-1"},
+	}, `{"summary":"semantic","results":[{"claimId":"claim-1","verdict":"supported","confidence":"0.7","rationale":"primary"},{"claimId":"claim-1","verdict":"insufficient_evidence","confidence":"0.3","rationale":"extra row"}]}`)
+	if err == nil {
+		t.Fatal("expected multiple semantic rows to fail normalization")
+	}
+}
+
+func TestNormalizeSemanticVerificationOutputRejectsNonClaimTargetType(t *testing.T) {
+	_, err := NormalizeTaskOutputFromText(consensus.SemanticVerificationTask{
+		TaskMeta: consensus.TaskMeta{AgentID: "verifier-1"},
+		Claim:    consensus.ClaimNode{ClaimID: "claim-1"},
+	}, `{"summary":"semantic","results":[{"claimId":"claim-1","targetType":"challenge","verdict":"supported","confidence":"0.7","rationale":"wrong target type"}]}`)
+	if err == nil {
+		t.Fatal("expected non-claim semantic targetType to fail normalization")
 	}
 }
 
@@ -224,6 +267,70 @@ func TestDebateRoundSchemaIncludesJudgementEnumAndRequiredFields(t *testing.T) {
 	}
 }
 
+func TestTaskOutputJSONSchemaForAgentPreservesNaturalOptionalFieldsByDefault(t *testing.T) {
+	schema := TaskOutputJSONSchemaForAgent(consensus.SemanticVerificationTask{}, ResolvedAgentRuntime{})
+	properties, ok := schema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected root properties, got %#v", schema)
+	}
+	results, ok := properties["results"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected results schema, got %#v", properties["results"])
+	}
+	items, ok := results["items"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected result item schema, got %#v", results["items"])
+	}
+	required, ok := items["required"].([]string)
+	if !ok {
+		t.Fatalf("expected required list, got %#v", items["required"])
+	}
+	for _, field := range required {
+		if field == "confidence" || field == "targetType" {
+			t.Fatalf("default schema should keep optional fields optional, got required=%#v", required)
+		}
+	}
+}
+
+func TestTaskOutputJSONSchemaForAgentMakesAllObjectPropertiesRequiredForCodex(t *testing.T) {
+	schema := TaskOutputJSONSchemaForAgent(consensus.SemanticVerificationTask{}, ResolvedAgentRuntime{
+		Provider: config.ProviderConfig{
+			Type:    config.ProviderTypeCLI,
+			CLIType: "codex",
+		},
+	})
+	properties, ok := schema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected root properties, got %#v", schema)
+	}
+	required, ok := schema["required"].([]string)
+	if !ok {
+		t.Fatalf("expected root required list, got %#v", schema["required"])
+	}
+	for _, field := range []string{"summary", "results"} {
+		if !containsString(required, field) {
+			t.Fatalf("expected root required to include %q, got %#v", field, required)
+		}
+	}
+	results, ok := properties["results"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected results schema, got %#v", properties["results"])
+	}
+	items, ok := results["items"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected result item schema, got %#v", results["items"])
+	}
+	itemRequired, ok := items["required"].([]string)
+	if !ok {
+		t.Fatalf("expected item required list, got %#v", items["required"])
+	}
+	for _, field := range []string{"claimId", "targetType", "verdict", "confidence", "rationale"} {
+		if !containsString(itemRequired, field) {
+			t.Fatalf("expected codex item required to include %q, got %#v", field, itemRequired)
+		}
+	}
+}
+
 func TestNormalizeDebateRoundOutputRejectsDuplicateClaimIDs(t *testing.T) {
 	_, err := NormalizeTaskOutputFromText(consensus.DebateRoundTask{
 		TaskMeta: consensus.TaskMeta{AgentID: "participant-1"},
@@ -249,4 +356,22 @@ func TestNormalizeDebateRoundOutputRejectsRevisedStatementOutsideRevise(t *testi
 	if err == nil {
 		t.Fatal("expected non-revise judgement with revisedStatement to fail validation")
 	}
+}
+
+func TestNormalizeDebateRoundOutputRejectsRelationshipFieldsInNewClaims(t *testing.T) {
+	_, err := NormalizeTaskOutputFromText(consensus.DebateRoundTask{
+		TaskMeta: consensus.TaskMeta{AgentID: "participant-1"},
+	}, `{"summary":"debate","newClaims":[{"statement":"narrow scope","dependencies":["claim-1"]}],"judgements":[]}`)
+	if err == nil {
+		t.Fatal("expected newClaims relationship fields to fail validation")
+	}
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }

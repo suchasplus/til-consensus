@@ -90,7 +90,7 @@ func (d *Delegate) Dispatch(ctx context.Context, task consensus.Task) (consensus
 			done <- taskOutcome{err: inputErr}
 			return
 		}
-		raw, err := runner.RunTask(taskCtx, ProviderTaskRequest{Task: task, Agent: agent})
+		raw, err := runner.RunTask(taskCtx, ProviderTaskRequest{Task: task, Agent: agent, OutputSchema: TaskOutputJSONSchemaForAgent(task, agent)})
 		if err != nil {
 			artifact, _ := d.persistTaskFailure(taskID, task, agent, err, inputArtifact)
 			done <- taskOutcome{artifact: artifact, err: err}
@@ -244,7 +244,7 @@ func (d *Delegate) getRunnerLocked(agent ResolvedAgentRuntime) (ProviderRunner, 
 				req.Agent.EffectiveTemperature(),
 				req.Agent.EffectiveReasoning(),
 				req.Agent.ModelConfig.MaxOutputTokens,
-				TaskOutputJSONSchema(req.Task),
+				req.OutputSchema,
 			)
 		})
 	case config.ProviderTypeCLI:
@@ -263,6 +263,7 @@ func (d *Delegate) getRunnerLocked(agent ResolvedAgentRuntime) (ProviderRunner, 
 				req.Agent.ProviderModel,
 				req.Agent.EffectiveReasoning(),
 				req.Agent.EffectiveTemperature(),
+				req.OutputSchema,
 			)
 		})
 	case config.ProviderTypeSDK:
@@ -381,6 +382,7 @@ func (d *Delegate) attemptRepair(
 		Task:           task,
 		Agent:          agent,
 		PromptOverride: repairPrompt,
+		OutputSchema:   TaskOutputJSONSchemaForAgent(task, agent),
 	})
 	if runErr != nil {
 		failureArtifact, _ := d.persistTaskFailure(repairTaskID, task, agent, runErr, repairRequestArtifact)

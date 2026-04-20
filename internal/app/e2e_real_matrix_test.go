@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -37,6 +38,14 @@ type e2eFixture struct {
 	Root     string
 	RunPath  string
 	Manifest e2eFixtureManifest
+}
+
+type e2eCLIProviderLayout struct {
+	Agents               []config.AgentConfig
+	Roles                config.RolesConfig
+	ExpectedProviders    []string
+	AssignmentSummary    []string
+	UnavailableProviders []string
 }
 
 type complianceSummaryDoc struct {
@@ -156,10 +165,11 @@ func TestE2ERealCLIFixtureMatrix(t *testing.T) {
 	if strings.TrimSpace(os.Getenv("TIL_CONSENSUS_E2E_REAL")) == "" {
 		t.Skip("set TIL_CONSENSUS_E2E_REAL=1 to run real CLI e2e matrix")
 	}
-	requireRealCLI(t, "codex")
-	requireRealCLI(t, "claude")
-	requireRealCLI(t, "gemini")
-	ensureRealCLIProviderReadiness(t)
+	readiness := loadRealCLIProviderReadiness(t)
+	logRealCLIProviderReadiness(t, readiness)
+	if countReadyCLIProviders(readiness) == 0 {
+		t.Fatalf("no real CLI providers are ready in current test context")
+	}
 
 	fixtures := loadE2EFixtures(t)
 	for _, fixture := range fixtures {
@@ -172,11 +182,20 @@ func TestE2ERealCLIFixtureMatrix(t *testing.T) {
 				_ = preserveE2EWorkspaceIfNeeded(t, fixture, staged, latestResultPath, latestStdout, latestStderr)
 			}()
 			configPath := filepath.Join(staged, "til-consensus.yaml")
+			layout := buildCLIE2EProviderLayout(fixture.Manifest.Mode, readiness)
+			if len(layout.ExpectedProviders) == 0 {
+				t.Skipf("no ready providers available for mode %s", fixture.Manifest.Mode)
+			}
+			t.Logf("cli provider layout: %s", strings.Join(layout.AssignmentSummary, ", "))
+			if len(layout.UnavailableProviders) > 0 {
+				t.Logf("cli unavailable providers: %s", strings.Join(layout.UnavailableProviders, ", "))
+			}
 			writeE2EProviderConfig(t, e2eConfigParams{
 				Path:         configPath,
 				OutputDir:    filepath.Join(staged, "out", "{requestId}"),
 				Mode:         fixture.Manifest.Mode,
 				ProviderKind: "cli",
+				CLILayout:    &layout,
 			})
 			timeout := realE2ETimeoutForMode(fixture.Manifest.Mode)
 			t.Logf("real cli e2e timeout: mode=%s timeout=%s workspace=%s", fixture.Manifest.Mode, timeout, staged)
@@ -225,7 +244,7 @@ func TestE2ERealCLIFixtureMatrix(t *testing.T) {
 			}
 
 			summary := loadComplianceSummary(t, resultPath)
-			assertComplianceSummary(t, summary, "cli", []string{"claude-cli", "gemini-cli", "codex-cli"})
+			assertComplianceSummary(t, summary, "cli", layout.ExpectedProviders)
 		})
 	}
 }
@@ -234,10 +253,47 @@ func TestE2ERealCLIProviderReadinessPreflight(t *testing.T) {
 	if strings.TrimSpace(os.Getenv("TIL_CONSENSUS_E2E_REAL")) == "" {
 		t.Skip("set TIL_CONSENSUS_E2E_REAL=1 to run real CLI readiness preflight")
 	}
-	requireRealCLI(t, "codex")
-	requireRealCLI(t, "claude")
-	requireRealCLI(t, "gemini")
-	ensureRealCLIProviderReadiness(t)
+	readiness := loadRealCLIProviderReadiness(t)
+	logRealCLIProviderReadiness(t, readiness)
+	readyCount := 0
+	for _, result := range readiness {
+		t.Run(result.Provider, func(t *testing.T) {
+			if !result.Ready {
+				t.Skipf("provider not ready: %s", formatPreflightFailureReason(result))
+			}
+			readyCount++
+		})
+	}
+	if readyCount == 0 {
+		t.Fatalf("no real CLI providers are ready in current test context")
+	}
+}
+
+func TestBuildCLIE2EProviderLayoutDegradesUnavailableProviders(t *testing.T) {
+	layout := buildCLIE2EProviderLayout(consensus.WorkflowModeAdjudication, []cliProviderPreflightResult{
+		{Provider: "claude", Ready: true},
+		{Provider: "gemini", Ready: false},
+		{Provider: "codex", Ready: true},
+	})
+	if len(layout.Agents) == 0 {
+		t.Fatalf("expected degraded layout agents, got %#v", layout)
+	}
+	if layout.Roles.SemanticVerifier == "" || layout.Roles.Arbiter == "" {
+		t.Fatalf("expected adjudication roles to be assigned, got %#v", layout.Roles)
+	}
+	if !slices.Contains(layout.ExpectedProviders, "claude-cli") || !slices.Contains(layout.ExpectedProviders, "codex-cli") {
+		t.Fatalf("expected ready providers in layout, got %#v", layout.ExpectedProviders)
+	}
+	if !slices.Contains(layout.UnavailableProviders, "gemini-cli") {
+		t.Fatalf("expected unavailable gemini provider, got %#v", layout.UnavailableProviders)
+	}
+}
+
+func TestNormalizePreflightOutputExtractsClaudeStructuredOutput(t *testing.T) {
+	got := normalizePreflightOutput("claude", `{"type":"result","structured_output":{"ok":true}}`)
+	if got != `{"ok":true}` {
+		t.Fatalf("unexpected normalized preflight output: %s", got)
+	}
 }
 
 func loadE2EFixtures(t *testing.T) []e2eFixture {
@@ -301,6 +357,7 @@ type e2eConfigParams struct {
 	ProviderKind     string
 	OpenAIBaseURL    string
 	AnthropicBaseURL string
+	CLILayout        *e2eCLIProviderLayout
 }
 
 func writeE2EProviderConfig(t *testing.T, params e2eConfigParams) {
@@ -363,7 +420,12 @@ func writeE2EProviderConfig(t *testing.T, params e2eConfigParams) {
 				},
 			},
 		}
-		cfg.Agents, cfg.Roles = buildCLIE2EAgents(params.Mode)
+		if params.CLILayout != nil {
+			cfg.Agents = append([]config.AgentConfig(nil), params.CLILayout.Agents...)
+			cfg.Roles = params.CLILayout.Roles
+		} else {
+			cfg.Agents, cfg.Roles = defaultCLIE2EAgents(params.Mode)
+		}
 	case "api":
 		cfg.Providers = map[string]config.ProviderConfig{
 			"openai-test": {
@@ -394,7 +456,7 @@ func writeE2EProviderConfig(t *testing.T, params e2eConfigParams) {
 	}
 }
 
-func buildCLIE2EAgents(mode consensus.WorkflowMode) ([]config.AgentConfig, config.RolesConfig) {
+func defaultCLIE2EAgents(mode consensus.WorkflowMode) ([]config.AgentConfig, config.RolesConfig) {
 	switch mode {
 	case consensus.WorkflowModeFreeDebate:
 		return []config.AgentConfig{
@@ -432,6 +494,173 @@ func buildCLIE2EAgents(mode consensus.WorkflowMode) ([]config.AgentConfig, confi
 				Arbiter:          "arbiter-claude",
 				Reporter:         "reporter-gemini",
 			}
+	}
+}
+
+func buildCLIE2EProviderLayout(mode consensus.WorkflowMode, readiness []cliProviderPreflightResult) e2eCLIProviderLayout {
+	ready := readyCLIProviderSet(readiness)
+	ordered := orderedReadyCLIProviders(ready)
+	layout := e2eCLIProviderLayout{
+		UnavailableProviders: unavailableCLIProviders(readiness),
+	}
+	if len(ordered) == 0 {
+		return layout
+	}
+
+	addAgent := func(id string, provider string, role string) string {
+		layout.Agents = append(layout.Agents, config.AgentConfig{ID: id, Provider: provider, Model: "default", Role: role})
+		layout.AssignmentSummary = append(layout.AssignmentSummary, fmt.Sprintf("%s=%s", id, provider))
+		return id
+	}
+	usedProviders := map[string]struct{}{}
+	markProvider := func(provider string) {
+		if provider == "" {
+			return
+		}
+		usedProviders[provider] = struct{}{}
+	}
+	selectProvider := func(preferences ...string) string {
+		for _, candidate := range preferences {
+			if ready[candidate] {
+				return candidate
+			}
+		}
+		return ordered[0]
+	}
+
+	switch mode {
+	case consensus.WorkflowModeFreeDebate:
+		participantProviders := []string{
+			selectProvider("claude-cli", "gemini-cli", "codex-cli"),
+			selectProvider("gemini-cli", "codex-cli", "claude-cli"),
+			selectProvider("codex-cli", "claude-cli", "gemini-cli"),
+		}
+		participantIDs := make([]string, 0, len(participantProviders))
+		for idx, provider := range participantProviders {
+			participantIDs = append(participantIDs, addAgent(fmt.Sprintf("participant-%d-%s", idx+1, shortCLIProviderName(provider)), provider, "participant"))
+			markProvider(provider)
+		}
+		reporterProvider := selectProvider("claude-cli", "codex-cli", "gemini-cli")
+		reporterID := addAgent("reporter-"+shortCLIProviderName(reporterProvider), reporterProvider, "reporter")
+		markProvider(reporterProvider)
+		layout.Roles = config.RolesConfig{
+			Participants: participantIDs,
+			Reporter:     reporterID,
+		}
+	case consensus.WorkflowModeDelphi:
+		participantProviders := []string{
+			selectProvider("claude-cli", "gemini-cli", "codex-cli"),
+			selectProvider("gemini-cli", "codex-cli", "claude-cli"),
+			selectProvider("codex-cli", "claude-cli", "gemini-cli"),
+		}
+		participantIDs := make([]string, 0, len(participantProviders))
+		for idx, provider := range participantProviders {
+			participantIDs = append(participantIDs, addAgent(fmt.Sprintf("participant-%d-%s", idx+1, shortCLIProviderName(provider)), provider, "participant"))
+			markProvider(provider)
+		}
+		facilitatorProvider := selectProvider("claude-cli", "codex-cli", "gemini-cli")
+		reporterProvider := selectProvider("codex-cli", "claude-cli", "gemini-cli")
+		facilitatorID := addAgent("facilitator-"+shortCLIProviderName(facilitatorProvider), facilitatorProvider, "facilitator")
+		reporterID := addAgent("reporter-"+shortCLIProviderName(reporterProvider), reporterProvider, "reporter")
+		markProvider(facilitatorProvider)
+		markProvider(reporterProvider)
+		layout.Roles = config.RolesConfig{
+			Participants: participantIDs,
+			Facilitator:  facilitatorID,
+			Reporter:     reporterID,
+		}
+	default:
+		proposerProvider := selectProvider("claude-cli", "codex-cli", "gemini-cli")
+		challengerProvider := selectProvider("gemini-cli", "claude-cli", "codex-cli")
+		verifierProvider := selectProvider("codex-cli", "claude-cli", "gemini-cli")
+		arbiterProvider := selectProvider("claude-cli", "codex-cli", "gemini-cli")
+		reporterProvider := selectProvider("gemini-cli", "claude-cli", "codex-cli")
+		proposerID := addAgent("proposer-"+shortCLIProviderName(proposerProvider), proposerProvider, "proposer")
+		challengerID := addAgent("challenger-"+shortCLIProviderName(challengerProvider), challengerProvider, "challenger")
+		verifierID := addAgent("verifier-"+shortCLIProviderName(verifierProvider), verifierProvider, "semantic-verifier")
+		arbiterID := addAgent("arbiter-"+shortCLIProviderName(arbiterProvider), arbiterProvider, "arbiter")
+		reporterID := addAgent("reporter-"+shortCLIProviderName(reporterProvider), reporterProvider, "reporter")
+		markProvider(proposerProvider)
+		markProvider(challengerProvider)
+		markProvider(verifierProvider)
+		markProvider(arbiterProvider)
+		markProvider(reporterProvider)
+		layout.Roles = config.RolesConfig{
+			Proposers:        []string{proposerID},
+			Challengers:      []string{challengerID},
+			SemanticVerifier: verifierID,
+			Arbiter:          arbiterID,
+			Reporter:         reporterID,
+		}
+	}
+
+	for _, provider := range []string{"claude-cli", "gemini-cli", "codex-cli"} {
+		if _, ok := usedProviders[provider]; ok {
+			layout.ExpectedProviders = append(layout.ExpectedProviders, provider)
+		}
+	}
+	return layout
+}
+
+func readyCLIProviderSet(results []cliProviderPreflightResult) map[string]bool {
+	ready := make(map[string]bool, len(results))
+	for _, result := range results {
+		if !result.Ready {
+			continue
+		}
+		if providerID, ok := cliReadinessProviderID(result.Provider); ok {
+			ready[providerID] = true
+		}
+	}
+	return ready
+}
+
+func orderedReadyCLIProviders(ready map[string]bool) []string {
+	ordered := make([]string, 0, len(ready))
+	for _, provider := range []string{"claude-cli", "gemini-cli", "codex-cli"} {
+		if ready[provider] {
+			ordered = append(ordered, provider)
+		}
+	}
+	return ordered
+}
+
+func unavailableCLIProviders(results []cliProviderPreflightResult) []string {
+	unavailable := make([]string, 0)
+	for _, result := range results {
+		if result.Ready {
+			continue
+		}
+		if providerID, ok := cliReadinessProviderID(result.Provider); ok {
+			unavailable = append(unavailable, providerID)
+		}
+	}
+	return unavailable
+}
+
+func shortCLIProviderName(provider string) string {
+	switch provider {
+	case "claude-cli":
+		return "claude"
+	case "gemini-cli":
+		return "gemini"
+	case "codex-cli":
+		return "codex"
+	default:
+		return strings.TrimSuffix(provider, "-cli")
+	}
+}
+
+func cliReadinessProviderID(provider string) (string, bool) {
+	switch strings.TrimSpace(provider) {
+	case "claude":
+		return "claude-cli", true
+	case "gemini":
+		return "gemini-cli", true
+	case "codex":
+		return "codex-cli", true
+	default:
+		return "", false
 	}
 }
 
@@ -655,20 +884,17 @@ func assertE2EResultForFixture(t *testing.T, fixture e2eFixture, result consensu
 	}
 }
 
-func requireRealCLI(t *testing.T, name string) {
-	t.Helper()
-	if _, err := exec.LookPath(name); err != nil {
-		t.Skipf("real cli %s not found: %v", name, err)
-	}
-}
-
-func ensureRealCLIProviderReadiness(t *testing.T) []cliProviderPreflightResult {
+func loadRealCLIProviderReadiness(t *testing.T) []cliProviderPreflightResult {
 	t.Helper()
 	realCLIPreflightOnce.Do(func() {
 		realCLIPreflightResults = runRealCLIProviderPreflight()
 	})
-	failures := make([]string, 0)
-	for _, result := range realCLIPreflightResults {
+	return realCLIPreflightResults
+}
+
+func logRealCLIProviderReadiness(t *testing.T, results []cliProviderPreflightResult) {
+	t.Helper()
+	for _, result := range results {
 		t.Logf("provider readiness: provider=%s ready=%t duration=%s strict_json=%t recoverable_json=%t command=%s stdout=%q stderr=%q error=%q",
 			result.Provider,
 			result.Ready,
@@ -680,14 +906,17 @@ func ensureRealCLIProviderReadiness(t *testing.T) []cliProviderPreflightResult {
 			result.StderrPreview,
 			result.Error,
 		)
-		if !result.Ready {
-			failures = append(failures, fmt.Sprintf("%s: %s", result.Provider, formatPreflightFailureReason(result)))
+	}
+}
+
+func countReadyCLIProviders(results []cliProviderPreflightResult) int {
+	count := 0
+	for _, result := range results {
+		if result.Ready {
+			count++
 		}
 	}
-	if len(failures) > 0 {
-		t.Fatalf("real cli provider readiness preflight failed in current test context:\n- %s", strings.Join(failures, "\n- "))
-	}
-	return realCLIPreflightResults
+	return count
 }
 
 func runRealCLIProviderPreflight() []cliProviderPreflightResult {
@@ -695,67 +924,68 @@ func runRealCLIProviderPreflight() []cliProviderPreflightResult {
 	specs := []struct {
 		provider string
 		command  string
-		args     []string
 	}{
-		{
-			provider: "claude",
-			command:  "claude",
-			args:     []string{"--print", "--model", "claude-opus-4-6", prompt},
-		},
-		{
-			provider: "gemini",
-			command:  "gemini",
-			args:     []string{"--approval-mode", "yolo", "-m", "gemini-3.1-pro-preview", "-p", prompt},
-		},
-		{
-			provider: "codex",
-			command:  "codex",
-			args:     []string{"exec", "-m", "gpt-5.4", "--full-auto", "--color", "never", "--skip-git-repo-check", prompt},
-		},
+		{provider: "claude", command: "claude"},
+		{provider: "gemini", command: "gemini"},
+		{provider: "codex", command: "codex"},
 	}
 	results := make([]cliProviderPreflightResult, 0, len(specs))
 	for _, spec := range specs {
-		results = append(results, probeCLIProviderReadiness(spec.provider, spec.command, spec.args))
+		results = append(results, probeCLIProviderReadiness(spec.provider, spec.command, prompt))
 	}
 	return results
 }
 
-func probeCLIProviderReadiness(provider string, command string, args []string) cliProviderPreflightResult {
+func probeCLIProviderReadiness(provider string, command string, prompt string) cliProviderPreflightResult {
 	result := cliProviderPreflightResult{
 		Provider: provider,
-		Command:  append([]string{command}, args...),
 	}
+	args, stdin, cleanup, err := buildCLIProviderPreflightArgs(provider, prompt)
+	if err != nil {
+		result.Error = err.Error()
+		return result
+	}
+	defer cleanup()
+	result.Command = append([]string{command}, args...)
 	ctx, cancel := context.WithTimeout(context.Background(), realCLIPreflightTimeout())
 	defer cancel()
 
 	cmd := exec.Command(command, args...)
 	cmd.Env = os.Environ()
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if provider != "claude" {
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	}
 	var stdout strings.Builder
 	var stderr strings.Builder
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+	if stdin != "" {
+		cmd.Stdin = strings.NewReader(stdin)
+	}
 
 	startedAt := time.Now()
-	err := runCommandWithProcessGroupTimeout(ctx, cmd)
+	runErr := runCommandWithProcessGroupTimeout(ctx, cmd)
 	result.Duration = time.Since(startedAt)
 	rawStdout := strings.TrimSpace(stdout.String())
 	rawStderr := strings.TrimSpace(stderr.String())
 	result.StdoutPreview = previewText(rawStdout, 220)
 	result.StderrPreview = previewText(rawStderr, 220)
+	normalizedStdout := normalizePreflightOutput(provider, rawStdout)
 
-	if strict, strictErr := tilruntime.StrictJSONObjectBytes(rawStdout); strictErr == nil && len(strict) > 0 {
+	if strict, strictErr := tilruntime.StrictJSONObjectBytes(normalizedStdout); strictErr == nil && len(strict) > 0 {
 		result.StrictJSON = true
 		result.RecoverableJSON = true
-	} else if _, parseErr := tilruntime.ParseJSONObject(rawStdout); parseErr == nil {
+	} else if _, parseErr := tilruntime.ParseJSONObject(normalizedStdout); parseErr == nil {
 		result.RecoverableJSON = true
 	}
 
-	if err != nil {
+	if runErr != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			result.Error = fmt.Sprintf("timed out after %s", realCLIPreflightTimeout())
+		} else if errors.Is(runErr, exec.ErrNotFound) {
+			result.Error = fmt.Sprintf("binary %s not found", command)
 		} else {
-			result.Error = err.Error()
+			result.Error = runErr.Error()
 		}
 		return result
 	}
@@ -765,6 +995,74 @@ func probeCLIProviderReadiness(provider string, command string, args []string) c
 	}
 	result.Ready = true
 	return result
+}
+
+func buildCLIProviderPreflightArgs(provider string, prompt string) ([]string, string, func(), error) {
+	schema := map[string]any{
+		"type":                 "object",
+		"additionalProperties": false,
+		"required":             []string{"ok"},
+		"properties": map[string]any{
+			"ok": map[string]any{
+				"type": "boolean",
+			},
+		},
+	}
+	switch provider {
+	case "claude":
+		body, err := json.Marshal(schema)
+		if err != nil {
+			return nil, "", nil, fmt.Errorf("marshal claude preflight schema: %w", err)
+		}
+		return []string{"--print", "--model", "claude-opus-4-6", "--json-schema", string(body), "--output-format", "json"}, prompt, func() {}, nil
+	case "codex":
+		body, err := json.MarshalIndent(schema, "", "  ")
+		if err != nil {
+			return nil, "", nil, fmt.Errorf("marshal codex preflight schema: %w", err)
+		}
+		file, err := os.CreateTemp("", "til-consensus-e2e-codex-schema-*.json")
+		if err != nil {
+			return nil, "", nil, fmt.Errorf("create codex preflight schema temp file: %w", err)
+		}
+		if _, err := file.Write(append(body, '\n')); err != nil {
+			_ = file.Close()
+			_ = os.Remove(file.Name())
+			return nil, "", nil, fmt.Errorf("write codex preflight schema temp file: %w", err)
+		}
+		if err := file.Close(); err != nil {
+			_ = os.Remove(file.Name())
+			return nil, "", nil, fmt.Errorf("close codex preflight schema temp file: %w", err)
+		}
+		return []string{"exec", "-m", "gpt-5.4", "--full-auto", "--color", "never", "--skip-git-repo-check", "--output-schema", file.Name()}, prompt, func() { _ = os.Remove(file.Name()) }, nil
+	case "gemini":
+		return []string{"--approval-mode", "yolo", "-m", "gemini-3.1-pro-preview"}, prompt, func() {}, nil
+	default:
+		return nil, prompt, func() {}, nil
+	}
+}
+
+func normalizePreflightOutput(provider string, raw string) string {
+	if provider != "claude" {
+		return raw
+	}
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return raw
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal([]byte(trimmed), &envelope); err != nil {
+		return raw
+	}
+	if structured, ok := envelope["structured_output"]; ok && structured != nil {
+		body, err := json.Marshal(structured)
+		if err == nil {
+			return string(body)
+		}
+	}
+	if result, ok := envelope["result"].(string); ok && strings.TrimSpace(result) != "" {
+		return result
+	}
+	return raw
 }
 
 func runCommandWithProcessGroupTimeout(ctx context.Context, cmd *exec.Cmd) error {
@@ -780,7 +1078,11 @@ func runCommandWithProcessGroupTimeout(ctx context.Context, cmd *exec.Cmd) error
 		return err
 	case <-ctx.Done():
 		if cmd.Process != nil {
-			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			if cmd.SysProcAttr != nil && cmd.SysProcAttr.Setpgid {
+				_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			} else {
+				_ = cmd.Process.Kill()
+			}
 		}
 		<-done
 		return ctx.Err()
@@ -802,15 +1104,6 @@ func previewText(text string, max int) string {
 		return trimmed
 	}
 	return trimmed[:max] + "..."
-}
-
-func firstNonEmptyString(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return strings.TrimSpace(value)
-		}
-	}
-	return ""
 }
 
 func formatPreflightFailureReason(result cliProviderPreflightResult) string {

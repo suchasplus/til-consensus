@@ -5,117 +5,242 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"strings"
 
+	"github.com/suchasplus/til-consensus/internal/config"
 	"github.com/suchasplus/til-consensus/internal/consensus"
 )
 
 func TaskOutputJSONSchema(task consensus.Task) map[string]any {
 	switch task.(type) {
 	case consensus.ProposalTask:
-		return map[string]any{
-			"type":     "object",
-			"required": []string{"summary", "claims"},
-		}
-	case consensus.InitialProposalTask:
-		return map[string]any{
-			"type":     "object",
-			"required": []string{"summary", "claims"},
-		}
-	case consensus.ChallengeTask:
-		return map[string]any{
-			"type":     "object",
-			"required": []string{"summary", "tickets"},
-		}
-	case consensus.ReviseTask:
-		return map[string]any{
-			"type":     "object",
-			"required": []string{"summary", "revisions"},
-		}
-	case consensus.DebateRoundTask:
-		return map[string]any{
-			"type":                 "object",
-			"additionalProperties": false,
-			"required":             []string{"summary", "judgements"},
-			"properties": map[string]any{
-				"summary": map[string]any{
-					"type": "string",
-				},
-				"newClaims": map[string]any{
-					"type":  "array",
-					"items": claimDraftSchema(),
-				},
-				"judgements": map[string]any{
-					"type": "array",
-					"items": map[string]any{
-						"type":                 "object",
-						"additionalProperties": false,
-						"required":             []string{"claimId", "judgement"},
-						"properties": map[string]any{
-							"claimId": map[string]any{
-								"type": "string",
-							},
-							"judgement": map[string]any{
-								"type": "string",
-								"enum": []string{
-									string(consensus.DebateJudgementAgree),
-									string(consensus.DebateJudgementDisagree),
-									string(consensus.DebateJudgementRevise),
-									string(consensus.DebateJudgementNoChange),
-								},
-							},
-							"rationale": map[string]any{
-								"type": "string",
-							},
-							"revisedStatement": map[string]any{
-								"type": "string",
-							},
-							"mergeWithClaims": map[string]any{
-								"type": "array",
-								"items": map[string]any{
-									"type": "string",
-								},
-							},
-						},
-					},
-				},
+		return objectSchema(
+			[]string{"summary", "claims"},
+			map[string]any{
+				"summary": schemaString(),
+				"claims":  arraySchema(proposalClaimDraftSchema()),
 			},
-		}
+		)
+	case consensus.InitialProposalTask:
+		return objectSchema(
+			[]string{"summary", "claims"},
+			map[string]any{
+				"summary": schemaString(),
+				"claims":  arraySchema(proposalClaimDraftSchema()),
+			},
+		)
+	case consensus.ChallengeTask:
+		return objectSchema(
+			[]string{"summary", "tickets"},
+			map[string]any{
+				"summary": schemaString(),
+				"tickets": arraySchema(challengeDraftSchema()),
+			},
+		)
+	case consensus.ReviseTask:
+		return objectSchema(
+			[]string{"summary", "revisions"},
+			map[string]any{
+				"summary":             schemaString(),
+				"revisions":           arraySchema(revisionDraftSchema()),
+				"unresolvedQuestions": stringArraySchema(),
+			},
+		)
+	case consensus.DebateRoundTask:
+		return objectSchema(
+			[]string{"summary", "judgements"},
+			map[string]any{
+				"summary":    schemaString(),
+				"newClaims":  arraySchema(proposalClaimDraftSchema()),
+				"judgements": arraySchema(debateJudgementSchema()),
+			},
+		)
 	case consensus.FinalVoteTask:
-		return map[string]any{
-			"type":     "object",
-			"required": []string{"summary", "votes"},
-		}
+		return objectSchema(
+			[]string{"summary", "votes"},
+			map[string]any{
+				"summary": schemaString(),
+				"votes":   arraySchema(debateVoteSchema()),
+			},
+		)
 	case consensus.DelphiQuestionnaireTask, consensus.DelphiRevisionTask:
-		return map[string]any{
-			"type":     "object",
-			"required": []string{"summary", "responses"},
-		}
+		return objectSchema(
+			[]string{"summary", "responses"},
+			map[string]any{
+				"summary":   schemaString(),
+				"responses": arraySchema(delphiResponseSchema()),
+			},
+		)
 	case consensus.DelphiFacilitatorSummaryTask:
-		return map[string]any{
-			"type":     "object",
-			"required": []string{"summary"},
-		}
+		return objectSchema(
+			[]string{"summary"},
+			map[string]any{
+				"summary":        schemaString(),
+				"recommendation": schemaString(),
+				"dissentSummary": stringArraySchema(),
+				"statements":     arraySchema(delphiStatementSchema()),
+			},
+		)
 	case consensus.SemanticVerificationTask:
-		return map[string]any{
-			"type":     "object",
-			"required": []string{"summary", "results"},
-		}
+		return objectSchema(
+			[]string{"summary", "results"},
+			map[string]any{
+				"summary": schemaString(),
+				"results": arraySchema(semanticFindingSchema()),
+			},
+		)
 	case consensus.ArbiterTask:
-		return map[string]any{
-			"type":     "object",
-			"required": []string{"summary", "taskVerdict", "decisions"},
-		}
+		return objectSchema(
+			[]string{"summary", "taskVerdict", "decisions"},
+			map[string]any{
+				"summary":     schemaString(),
+				"taskVerdict": enumStringSchema([]string{string(consensus.TaskVerdictSupported), string(consensus.TaskVerdictPartiallySupported), string(consensus.TaskVerdictUndetermined), string(consensus.TaskVerdictFailed)}),
+				"decisions":   arraySchema(arbiterDecisionSchema()),
+			},
+		)
 	case consensus.ReportTask:
-		return map[string]any{
-			"type":     "object",
-			"required": []string{"summary"},
-		}
+		return objectSchema(
+			[]string{"summary"},
+			map[string]any{
+				"summary":             schemaString(),
+				"highlights":          stringArraySchema(),
+				"retainedClaims":      stringArraySchema(),
+				"downgradedClaims":    stringArraySchema(),
+				"unresolvedQuestions": stringArraySchema(),
+				"nextActions":         stringArraySchema(),
+			},
+		)
 	default:
-		return map[string]any{
-			"type":     "object",
-			"required": []string{"fullResponse", "summary"},
+		return objectSchema(
+			[]string{"fullResponse", "summary"},
+			map[string]any{
+				"fullResponse": schemaString(),
+				"summary":      schemaString(),
+			},
+		)
+	}
+}
+
+func TaskOutputJSONSchemaForAgent(task consensus.Task, agent ResolvedAgentRuntime) map[string]any {
+	schema := cloneSchemaMap(TaskOutputJSONSchema(task))
+	if usesCodexStructuredSchema(agent) {
+		enforceAllObjectPropertiesRequired(schema)
+	}
+	return schema
+}
+
+func usesCodexStructuredSchema(agent ResolvedAgentRuntime) bool {
+	return agent.Provider.Type == config.ProviderTypeCLI && agent.Provider.CLIType == "codex"
+}
+
+func objectSchema(required []string, properties map[string]any) map[string]any {
+	schema := map[string]any{
+		"type":                 "object",
+		"additionalProperties": false,
+		"properties":           properties,
+	}
+	if len(required) > 0 {
+		schema["required"] = required
+	}
+	return schema
+}
+
+func arraySchema(items map[string]any) map[string]any {
+	return map[string]any{
+		"type":  "array",
+		"items": items,
+	}
+}
+
+func schemaString() map[string]any {
+	return map[string]any{"type": "string"}
+}
+
+func schemaNumber() map[string]any {
+	return map[string]any{"type": "number"}
+}
+
+func schemaInteger() map[string]any {
+	return map[string]any{"type": "integer"}
+}
+
+func schemaBoolean() map[string]any {
+	return map[string]any{"type": "boolean"}
+}
+
+func enumStringSchema(values []string) map[string]any {
+	return map[string]any{
+		"type": "string",
+		"enum": values,
+	}
+}
+
+func stringArraySchema() map[string]any {
+	return arraySchema(schemaString())
+}
+
+func cloneSchemaMap(src map[string]any) map[string]any {
+	if src == nil {
+		return nil
+	}
+	clone := make(map[string]any, len(src))
+	for key, value := range src {
+		clone[key] = cloneSchemaValue(value)
+	}
+	return clone
+}
+
+func cloneSchemaSlice(src []any) []any {
+	if src == nil {
+		return nil
+	}
+	clone := make([]any, len(src))
+	for idx, value := range src {
+		clone[idx] = cloneSchemaValue(value)
+	}
+	return clone
+}
+
+func cloneSchemaValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return cloneSchemaMap(typed)
+	case []any:
+		return cloneSchemaSlice(typed)
+	case []string:
+		clone := make([]string, len(typed))
+		copy(clone, typed)
+		return clone
+	default:
+		return typed
+	}
+}
+
+func enforceAllObjectPropertiesRequired(schema map[string]any) {
+	if schema == nil {
+		return
+	}
+	if properties, ok := schema["properties"].(map[string]any); ok {
+		required := make([]string, 0, len(properties))
+		for key, value := range properties {
+			required = append(required, key)
+			if nested, ok := value.(map[string]any); ok {
+				enforceAllObjectPropertiesRequired(nested)
+			}
+		}
+		slices.Sort(required)
+		schema["required"] = required
+	}
+	if items, ok := schema["items"].(map[string]any); ok {
+		enforceAllObjectPropertiesRequired(items)
+	}
+	if oneOf, ok := schema["oneOf"].([]any); ok {
+		for _, option := range oneOf {
+			if nested, ok := option.(map[string]any); ok {
+				enforceAllObjectPropertiesRequired(nested)
+			}
 		}
 	}
 }
@@ -188,7 +313,7 @@ func decodeTaskOutputFromJSON(task consensus.Task, payload []byte) (consensus.Ta
 		if strings.TrimSpace(output.Summary) == "" {
 			return nil, fmt.Errorf("proposal output missing summary")
 		}
-		if err := validateClaimDrafts(output.Claims); err != nil {
+		if err := validateClaimDrafts(output.Claims, false); err != nil {
 			return nil, fmt.Errorf("validate proposal output: %w", err)
 		}
 		return consensus.ProposalTaskResult{Output: output}, nil
@@ -200,7 +325,7 @@ func decodeTaskOutputFromJSON(task consensus.Task, payload []byte) (consensus.Ta
 		if strings.TrimSpace(output.Summary) == "" {
 			return nil, fmt.Errorf("initial proposal output missing summary")
 		}
-		if err := validateClaimDrafts(output.Claims); err != nil {
+		if err := validateClaimDrafts(output.Claims, false); err != nil {
 			return nil, fmt.Errorf("validate initial proposal output: %w", err)
 		}
 		return consensus.InitialProposalTaskResult{Output: output}, nil
@@ -233,6 +358,9 @@ func decodeTaskOutputFromJSON(task consensus.Task, payload []byte) (consensus.Ta
 		if strings.TrimSpace(output.Summary) == "" {
 			return nil, fmt.Errorf("debate round output missing summary")
 		}
+		if err := validateClaimDrafts(output.NewClaims, false); err != nil {
+			return nil, fmt.Errorf("validate debate round newClaims: %w", err)
+		}
 		if err := validateDebateJudgements(output.Judgements); err != nil {
 			return nil, fmt.Errorf("validate debate round output: %w", err)
 		}
@@ -250,6 +378,7 @@ func decodeTaskOutputFromJSON(task consensus.Task, payload []byte) (consensus.Ta
 		}
 		return consensus.FinalVoteTaskResult{Output: output}, nil
 	case consensus.SemanticVerificationTask:
+		semanticTask := task.(consensus.SemanticVerificationTask)
 		var output consensus.SemanticVerificationOutput
 		if err := json.Unmarshal(payload, &output); err != nil {
 			return nil, fmt.Errorf("decode semantic verification output: %w", err)
@@ -257,7 +386,7 @@ func decodeTaskOutputFromJSON(task consensus.Task, payload []byte) (consensus.Ta
 		if strings.TrimSpace(output.Summary) == "" {
 			return nil, fmt.Errorf("semantic verification output missing summary")
 		}
-		if err := validateSemanticFindings(output.Results); err != nil {
+		if err := validateSemanticFindings(semanticTask.Claim.ClaimID, output.Results); err != nil {
 			return nil, fmt.Errorf("validate semantic verification output: %w", err)
 		}
 		return consensus.SemanticVerificationTaskResult{Output: output}, nil
@@ -343,53 +472,126 @@ func truncateSummary(text string) string {
 	return text[:200] + "..."
 }
 
-func claimDraftSchema() map[string]any {
-	return map[string]any{
-		"type":                 "object",
-		"additionalProperties": false,
-		"required":             []string{"statement"},
-		"properties": map[string]any{
-			"id": map[string]any{
-				"type": "string",
-			},
-			"title": map[string]any{
-				"type": "string",
-			},
-			"statement": map[string]any{
-				"type": "string",
-			},
-			"claimType": map[string]any{
-				"type": "string",
-				"enum": []string{
-					string(consensus.ClaimTypeFact),
-					string(consensus.ClaimTypeInference),
-					string(consensus.ClaimTypeRecommendation),
-					string(consensus.ClaimTypeAssumption),
-				},
-			},
-			"confidence": map[string]any{
-				"type": "number",
-			},
-			"rationale": map[string]any{
-				"type": "string",
-			},
-			"evidenceRef": map[string]any{
-				"type": "string",
-			},
-			"touchedPaths": map[string]any{
-				"type": "array",
-				"items": map[string]any{
-					"type": "string",
-				},
-			},
-			"verificationPlan": map[string]any{
-				"type": "array",
-				"items": map[string]any{
-					"type": "string",
-				},
-			},
+func proposalClaimDraftSchema() map[string]any {
+	return objectSchema(
+		[]string{"statement"},
+		map[string]any{
+			"title":              schemaString(),
+			"statement":          schemaString(),
+			"claimType":          enumStringSchema([]string{string(consensus.ClaimTypeFact), string(consensus.ClaimTypeInference), string(consensus.ClaimTypeRecommendation), string(consensus.ClaimTypeAssumption)}),
+			"applicability":      schemaString(),
+			"boundaryConditions": stringArraySchema(),
+			"confidence":         schemaNumber(),
 		},
-	}
+	)
+}
+
+func challengeDraftSchema() map[string]any {
+	return objectSchema(
+		[]string{"statement", "kind"},
+		map[string]any{
+			"claimId":                      schemaString(),
+			"statement":                    schemaString(),
+			"kind":                         schemaString(),
+			"attackType":                   schemaString(),
+			"severity":                     enumStringSchema([]string{string(consensus.AttackSeverityLow), string(consensus.AttackSeverityMedium), string(consensus.AttackSeverityHigh)}),
+			"requestedChecks":              stringArraySchema(),
+			"suggestedFalsificationMethod": schemaString(),
+		},
+	)
+}
+
+func revisionDraftSchema() map[string]any {
+	return objectSchema(
+		[]string{"targetClaimId", "action"},
+		map[string]any{
+			"targetClaimId":      schemaString(),
+			"action":             enumStringSchema([]string{string(consensus.RevisionActionRevise), string(consensus.RevisionActionDowngrade), string(consensus.RevisionActionWithdraw), string(consensus.RevisionActionUnresolved), string(consensus.RevisionActionUnchanged)}),
+			"revisedText":        schemaString(),
+			"confidenceDelta":    schemaNumber(),
+			"caveats":            stringArraySchema(),
+			"boundaryConditions": stringArraySchema(),
+			"reason":             schemaString(),
+			"unresolved":         schemaBoolean(),
+		},
+	)
+}
+
+func debateJudgementSchema() map[string]any {
+	return objectSchema(
+		[]string{"claimId", "judgement"},
+		map[string]any{
+			"claimId":          schemaString(),
+			"judgement":        enumStringSchema([]string{string(consensus.DebateJudgementAgree), string(consensus.DebateJudgementDisagree), string(consensus.DebateJudgementRevise), string(consensus.DebateJudgementNoChange)}),
+			"rationale":        schemaString(),
+			"revisedStatement": schemaString(),
+			"mergeWithClaims":  stringArraySchema(),
+		},
+	)
+}
+
+func debateVoteSchema() map[string]any {
+	return objectSchema(
+		[]string{"claimId", "vote"},
+		map[string]any{
+			"claimId":   schemaString(),
+			"vote":      enumStringSchema([]string{string(consensus.DebateVoteAccept), string(consensus.DebateVoteReject), string(consensus.DebateVoteAbstain)}),
+			"rationale": schemaString(),
+		},
+	)
+}
+
+func delphiResponseSchema() map[string]any {
+	return objectSchema(
+		nil,
+		map[string]any{
+			"statementId": schemaString(),
+			"statement":   schemaString(),
+			"rating":      schemaNumber(),
+			"rationale":   schemaString(),
+		},
+	)
+}
+
+func delphiStatementSchema() map[string]any {
+	return objectSchema(
+		[]string{"statementId", "statement", "meanRating", "consensusLevel", "responseCount", "lastRound"},
+		map[string]any{
+			"statementId":           schemaString(),
+			"statement":             schemaString(),
+			"meanRating":            schemaNumber(),
+			"consensusLevel":        schemaNumber(),
+			"responseCount":         schemaInteger(),
+			"lastRound":             schemaInteger(),
+			"representativeReasons": stringArraySchema(),
+		},
+	)
+}
+
+func semanticFindingSchema() map[string]any {
+	return objectSchema(
+		[]string{"claimId", "verdict", "rationale"},
+		map[string]any{
+			"claimId":    schemaString(),
+			"targetType": schemaString(),
+			"verdict":    enumStringSchema([]string{string(consensus.ClaimVerdictSupported), string(consensus.ClaimVerdictRefuted), string(consensus.ClaimVerdictInsufficientEvidence), string(consensus.ClaimVerdictUndetermined)}),
+			"confidence": schemaNumber(),
+			"rationale":  schemaString(),
+		},
+	)
+}
+
+func arbiterDecisionSchema() map[string]any {
+	return objectSchema(
+		[]string{"claimId", "verdict"},
+		map[string]any{
+			"claimId":      schemaString(),
+			"verdict":      enumStringSchema([]string{string(consensus.ClaimVerdictSupported), string(consensus.ClaimVerdictRefuted), string(consensus.ClaimVerdictInsufficientEvidence), string(consensus.ClaimVerdictUndetermined)}),
+			"confidence":   schemaNumber(),
+			"rationale":    schemaString(),
+			"evidenceRefs": stringArraySchema(),
+		},
+	)
 }
 
 var (
@@ -478,7 +680,7 @@ func parseFlexibleFloat(raw string) (float64, bool) {
 	return value, true
 }
 
-func validateClaimDrafts(claims []consensus.ClaimDraft) error {
+func validateClaimDrafts(claims []consensus.ClaimDraft, allowRelationships bool) error {
 	for idx, claim := range claims {
 		if strings.TrimSpace(claim.Statement) == "" {
 			return fmt.Errorf("claims[%d].statement is required", idx)
@@ -486,14 +688,31 @@ func validateClaimDrafts(claims []consensus.ClaimDraft) error {
 		if claim.ClaimType != "" && !isAllowedClaimType(claim.ClaimType) {
 			return fmt.Errorf("claims[%d].claimType must be one of fact|inference|recommendation|assumption", idx)
 		}
+		if !allowRelationships {
+			if len(claim.Dependencies) > 0 {
+				return fmt.Errorf("claims[%d].dependencies is not allowed in proposal output; express prerequisites in applicability or boundaryConditions instead", idx)
+			}
+			if len(claim.ParentClaimIDs) > 0 {
+				return fmt.Errorf("claims[%d].parentClaimIds is not allowed in proposal output", idx)
+			}
+		}
 	}
 	return nil
 }
 
-func validateSemanticFindings(results []consensus.SemanticVerificationFinding) error {
+func validateSemanticFindings(expectedClaimID string, results []consensus.SemanticVerificationFinding) error {
+	if len(results) != 1 {
+		return fmt.Errorf("results must contain exactly one claim-level entry, got %d", len(results))
+	}
 	for idx, finding := range results {
 		if strings.TrimSpace(finding.ClaimID) == "" {
 			return fmt.Errorf("results[%d].claimId is required", idx)
+		}
+		if expected := strings.TrimSpace(expectedClaimID); expected != "" && strings.TrimSpace(finding.ClaimID) != expected {
+			return fmt.Errorf("results[%d].claimId must equal the current claim %q", idx, expected)
+		}
+		if finding.TargetType != "" && finding.TargetType != "claim" {
+			return fmt.Errorf("results[%d].targetType must be claim when provided", idx)
 		}
 		if !isAllowedClaimVerdict(finding.Verdict) {
 			return fmt.Errorf("results[%d].verdict must be one of supported|refuted|insufficient_evidence|undetermined", idx)

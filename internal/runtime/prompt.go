@@ -25,7 +25,7 @@ func BuildTaskPrompt(task consensus.Task, agent ResolvedAgentRuntime, includeJSO
 	taskJSON, _ := json.MarshalIndent(task, "", "  ")
 	sections = append(sections, string(taskJSON))
 	if includeJSONSchema {
-		schemaJSON, _ := json.MarshalIndent(TaskOutputJSONSchema(task), "", "  ")
+		schemaJSON, _ := json.MarshalIndent(TaskOutputJSONSchemaForAgent(task, agent), "", "  ")
 		sections = append(sections, "", "Expected output JSON schema:", string(schemaJSON))
 	}
 	if hints := taskPromptHints(task); len(hints) > 0 {
@@ -55,7 +55,7 @@ func BuildRepairPrompt(task consensus.Task, agent ResolvedAgentRuntime, rawOutpu
 	taskJSON, _ := json.MarshalIndent(task, "", "  ")
 	sections = append(sections, string(taskJSON))
 	if includeJSONSchema {
-		schemaJSON, _ := json.MarshalIndent(TaskOutputJSONSchema(task), "", "  ")
+		schemaJSON, _ := json.MarshalIndent(TaskOutputJSONSchemaForAgent(task, agent), "", "  ")
 		sections = append(sections, "", "Expected output JSON schema:", string(schemaJSON))
 	}
 	if decodeErr != nil {
@@ -82,6 +82,12 @@ func BuildRepairPrompt(task consensus.Task, agent ResolvedAgentRuntime, rawOutpu
 
 func taskPromptHints(task consensus.Task) []string {
 	switch typed := task.(type) {
+	case consensus.ProposalTask:
+		return proposalPromptHints()
+	case consensus.InitialProposalTask:
+		return proposalPromptHints()
+	case consensus.SemanticVerificationTask:
+		return semanticVerificationPromptHints(typed)
 	case consensus.DebateRoundTask:
 		return debateRoundPromptHints(typed)
 	default:
@@ -91,10 +97,75 @@ func taskPromptHints(task consensus.Task) []string {
 
 func taskRepairHints(task consensus.Task) []string {
 	switch typed := task.(type) {
+	case consensus.ProposalTask:
+		return proposalRepairHints()
+	case consensus.InitialProposalTask:
+		return proposalRepairHints()
+	case consensus.SemanticVerificationTask:
+		return semanticVerificationRepairHints(typed)
 	case consensus.DebateRoundTask:
 		return debateRoundRepairHints(typed)
 	default:
 		return nil
+	}
+}
+
+func proposalPromptHints() []string {
+	return []string{
+		"- Proposal claim fields are limited to: title, statement, claimType, confidence, applicability, boundaryConditions.",
+		"- Do not emit dependencies or parentClaimIds in proposal outputs.",
+		"- If a claim only applies under certain assumptions, put those assumptions in applicability or boundaryConditions instead of creating claim graph references.",
+	}
+}
+
+func proposalRepairHints() []string {
+	return []string{
+		"- If the previous output used dependencies or parentClaimIds, remove those fields.",
+		"- Preserve prerequisites as plain language in applicability or boundaryConditions when they are already stated in the previous output.",
+	}
+}
+
+func semanticVerificationPromptHints(task consensus.SemanticVerificationTask) []string {
+	claimID := strings.TrimSpace(task.Claim.ClaimID)
+	lines := []string{
+		"- Return exactly one semantic result row for the current claim. Do not emit separate rows for challenges, source materials, or other targets.",
+		"- If targetType is included, it must be exactly \"claim\".",
+		"- supported: use only when the current materials directly back the claim after considering caveats and open challenges.",
+		"- refuted: use when the claim is contradicted, materially overstated, or internally inconsistent with the available materials.",
+		"- insufficient_evidence: use when the claim may be plausible but the available materials are too weak to support or refute it.",
+		"- undetermined: use only for genuinely mixed or ambiguous evidence after considering the full record; do not use it as a safe default.",
+		"- Prefer supported, refuted, or insufficient_evidence whenever the evidence direction is clear.",
+		"- rationale must explain why this verdict follows from the current claim and challenges; do not only say \"need more evidence\".",
+	}
+	if claimID != "" {
+		lines = append(lines, fmt.Sprintf("- The only valid claimId for this task is %s.", claimID))
+		lines = append(lines, semanticVerificationExampleLines(claimID)...)
+		lines = append(lines, fmt.Sprintf(`- Invalid example: {"summary":"...","results":[{"claimId":"challenge-1","targetType":"challenge","verdict":"supported","rationale":"looked relevant"},{"claimId":"%s","verdict":"undetermined","rationale":"Need more evidence"}]}`, claimID))
+	}
+	return lines
+}
+
+func semanticVerificationRepairHints(task consensus.SemanticVerificationTask) []string {
+	claimID := strings.TrimSpace(task.Claim.ClaimID)
+	lines := []string{
+		"- Rewrite the output to exactly one canonical result row for the current claim.",
+		"- Drop any rows about challenges, evidence, or source materials. Keep only the claim-level judgement.",
+		"- If targetType is present, set it to \"claim\".",
+		"- If the previous verdict was a vague safe fallback, choose insufficient_evidence when support is missing, and choose undetermined only when the evidence is genuinely mixed.",
+		"- Preserve the original judgment intent, but make the rationale concrete and claim-focused.",
+	}
+	if claimID != "" {
+		lines = append(lines, fmt.Sprintf("- The repaired results[0].claimId must be exactly %s.", claimID))
+	}
+	return lines
+}
+
+func semanticVerificationExampleLines(claimID string) []string {
+	return []string{
+		fmt.Sprintf(`- Valid supported example: {"summary":"The current claim is directly backed by the record.","results":[{"claimId":"%s","targetType":"claim","verdict":"supported","confidence":0.78,"rationale":"The source materials explicitly document repeated cross-repo coordination delays, so the claim's diagnosis is directly supported."}]}`, claimID),
+		fmt.Sprintf(`- Valid refuted example: {"summary":"The current claim overstates what the record proves.","results":[{"claimId":"%s","targetType":"claim","verdict":"refuted","confidence":0.73,"rationale":"The claim says the migration will eliminate version drift, but the materials only show it could reduce drift under additional governance constraints."}]}`, claimID),
+		fmt.Sprintf(`- Valid insufficient_evidence example: {"summary":"The current claim is plausible but under-supported.","results":[{"claimId":"%s","targetType":"claim","verdict":"insufficient_evidence","confidence":0.42,"rationale":"The record shows coordination pain, but it does not quantify whether monorepo would improve throughput enough to justify the migration."}]}`, claimID),
+		fmt.Sprintf(`- Valid undetermined example: {"summary":"The current claim has genuinely mixed evidence.","results":[{"claimId":"%s","targetType":"claim","verdict":"undetermined","confidence":0.5,"rationale":"The materials support the diagnosis of repository friction, but they also show unresolved release-governance tradeoffs that could negate the claimed benefit."}]}`, claimID),
 	}
 }
 
