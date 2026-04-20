@@ -785,7 +785,7 @@ func parseSemanticRationaleSections(rationale string) (map[string]string, error)
 		}
 		indices = append(indices, idx)
 	}
-	if !(indices[0] < indices[1] && indices[1] < indices[2]) {
+	if indices[0] >= indices[1] || indices[1] >= indices[2] {
 		return nil, fmt.Errorf("must contain supported_core, missing_or_conflict, and verdict_reason in that order")
 	}
 	sections := make(map[string]string, len(labels))
