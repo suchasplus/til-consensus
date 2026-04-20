@@ -5,8 +5,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/suchasplus/til-consensus/internal/consensus"
+	"github.com/suchasplus/til-consensus/internal/telemetry"
 )
 
 func TestRenderDocumentGolden(t *testing.T) {
@@ -188,6 +190,61 @@ func TestLoadBundleMissingManifestDegrades(t *testing.T) {
 	}
 	if len(bundle.Missing) != 1 || bundle.Missing[0] != "artifacts/manifest.jsonl" {
 		t.Fatalf("unexpected missing files: %#v", bundle.Missing)
+	}
+}
+
+func TestLoadBundleReadsOptionalTelemetryArtifacts(t *testing.T) {
+	source := sampleRunDir(t)
+	tmp := t.TempDir()
+	for _, name := range []string{"result.json", "ledger.jsonl", "summary.md"} {
+		body, err := os.ReadFile(filepath.Join(source, name))
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		if err := os.WriteFile(filepath.Join(tmp, name), body, 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(tmp, "artifacts"), 0o755); err != nil {
+		t.Fatalf("mkdir artifacts: %v", err)
+	}
+	manifestBody, err := os.ReadFile(filepath.Join(source, "artifacts", "manifest.jsonl"))
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "artifacts", "manifest.jsonl"), manifestBody, 0o644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+	if err := telemetry.WriteProviderReadinessFile(filepath.Join(tmp, "artifacts", "provider-readiness.json"), []telemetry.ProviderReadinessEntry{
+		{Provider: "claude", Ready: true, StrictJSON: false, RecoverableJSON: true, DurationMs: 4600},
+	}, time.Date(2026, 4, 17, 10, 0, 6, 0, time.UTC)); err != nil {
+		t.Fatalf("write readiness: %v", err)
+	}
+	if err := telemetry.WriteRunTelemetryFile(filepath.Join(tmp, "artifacts", "run-telemetry.json"), telemetry.RunTelemetryFile{
+		Version:     1,
+		GeneratedAt: "2026-04-17T10:00:07Z",
+		RequestID:   "req-1",
+		SessionID:   "session-1",
+		Mode:        consensus.WorkflowModeAdjudication,
+		Result: telemetry.RunTelemetryResult{
+			PrimaryResult: "requires_human_review",
+			TaskVerdict:   "partially_supported",
+			TerminalState: consensus.TerminalStateRequiresHumanReview,
+		},
+		Timing: telemetry.RunTelemetryTiming{ElapsedMs: 842000},
+	}); err != nil {
+		t.Fatalf("write run telemetry: %v", err)
+	}
+
+	bundle, err := LoadBundle(InferRunFiles(filepath.Join(tmp, "result.json")))
+	if err != nil {
+		t.Fatalf("LoadBundle failed: %v", err)
+	}
+	if len(bundle.ProviderReadiness.Providers) != 1 {
+		t.Fatalf("expected provider readiness, got %#v", bundle.ProviderReadiness)
+	}
+	if bundle.RunTelemetry.RequestID != "req-1" {
+		t.Fatalf("expected run telemetry, got %#v", bundle.RunTelemetry)
 	}
 }
 
@@ -408,6 +465,40 @@ func bundleWithObservationData(t *testing.T) Bundle {
 				FinalArtifact:        &consensus.ArtifactRef{Path: filepath.Join(bundle.Files.RunDir, "artifacts", "raw-proposer-a-propose-task-2-repair-1.json")},
 			},
 		},
+	}
+	bundle.ProviderReadiness = telemetry.ProviderReadinessFile{
+		Version:     1,
+		GeneratedAt: "2026-04-17T10:00:06Z",
+		Providers: []telemetry.ProviderReadinessEntry{
+			{Provider: "claude", Ready: true, StrictJSON: false, RecoverableJSON: true, DurationMs: 4600, Command: []string{"claude", "--print", "--json-schema", "{...}"}, StdoutPreview: "```json\n{\"ok\":true}\n```"},
+			{Provider: "codex", Ready: true, StrictJSON: true, RecoverableJSON: true, DurationMs: 11100, Command: []string{"codex", "exec", "--output-schema", "/tmp/schema.json"}},
+		},
+	}
+	bundle.RunTelemetry = telemetry.RunTelemetryFile{
+		Version:     1,
+		GeneratedAt: "2026-04-17T10:00:07Z",
+		RequestID:   bundle.Result.RequestID,
+		SessionID:   bundle.Result.SessionID,
+		Mode:        consensus.WorkflowModeAdjudication,
+		Providers:   []string{"codex/gpt-5.4", "gemini/gemini-3.1-pro-preview"},
+		TaskSummary: []telemetry.RunTaskSummary{
+			{TaskKind: consensus.TaskKindPropose, Total: 3, Strict: 1, Normalized: 1, Repaired: 1, Failed: 0},
+			{TaskKind: consensus.TaskKindSemanticVerify, Total: 2, Strict: 0, Normalized: 1, Repaired: 0, Failed: 1},
+		},
+		WorkflowSummary: telemetry.WorkflowSummary{
+			Claims:               3,
+			KeepWithCaveatClaims: 2,
+			UnresolvedClaims:     1,
+			ObservationCount:     1,
+			ChallengeCount:       2,
+		},
+		VerificationSummary: telemetry.VerificationSummary{Passed: 1, Failed: 0, Inconclusive: 2},
+		Result: telemetry.RunTelemetryResult{
+			PrimaryResult: "requires_human_review",
+			TaskVerdict:   "partially_supported",
+			TerminalState: consensus.TerminalStateRequiresHumanReview,
+		},
+		Timing: telemetry.RunTelemetryTiming{ElapsedMs: 842000},
 	}
 	bundle.Events = []consensus.RunEventRecord{
 		{

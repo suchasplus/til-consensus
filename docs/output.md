@@ -208,6 +208,10 @@
   - 单个 task 的 strict compliance 报告
 - `strict-compliance-summary.json`
   - 当前 run 的 compliance 汇总
+- `provider-readiness.json`
+  - 真实 provider 预检结果
+- `run-telemetry.json`
+  - 当前 run 的 workflow 级聚合统计
 
 之所以带上 `<taskID>`，是为了避免同一个 agent / task kind 的多次执行互相覆盖，方便事后逐轮排查。
 
@@ -258,6 +262,76 @@ strict compliance telemetry 用来回答一个更具体的问题：
 - `providerType`
 - `providerModel`
 - `taskKind`
+
+## provider readiness telemetry
+
+### `provider-readiness.json`
+
+这份文件主要回答：
+
+- 当前测试 / 运行上下文里，`claude / gemini / codex` 这类 provider 到底是不是 ready
+- 失败是 provider 自身不可用，还是 workflow 本身出问题
+
+典型字段：
+
+- `provider`
+- `command`
+- `ready`
+- `strictJSON`
+- `recoverableJSON`
+- `durationMs`
+- `stdoutPreview`
+- `stderrPreview`
+- `error`
+
+## run telemetry
+
+### `run-telemetry.json`
+
+这份文件把单 task 的 compliance 汇总成 run 级信号，主要回答：
+
+- 这次 run 的主结果是什么
+- 还有多少 `unresolved`
+- `keep_with_caveat` 有多少
+- 哪个 task kind 在拖后腿
+
+典型字段：
+
+- `requestId`
+- `sessionId`
+- `mode`
+- `providers`
+- `taskSummary`
+- `workflowSummary`
+- `verificationSummary`
+- `result`
+- `timing`
+
+其中：
+
+- `taskSummary`
+  - 按 `taskKind` 聚合 `total / strict / normalized / repaired / failed`
+- `workflowSummary`
+  - 聚合 `claims / keep / keep_with_caveat / unresolved / reject`
+- `result`
+  - 聚合 `primaryResult / taskVerdict / terminalState`
+
+## daily markdown 聚合
+
+如果你想把最近一段时间的 telemetry 聚合成 markdown：
+
+```bash
+til-consensus telemetry daily --config ./til-consensus.yaml
+```
+
+也可以直接指定扫描根目录和输出路径：
+
+```bash
+til-consensus telemetry daily \
+  --root ./logs/out \
+  --since 24h \
+  --output ./reports/daily-telemetry.md
+```
 
 统计字段：
 

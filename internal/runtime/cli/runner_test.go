@@ -111,6 +111,10 @@ func TestHardenPromptForCLIAddsProviderSpecificContract(t *testing.T) {
 		"Semantic targetType is optional, but if present it must be claim.",
 		"Semantic verdict allowed: supported, refuted, insufficient_evidence, undetermined.",
 		"Semantic confidence bands: supported/refuted must be 0.60-1.00, insufficient_evidence must be 0.01-0.60, undetermined must be 0.35-0.65.",
+		"Semantic rationale must use exactly this structure: supported_core: ... | missing_or_conflict: ... | verdict_reason: ...",
+		"Semantic supported_core must name the narrowest surviving claim core, even when the verdict is insufficient_evidence or undetermined.",
+		"Semantic verdict_reason must explain why the chosen verdict beats the other three canonical verdicts.",
+		"Semantic recommendation claims should judge the directional recommendation separately from rollout mechanics.",
 		"Semantic insufficient_evidence is preferred when evidence is simply too weak or missing.",
 		"Semantic claimId must be exactly claim-1.",
 		"Gemini-specific: do not replace canonical fields with aliases like verificationStatus/claim/text/accepted/verified.",
@@ -151,6 +155,7 @@ func TestHardenPromptForCLIAddsArbiterAndProposalFieldContracts(t *testing.T) {
 		"Arbiter claim verdict allowed: supported, refuted, insufficient_evidence, undetermined.",
 		"Arbiter must judge the current revised claim text as written, not the broader superseded claim.",
 		"Arbiter should prefer supported when a narrowed strategy/operational claim keeps a supported directional core but leaves execution details or prerequisites conditional.",
+		"Arbiter recommendation claims should preserve a supported directional path and carry remaining rollout uncertainty as caveats whenever the claim already encodes those caveats.",
 		"Arbiter should use insufficient_evidence only when no narrower supported core remains even after considering caveats, applicability, and boundaryConditions.",
 		"Claude-specific: do not wrap the answer in prose or explanatory paragraphs. Output JSON only.",
 	} {

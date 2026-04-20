@@ -47,6 +47,21 @@ til-consensus run \
 
 `--task-file` 会读取文件全部内容作为任务文本。它可以和 `--input` 一起用，用来覆盖 `run.yaml` 里的 `task_spec.goal`；但不能和 `--task` 同时使用。
 
+如果你想把最近一天的真实 run 汇总成 markdown：
+
+```bash
+til-consensus telemetry daily --config ./til-consensus.yaml
+```
+
+也可以直接指定扫描根目录和输出文件：
+
+```bash
+til-consensus telemetry daily \
+  --root ./logs/out \
+  --since 24h \
+  --output ./reports/daily-telemetry.md
+```
+
 3. 查看最新一次结果：
 
 ```bash
@@ -238,6 +253,8 @@ til-consensus config init --mode delphi --provider-profile mock --config ./til-c
   - 生成带注释的配置模板
 - `til-consensus config validate`
   - 校验配置是否可用
+- `til-consensus telemetry daily`
+  - 扫描运行目录，输出 readiness / compliance / workflow 的 markdown 汇总
 - `til-consensus followup run`
   - 执行 follow-up case artifact
 - `til-consensus session list`
@@ -332,7 +349,16 @@ til-consensus view --config ./til-consensus.yaml --web --section observations --
 til-consensus view --config ./til-consensus.yaml --web --section debug --verbose --open
 ```
 
-`debug` 区块现在除了运行事件，还会直接展示 strict compliance telemetry：
+`debug` 区块现在除了运行事件，还会直接展示三层 telemetry：
+
+- `Provider Readiness`
+  - 当前上下文里各 provider 的最小非交互探测结果
+  - 显示 `ready / strictJSON / recoverableJSON / duration / error`
+- `Run Summary`
+  - 当前 run 的聚合业务质量
+  - 显示 `primaryResult / taskVerdict / terminalState / workflow summary / task summary`
+- `Strict Compliance`
+  - 单 task 的结构化输出合规度
 
 - summary
   - 按 `provider × taskKind` 汇总
@@ -385,6 +411,10 @@ til-consensus view --config ./til-consensus.yaml --section rounds --section conv
 - `artifacts/strict-compliance-summary.json`
   - strict compliance 汇总
   - 按 `provider / providerModel / taskKind` 聚合
+- `artifacts/provider-readiness.json`
+  - 真实 provider 预检结果
+- `artifacts/run-telemetry.json`
+  - 当前 run 的 workflow 级聚合统计
 - `artifacts/compliance-report-*.json`
   - 单个 task 的 compliance 报告
   - 会标出本次是：
@@ -460,6 +490,16 @@ make install
   - 首次 decode 失败后，经过同源 provider repair retry 修复成功
 - `failed`
   - strict、normalize、repair 都失败
+
+真实 CLI E2E 或 daily run 还会额外产出：
+
+- `provider-readiness.json`
+  - provider 是否 ready
+  - strict JSON / recoverable JSON
+  - 最小调用耗时
+- `run-telemetry.json`
+  - 这次 run 的整体质量
+  - 包括 `workflow summary / verification summary / task summary`
 
 如果输出连接到真实终端，关键字会自动着色；如果输出被重定向到文件，则保持纯文本。
 

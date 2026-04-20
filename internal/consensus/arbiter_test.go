@@ -64,3 +64,37 @@ func TestDeriveRecordsFromDecisionsKeepsFactsUnresolvedWhenEvidenceIsInsufficien
 		t.Fatalf("expected unresolved for fact claim, got %#v", records[0])
 	}
 }
+
+func TestDeriveRecordsFromDecisionsPrefersKeepWithCaveatForCaveatedRecommendationUndetermined(t *testing.T) {
+	request := StartRequest{
+		TaskSpec: TaskSpec{
+			TaskType: CaseTaskTypeStrategy,
+		},
+	}
+	claims := []ClaimNode{{
+		ClaimID:            "claim-1",
+		Statement:          "渐进式收敛仍是候选方向，但具体 rollout 顺序取决于容量与发布治理约束。",
+		ClaimType:          ClaimTypeRecommendation,
+		Status:             ClaimStatusRevised,
+		Applicability:      "仅在补齐团队容量数据后适用",
+		BoundaryConditions: []string{"需确认发布治理约束"},
+		Caveats:            []string{"具体执行顺序仍未闭合"},
+	}}
+	decisions := []ArbiterDecision{{
+		ClaimID:    "claim-1",
+		Verdict:    ClaimVerdictUndetermined,
+		Confidence: 0.5,
+		Rationale:  "方向有支撑，但 rollout 细节仍存在混合信号。",
+	}}
+
+	records := deriveRecordsFromDecisions(request, claims, decisions)
+	if len(records) != 1 {
+		t.Fatalf("expected one adjudication record, got %#v", records)
+	}
+	if records[0].Disposition != ClaimDispositionKeepWithCaveat {
+		t.Fatalf("expected keep_with_caveat, got %#v", records[0])
+	}
+	if records[0].Actionability != ActionabilityGated {
+		t.Fatalf("expected gated actionability, got %#v", records[0])
+	}
+}

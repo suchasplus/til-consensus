@@ -140,7 +140,16 @@ til-consensus view \
 
 `debug` 会读取同目录下的 `events.jsonl`，显示每条运行事件的时间、类型、payload，以及推导出的 provider artifact 路径提示。
 
-如果同一次 run 里生成了 strict compliance telemetry，`debug` 还会继续显示：
+如果同一次 run 里生成了 telemetry artifact，`debug` 还会继续显示：
+
+- `Provider Readiness`
+  - 各 provider 的最小非交互探测结果
+  - 包括 `ready / strictJSON / recoverableJSON / duration / error`
+- `Run Summary`
+  - 当前 run 的聚合质量
+  - 包括 `primaryResult / taskVerdict / terminalState / workflow summary / task summary`
+- `Strict Compliance`
+  - 单 task 的结构化输出合规度
 
 - `Telemetry`
   - `summary`
@@ -168,6 +177,12 @@ til-consensus view \
 - `taskVerdict: { verdict: ..., rationale: ... }`
 
 这类外部词表映射成内部 verdict 的过程时，不需要再手动翻完整 payload。
+
+如果你想把最近一段时间的 run 再聚合成 markdown 报告，可以直接跑：
+
+```bash
+til-consensus telemetry daily --config ./til-consensus.yaml
+```
 
 ## `adjudication` 专用 section
 

@@ -13,6 +13,7 @@ import (
 
 	"github.com/suchasplus/til-consensus/internal/artifact"
 	"github.com/suchasplus/til-consensus/internal/consensus"
+	"github.com/suchasplus/til-consensus/internal/telemetry"
 )
 
 const (
@@ -44,6 +45,8 @@ type RunFiles struct {
 	ManifestPath          string
 	EventsPath            string
 	ComplianceSummaryPath string
+	ProviderReadinessPath string
+	RunTelemetryPath      string
 }
 
 type RenderOptions struct {
@@ -61,6 +64,8 @@ type Bundle struct {
 	Events            []consensus.RunEventRecord
 	ComplianceSummary ComplianceSummaryFile
 	ComplianceReports []ComplianceReportFile
+	ProviderReadiness telemetry.ProviderReadinessFile
+	RunTelemetry      telemetry.RunTelemetryFile
 	Files             RunFiles
 	Missing           []string
 }
@@ -244,6 +249,73 @@ type TelemetryView struct {
 	GeneratedAt string                       `json:"generatedAt,omitempty"`
 	Summary     []ComplianceSummaryEntryView `json:"summary,omitempty"`
 	Reports     []ComplianceReportView       `json:"reports,omitempty"`
+	Readiness   *ProviderReadinessView       `json:"readiness,omitempty"`
+	Run         *RunTelemetryView            `json:"run,omitempty"`
+}
+
+type ProviderReadinessEntryView struct {
+	Provider        string   `json:"provider"`
+	Command         []string `json:"command,omitempty"`
+	Ready           bool     `json:"ready"`
+	StrictJSON      bool     `json:"strictJSON"`
+	RecoverableJSON bool     `json:"recoverableJSON"`
+	DurationMs      int64    `json:"durationMs"`
+	StdoutPreview   string   `json:"stdoutPreview,omitempty"`
+	StderrPreview   string   `json:"stderrPreview,omitempty"`
+	Error           string   `json:"error,omitempty"`
+}
+
+type ProviderReadinessView struct {
+	GeneratedAt string                       `json:"generatedAt,omitempty"`
+	Providers   []ProviderReadinessEntryView `json:"providers,omitempty"`
+}
+
+type RunTaskSummaryView struct {
+	TaskKind   string `json:"taskKind"`
+	Total      int    `json:"total"`
+	Strict     int    `json:"strict"`
+	Normalized int    `json:"normalized"`
+	Repaired   int    `json:"repaired"`
+	Failed     int    `json:"failed"`
+}
+
+type RunWorkflowSummaryView struct {
+	Claims               int `json:"claims"`
+	SupportedClaims      int `json:"supportedClaims"`
+	RefutedClaims        int `json:"refutedClaims"`
+	InsufficientClaims   int `json:"insufficientClaims"`
+	UndeterminedClaims   int `json:"undeterminedClaims"`
+	KeepClaims           int `json:"keepClaims"`
+	KeepWithCaveatClaims int `json:"keepWithCaveatClaims"`
+	UnresolvedClaims     int `json:"unresolvedClaims"`
+	RejectClaims         int `json:"rejectClaims"`
+	ChallengeCount       int `json:"challengeCount"`
+	ObservationCount     int `json:"observationCount"`
+	RoundCount           int `json:"roundCount,omitempty"`
+	ClaimCount           int `json:"claimCount,omitempty"`
+	VoteCount            int `json:"voteCount,omitempty"`
+	StatementCount       int `json:"statementCount,omitempty"`
+}
+
+type RunVerificationSummaryView struct {
+	Passed       int `json:"passed"`
+	Failed       int `json:"failed"`
+	Inconclusive int `json:"inconclusive"`
+}
+
+type RunTelemetryView struct {
+	GeneratedAt string                      `json:"generatedAt,omitempty"`
+	RequestID   string                      `json:"requestId,omitempty"`
+	SessionID   string                      `json:"sessionId,omitempty"`
+	Mode        string                      `json:"mode,omitempty"`
+	Providers   []string                    `json:"providers,omitempty"`
+	Primary     string                      `json:"primaryResult,omitempty"`
+	TaskVerdict string                      `json:"taskVerdict,omitempty"`
+	Terminal    string                      `json:"terminalState,omitempty"`
+	ElapsedMs   int64                       `json:"elapsedMs,omitempty"`
+	TaskSummary []RunTaskSummaryView        `json:"taskSummary,omitempty"`
+	Workflow    RunWorkflowSummaryView      `json:"workflowSummary"`
+	Verify      *RunVerificationSummaryView `json:"verificationSummary,omitempty"`
 }
 
 type RiskView struct {
@@ -341,6 +413,8 @@ func InferRunFiles(resultPath string) RunFiles {
 		ManifestPath:          filepath.Join(artifactsDir, "manifest.jsonl"),
 		EventsPath:            filepath.Join(runDir, "events.jsonl"),
 		ComplianceSummaryPath: filepath.Join(artifactsDir, "strict-compliance-summary.json"),
+		ProviderReadinessPath: filepath.Join(artifactsDir, "provider-readiness.json"),
+		RunTelemetryPath:      filepath.Join(artifactsDir, "run-telemetry.json"),
 	}
 }
 
@@ -354,6 +428,12 @@ func LoadBundle(files RunFiles) (Bundle, error) {
 	}
 	if strings.TrimSpace(files.ComplianceSummaryPath) == "" && strings.TrimSpace(files.ArtifactsDir) != "" {
 		files.ComplianceSummaryPath = filepath.Join(files.ArtifactsDir, "strict-compliance-summary.json")
+	}
+	if strings.TrimSpace(files.ProviderReadinessPath) == "" && strings.TrimSpace(files.ArtifactsDir) != "" {
+		files.ProviderReadinessPath = filepath.Join(files.ArtifactsDir, "provider-readiness.json")
+	}
+	if strings.TrimSpace(files.RunTelemetryPath) == "" && strings.TrimSpace(files.ArtifactsDir) != "" {
+		files.RunTelemetryPath = filepath.Join(files.ArtifactsDir, "run-telemetry.json")
 	}
 	body, err := os.ReadFile(files.ResultPath)
 	if err != nil {
@@ -383,6 +463,14 @@ func LoadBundle(files RunFiles) (Bundle, error) {
 	if err != nil {
 		return Bundle{}, fmt.Errorf("read compliance reports: %w", err)
 	}
+	providerReadiness, err := readOptionalJSONFile[telemetry.ProviderReadinessFile](files.ProviderReadinessPath)
+	if err != nil {
+		return Bundle{}, fmt.Errorf("read provider readiness: %w", err)
+	}
+	runTelemetry, err := readOptionalJSONFile[telemetry.RunTelemetryFile](files.RunTelemetryPath)
+	if err != nil {
+		return Bundle{}, fmt.Errorf("read run telemetry: %w", err)
+	}
 	return Bundle{
 		Result:            result,
 		Ledger:            ledger,
@@ -390,6 +478,8 @@ func LoadBundle(files RunFiles) (Bundle, error) {
 		Events:            events,
 		ComplianceSummary: complianceSummary,
 		ComplianceReports: complianceReports,
+		ProviderReadiness: providerReadiness,
+		RunTelemetry:      runTelemetry,
 		Files:             files,
 		Missing:           missing,
 	}, nil
@@ -721,11 +811,61 @@ func renderText(doc Document, verbose bool) string {
 			}
 		}
 		writeTextHeading(&b, "Telemetry")
-		if doc.Telemetry == nil || (len(doc.Telemetry.Summary) == 0 && len(doc.Telemetry.Reports) == 0) {
+		if doc.Telemetry == nil || (len(doc.Telemetry.Summary) == 0 && len(doc.Telemetry.Reports) == 0 && doc.Telemetry.Readiness == nil && doc.Telemetry.Run == nil) {
 			b.WriteString("(无 telemetry 数据)\n")
 		} else {
 			if doc.Telemetry.GeneratedAt != "" {
 				fmt.Fprintf(&b, "generated at: %s\n", doc.Telemetry.GeneratedAt)
+			}
+			if doc.Telemetry.Readiness != nil {
+				if doc.Telemetry.Readiness.GeneratedAt != "" {
+					fmt.Fprintf(&b, "provider readiness generated at: %s\n", doc.Telemetry.Readiness.GeneratedAt)
+				}
+				if len(doc.Telemetry.Readiness.Providers) > 0 {
+					b.WriteString("provider readiness:\n")
+					for _, item := range doc.Telemetry.Readiness.Providers {
+						fmt.Fprintf(&b, "- %s | ready=%t strict=%t recoverable=%t duration=%dms\n", item.Provider, item.Ready, item.StrictJSON, item.RecoverableJSON, item.DurationMs)
+						if item.Error != "" {
+							fmt.Fprintf(&b, "  error: %s\n", item.Error)
+						}
+						if verbose {
+							if len(item.Command) > 0 {
+								fmt.Fprintf(&b, "  command: %s\n", strings.Join(item.Command, " "))
+							}
+							if item.StdoutPreview != "" {
+								fmt.Fprintf(&b, "  stdout: %s\n", item.StdoutPreview)
+							}
+							if item.StderrPreview != "" {
+								fmt.Fprintf(&b, "  stderr: %s\n", item.StderrPreview)
+							}
+						}
+					}
+				}
+			}
+			if doc.Telemetry.Run != nil {
+				b.WriteString("run summary:\n")
+				fmt.Fprintf(&b, "- request=%s session=%s mode=%s\n", firstNonEmpty(doc.Telemetry.Run.RequestID, "-"), firstNonEmpty(doc.Telemetry.Run.SessionID, "-"), firstNonEmpty(doc.Telemetry.Run.Mode, "-"))
+				fmt.Fprintf(&b, "- primary=%s taskVerdict=%s terminal=%s elapsed=%dms\n", firstNonEmpty(doc.Telemetry.Run.Primary, "-"), firstNonEmpty(doc.Telemetry.Run.TaskVerdict, "-"), firstNonEmpty(doc.Telemetry.Run.Terminal, "-"), doc.Telemetry.Run.ElapsedMs)
+				if len(doc.Telemetry.Run.Providers) > 0 {
+					fmt.Fprintf(&b, "- providers: %s\n", strings.Join(doc.Telemetry.Run.Providers, ", "))
+				}
+				fmt.Fprintf(&b, "- workflow: claims=%d keep=%d keep_with_caveat=%d unresolved=%d reject=%d observations=%d\n",
+					doc.Telemetry.Run.Workflow.Claims,
+					doc.Telemetry.Run.Workflow.KeepClaims,
+					doc.Telemetry.Run.Workflow.KeepWithCaveatClaims,
+					doc.Telemetry.Run.Workflow.UnresolvedClaims,
+					doc.Telemetry.Run.Workflow.RejectClaims,
+					doc.Telemetry.Run.Workflow.ObservationCount,
+				)
+				if doc.Telemetry.Run.Verify != nil {
+					fmt.Fprintf(&b, "- verification: pass=%d fail=%d inconclusive=%d\n", doc.Telemetry.Run.Verify.Passed, doc.Telemetry.Run.Verify.Failed, doc.Telemetry.Run.Verify.Inconclusive)
+				}
+				if len(doc.Telemetry.Run.TaskSummary) > 0 {
+					b.WriteString("task summary:\n")
+					for _, item := range doc.Telemetry.Run.TaskSummary {
+						fmt.Fprintf(&b, "- %s | total=%d strict=%d normalized=%d repaired=%d failed=%d\n", item.TaskKind, item.Total, item.Strict, item.Normalized, item.Repaired, item.Failed)
+					}
+				}
 			}
 			if len(doc.Telemetry.Summary) > 0 {
 				b.WriteString("summary:\n")
@@ -926,10 +1066,35 @@ func renderMarkdown(doc Document, verbose bool) string {
 		}
 		b.WriteString("\n")
 	}
-	if doc.Telemetry != nil && (len(doc.Telemetry.Summary) > 0 || len(doc.Telemetry.Reports) > 0) {
+	if doc.Telemetry != nil && (len(doc.Telemetry.Summary) > 0 || len(doc.Telemetry.Reports) > 0 || doc.Telemetry.Readiness != nil || doc.Telemetry.Run != nil) {
 		b.WriteString("## Telemetry\n\n")
 		if doc.Telemetry.GeneratedAt != "" {
 			fmt.Fprintf(&b, "- generatedAt: `%s`\n", doc.Telemetry.GeneratedAt)
+		}
+		if doc.Telemetry.Readiness != nil {
+			if doc.Telemetry.Readiness.GeneratedAt != "" {
+				fmt.Fprintf(&b, "- readinessGeneratedAt: `%s`\n", doc.Telemetry.Readiness.GeneratedAt)
+			}
+			for _, item := range doc.Telemetry.Readiness.Providers {
+				fmt.Fprintf(&b, "- readiness | `%s` | ready=%t strict=%t recoverable=%t duration=%dms\n", item.Provider, item.Ready, item.StrictJSON, item.RecoverableJSON, item.DurationMs)
+				if item.Error != "" {
+					fmt.Fprintf(&b, "  error: `%s`\n", item.Error)
+				}
+			}
+		}
+		if doc.Telemetry.Run != nil {
+			fmt.Fprintf(&b, "- run | request=`%s` session=`%s` mode=`%s` primary=`%s` taskVerdict=`%s` terminal=`%s` elapsed=%dms\n",
+				firstNonEmpty(doc.Telemetry.Run.RequestID, "-"),
+				firstNonEmpty(doc.Telemetry.Run.SessionID, "-"),
+				firstNonEmpty(doc.Telemetry.Run.Mode, "-"),
+				firstNonEmpty(doc.Telemetry.Run.Primary, "-"),
+				firstNonEmpty(doc.Telemetry.Run.TaskVerdict, "-"),
+				firstNonEmpty(doc.Telemetry.Run.Terminal, "-"),
+				doc.Telemetry.Run.ElapsedMs,
+			)
+			for _, item := range doc.Telemetry.Run.TaskSummary {
+				fmt.Fprintf(&b, "  - task | `%s` | total=%d strict=%d normalized=%d repaired=%d failed=%d\n", item.TaskKind, item.Total, item.Strict, item.Normalized, item.Repaired, item.Failed)
+			}
 		}
 		for _, item := range doc.Telemetry.Summary {
 			fmt.Fprintf(&b, "- summary | `%s/%s` | `%s` | total=%d strict=%d normalized=%d repaired=%d failed=%d\n", item.Provider, item.ProviderModel, item.TaskKind, item.Total, item.Strict, item.Normalized, item.Repaired, item.Failed)
@@ -1205,11 +1370,76 @@ func formatDebugValue(value any) string {
 }
 
 func buildTelemetry(bundle Bundle, limit int) *TelemetryView {
-	if len(bundle.ComplianceSummary.Entries) == 0 && len(bundle.ComplianceReports) == 0 {
+	if len(bundle.ComplianceSummary.Entries) == 0 && len(bundle.ComplianceReports) == 0 && len(bundle.ProviderReadiness.Providers) == 0 && bundle.RunTelemetry.RequestID == "" {
 		return nil
 	}
 	view := &TelemetryView{
 		GeneratedAt: bundle.ComplianceSummary.GeneratedAt,
+	}
+	if len(bundle.ProviderReadiness.Providers) > 0 {
+		view.Readiness = &ProviderReadinessView{
+			GeneratedAt: bundle.ProviderReadiness.GeneratedAt,
+		}
+		for _, item := range bundle.ProviderReadiness.Providers[:min(limit, len(bundle.ProviderReadiness.Providers))] {
+			view.Readiness.Providers = append(view.Readiness.Providers, ProviderReadinessEntryView{
+				Provider:        item.Provider,
+				Command:         append([]string(nil), item.Command...),
+				Ready:           item.Ready,
+				StrictJSON:      item.StrictJSON,
+				RecoverableJSON: item.RecoverableJSON,
+				DurationMs:      item.DurationMs,
+				StdoutPreview:   item.StdoutPreview,
+				StderrPreview:   item.StderrPreview,
+				Error:           item.Error,
+			})
+		}
+	}
+	if bundle.RunTelemetry.RequestID != "" {
+		view.Run = &RunTelemetryView{
+			GeneratedAt: bundle.RunTelemetry.GeneratedAt,
+			RequestID:   bundle.RunTelemetry.RequestID,
+			SessionID:   bundle.RunTelemetry.SessionID,
+			Mode:        string(bundle.RunTelemetry.Mode),
+			Providers:   append([]string(nil), bundle.RunTelemetry.Providers...),
+			Primary:     bundle.RunTelemetry.Result.PrimaryResult,
+			TaskVerdict: bundle.RunTelemetry.Result.TaskVerdict,
+			Terminal:    string(bundle.RunTelemetry.Result.TerminalState),
+			ElapsedMs:   bundle.RunTelemetry.Timing.ElapsedMs,
+			Workflow: RunWorkflowSummaryView{
+				Claims:               bundle.RunTelemetry.WorkflowSummary.Claims,
+				SupportedClaims:      bundle.RunTelemetry.WorkflowSummary.SupportedClaims,
+				RefutedClaims:        bundle.RunTelemetry.WorkflowSummary.RefutedClaims,
+				InsufficientClaims:   bundle.RunTelemetry.WorkflowSummary.InsufficientClaims,
+				UndeterminedClaims:   bundle.RunTelemetry.WorkflowSummary.UndeterminedClaims,
+				KeepClaims:           bundle.RunTelemetry.WorkflowSummary.KeepClaims,
+				KeepWithCaveatClaims: bundle.RunTelemetry.WorkflowSummary.KeepWithCaveatClaims,
+				UnresolvedClaims:     bundle.RunTelemetry.WorkflowSummary.UnresolvedClaims,
+				RejectClaims:         bundle.RunTelemetry.WorkflowSummary.RejectClaims,
+				ChallengeCount:       bundle.RunTelemetry.WorkflowSummary.ChallengeCount,
+				ObservationCount:     bundle.RunTelemetry.WorkflowSummary.ObservationCount,
+				RoundCount:           max(bundle.RunTelemetry.WorkflowSummary.FreeDebateRoundCount, bundle.RunTelemetry.WorkflowSummary.DelphiRoundCount),
+				ClaimCount:           bundle.RunTelemetry.WorkflowSummary.FreeDebateClaimCount,
+				VoteCount:            bundle.RunTelemetry.WorkflowSummary.FreeDebateVoteCount,
+				StatementCount:       bundle.RunTelemetry.WorkflowSummary.DelphiStatementCount,
+			},
+		}
+		if bundle.RunTelemetry.VerificationSummary.Passed > 0 || bundle.RunTelemetry.VerificationSummary.Failed > 0 || bundle.RunTelemetry.VerificationSummary.Inconclusive > 0 {
+			view.Run.Verify = &RunVerificationSummaryView{
+				Passed:       bundle.RunTelemetry.VerificationSummary.Passed,
+				Failed:       bundle.RunTelemetry.VerificationSummary.Failed,
+				Inconclusive: bundle.RunTelemetry.VerificationSummary.Inconclusive,
+			}
+		}
+		for _, item := range bundle.RunTelemetry.TaskSummary {
+			view.Run.TaskSummary = append(view.Run.TaskSummary, RunTaskSummaryView{
+				TaskKind:   string(item.TaskKind),
+				Total:      item.Total,
+				Strict:     item.Strict,
+				Normalized: item.Normalized,
+				Repaired:   item.Repaired,
+				Failed:     item.Failed,
+			})
+		}
 	}
 	for _, item := range bundle.ComplianceSummary.Entries {
 		view.Summary = append(view.Summary, ComplianceSummaryEntryView{
@@ -1245,6 +1475,11 @@ func buildTelemetry(bundle Bundle, limit int) *TelemetryView {
 		})
 	}
 	if len(view.Summary) == 0 && len(view.Reports) == 0 {
+		if view.Readiness == nil && view.Run == nil {
+			return nil
+		}
+	}
+	if len(view.Summary) == 0 && len(view.Reports) == 0 && view.Readiness == nil && view.Run == nil {
 		return nil
 	}
 	return view

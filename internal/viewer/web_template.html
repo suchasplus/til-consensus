@@ -571,9 +571,48 @@
         const telemetry = doc.telemetry || {};
         const summary = telemetry.summary || [];
         const reports = telemetry.reports || [];
+        const readiness = telemetry.readiness || {};
+        const readinessProviders = readiness.providers || [];
+        const run = telemetry.run || null;
         const telemetryHtml = `
           <h3>Telemetry</h3>
           ${telemetry.generatedAt ? `<div class="meta-card" style="margin-bottom:10px;"><div class="label">Generated</div><div class="value mono">${escapeHtml(telemetry.generatedAt)}</div></div>` : ""}
+          <h3>Provider Readiness</h3>
+          ${readiness.generatedAt ? `<div class="meta-card" style="margin-bottom:10px;"><div class="label">Readiness Generated</div><div class="value mono">${escapeHtml(readiness.generatedAt)}</div></div>` : ""}
+          ${renderList(readinessProviders, "没有 provider readiness 数据。", (item) => `
+            <details class="card">
+              <summary>
+                <span class="pill">${escapeHtml(item.provider || "-")}</span>
+                <span class="pill">${escapeHtml(item.ready ? "ready" : "not-ready")}</span>
+                <span class="pill">strict=${escapeHtml(String(!!item.strictJSON))}</span>
+                <span class="pill">recoverable=${escapeHtml(String(!!item.recoverableJSON))}</span>
+              </summary>
+              <div class="card-body">
+                <div><strong>duration:</strong> <span class="mono">${escapeHtml(String(item.durationMs || 0))}ms</span></div>
+                ${item.command && item.command.length ? `<div><strong>command:</strong> <span class="mono">${item.command.map(escapeHtml).join(" ")}</span></div>` : ""}
+                ${item.error ? `<div><strong>error:</strong> ${escapeHtml(item.error)}</div>` : ""}
+                ${item.stdoutPreview ? `<div><strong>stdout:</strong> <pre class="payload">${escapeHtml(item.stdoutPreview)}</pre></div>` : ""}
+                ${item.stderrPreview ? `<div><strong>stderr:</strong> <pre class="payload">${escapeHtml(item.stderrPreview)}</pre></div>` : ""}
+              </div>
+            </details>
+          `)}
+          <h3>Run Summary</h3>
+          ${run ? `
+            <div class="list-item">
+              <strong>${escapeHtml(run.requestId || "-")} · ${escapeHtml(run.mode || "-")}</strong>
+              <div class="mono">session=${escapeHtml(run.sessionId || "-")} primary=${escapeHtml(run.primaryResult || "-")} taskVerdict=${escapeHtml(run.taskVerdict || "-")} terminal=${escapeHtml(run.terminalState || "-")} elapsed=${escapeHtml(String(run.elapsedMs || 0))}ms</div>
+              ${run.providers && run.providers.length ? `<div class="mono">providers: ${run.providers.map(escapeHtml).join(", ")}</div>` : ""}
+              <div class="mono">workflow: claims=${escapeHtml(String(run.workflowSummary?.claims || 0))} keep=${escapeHtml(String(run.workflowSummary?.keepClaims || 0))} keep_with_caveat=${escapeHtml(String(run.workflowSummary?.keepWithCaveatClaims || 0))} unresolved=${escapeHtml(String(run.workflowSummary?.unresolvedClaims || 0))}</div>
+              ${run.verificationSummary ? `<div class="mono">verification: pass=${escapeHtml(String(run.verificationSummary.passed || 0))} fail=${escapeHtml(String(run.verificationSummary.failed || 0))} inconclusive=${escapeHtml(String(run.verificationSummary.inconclusive || 0))}</div>` : ""}
+            </div>
+            <h3>Run Tasks</h3>
+            ${renderList(run.taskSummary || [], "没有 run task summary。", (item) => `
+              <div class="list-item">
+                <strong>${escapeHtml(item.taskKind || "-")}</strong>
+                <div class="mono">total=${escapeHtml(String(item.total || 0))} strict=${escapeHtml(String(item.strict || 0))} normalized=${escapeHtml(String(item.normalized || 0))} repaired=${escapeHtml(String(item.repaired || 0))} failed=${escapeHtml(String(item.failed || 0))}</div>
+              </div>
+            `)}
+          ` : `<div class="empty">没有 run telemetry 数据。</div>`}
           <h3>Summary</h3>
           ${renderList(summary, "没有 telemetry summary。", (item) => `
             <div class="list-item">

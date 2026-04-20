@@ -157,10 +157,13 @@ func TestBuildTaskPromptAddsSemanticVerificationHints(t *testing.T) {
 	for _, fragment := range []string{
 		"Return exactly one semantic result row for the current claim.",
 		`The only valid claimId for this task is claim-current.`,
+		"Before choosing a verdict, identify the narrowest evidence-backed core that still survives",
+		"For recommendation claims, separate the directional recommendation from rollout mechanics.",
 		"supported confidence must be between 0.60 and 1.00.",
 		"refuted confidence must be between 0.60 and 1.00.",
 		"insufficient_evidence confidence must be between 0.01 and 0.60.",
 		"undetermined confidence must stay between 0.35 and 0.65.",
+		"rationale must use exactly this structure: supported_core: ... | missing_or_conflict: ... | verdict_reason: ...",
 		`Valid supported example: {"summary":"The current claim is directly backed by the record.","results":[{"claimId":"claim-current","targetType":"claim","verdict":"supported"`,
 		`Valid refuted example: {"summary":"The current claim overstates what the record proves.","results":[{"claimId":"claim-current","targetType":"claim","verdict":"refuted"`,
 		`Valid insufficient_evidence example: {"summary":"The current claim is plausible but under-supported.","results":[{"claimId":"claim-current","targetType":"claim","verdict":"insufficient_evidence"`,
@@ -184,6 +187,7 @@ func TestBuildRepairPromptAddsSemanticVerificationRepairHints(t *testing.T) {
 		"Task-specific repair rules:",
 		"Rewrite the output to exactly one canonical result row for the current claim.",
 		"Repair confidence to match the canonical verdict bands",
+		"Rewrite rationale into exactly this structure: supported_core: ... | missing_or_conflict: ... | verdict_reason: ...",
 		`The repaired results[0].claimId must be exactly claim-current.`,
 	} {
 		if !strings.Contains(prompt, fragment) {
@@ -210,6 +214,7 @@ func TestBuildTaskPromptAddsArbiterHintsAndExamples(t *testing.T) {
 	for _, fragment := range []string{
 		"Task-specific output rules:",
 		"Prefer verdict=supported when the revised claim already narrows itself to the evidence-backed directional core",
+		"For recommendation claims, first ask whether a directional candidate path is still supported after all narrowing.",
 		"For strategy or operational recommendations, 'direction is supported but path details remain conditional' should usually be treated as supported with caveats",
 		`"claimId":"claim-a","verdict":"supported","confidence":0.68`,
 		`"claimId":"claim-a","verdict":"insufficient_evidence","confidence":0.45`,
@@ -238,6 +243,7 @@ func TestBuildRepairPromptAddsArbiterRepairHints(t *testing.T) {
 	for _, fragment := range []string{
 		"Task-specific repair rules:",
 		"avoids collapsing caveated directional support into insufficient_evidence",
+		"For recommendation claims, preserve the supported directional path whenever it survives",
 		"If the revised claim text is cautiously worded and the evidence supports that cautious core, prefer verdict=supported",
 	} {
 		if !strings.Contains(prompt, fragment) {

@@ -212,7 +212,7 @@ func buildDeterministic(task consensus.Task, agent config.AgentConfig) any {
 					"claimId":    value.Claim.ClaimID,
 					"verdict":    "supported",
 					"confidence": 0.7,
-					"rationale":  agent.ID + " finds the claim plausible",
+					"rationale":  "supported_core: " + agent.ID + " finds the current claim core plausible. | missing_or_conflict: none beyond already stated caveats. | verdict_reason: supported is stronger than insufficient_evidence because the mock record is intentionally affirmative.",
 				},
 			},
 		}

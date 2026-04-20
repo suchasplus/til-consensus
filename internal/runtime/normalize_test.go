@@ -77,7 +77,7 @@ func TestNormalizeSemanticVerificationOutput(t *testing.T) {
 			"claimId":    "claim-1",
 			"verdict":    "supported",
 			"confidence": 0.7,
-			"rationale":  "looks good",
+			"rationale":  "supported_core: The core claim is directly backed. | missing_or_conflict: none beyond already stated caveats. | verdict_reason: supported is the strongest fit because the claim survives as written.",
 		}},
 	})
 	if err != nil {
@@ -116,7 +116,7 @@ func TestNormalizeSemanticVerificationOutputRejectsMismatchedClaimID(t *testing.
 	_, err := NormalizeTaskOutputFromText(consensus.SemanticVerificationTask{
 		TaskMeta: consensus.TaskMeta{AgentID: "verifier-1"},
 		Claim:    consensus.ClaimNode{ClaimID: "claim-1"},
-	}, `{"summary":"semantic","results":[{"claimId":"claim-2","verdict":"supported","confidence":"0.7","rationale":"wrong target"}]}`)
+	}, `{"summary":"semantic","results":[{"claimId":"claim-2","verdict":"supported","confidence":"0.7","rationale":"supported_core: wrong target. | missing_or_conflict: none. | verdict_reason: supported."}]}`)
 	if err == nil {
 		t.Fatal("expected mismatched semantic claimId to fail normalization")
 	}
@@ -126,7 +126,7 @@ func TestNormalizeSemanticVerificationOutputRejectsMultipleRows(t *testing.T) {
 	_, err := NormalizeTaskOutputFromText(consensus.SemanticVerificationTask{
 		TaskMeta: consensus.TaskMeta{AgentID: "verifier-1"},
 		Claim:    consensus.ClaimNode{ClaimID: "claim-1"},
-	}, `{"summary":"semantic","results":[{"claimId":"claim-1","verdict":"supported","confidence":"0.7","rationale":"primary"},{"claimId":"claim-1","verdict":"insufficient_evidence","confidence":"0.3","rationale":"extra row"}]}`)
+	}, `{"summary":"semantic","results":[{"claimId":"claim-1","verdict":"supported","confidence":"0.7","rationale":"supported_core: primary core. | missing_or_conflict: none. | verdict_reason: supported fits best."},{"claimId":"claim-1","verdict":"insufficient_evidence","confidence":"0.3","rationale":"supported_core: extra row core. | missing_or_conflict: missing throughput numbers. | verdict_reason: insufficient_evidence fits best."}]}`)
 	if err == nil {
 		t.Fatal("expected multiple semantic rows to fail normalization")
 	}
@@ -136,7 +136,7 @@ func TestNormalizeSemanticVerificationOutputRejectsNonClaimTargetType(t *testing
 	_, err := NormalizeTaskOutputFromText(consensus.SemanticVerificationTask{
 		TaskMeta: consensus.TaskMeta{AgentID: "verifier-1"},
 		Claim:    consensus.ClaimNode{ClaimID: "claim-1"},
-	}, `{"summary":"semantic","results":[{"claimId":"claim-1","targetType":"challenge","verdict":"supported","confidence":"0.7","rationale":"wrong target type"}]}`)
+	}, `{"summary":"semantic","results":[{"claimId":"claim-1","targetType":"challenge","verdict":"supported","confidence":"0.7","rationale":"supported_core: wrong target type. | missing_or_conflict: none. | verdict_reason: supported."}]}`)
 	if err == nil {
 		t.Fatal("expected non-claim semantic targetType to fail normalization")
 	}
@@ -146,7 +146,7 @@ func TestNormalizeSemanticVerificationOutputRejectsLowConfidenceSupported(t *tes
 	_, err := NormalizeTaskOutputFromText(consensus.SemanticVerificationTask{
 		TaskMeta: consensus.TaskMeta{AgentID: "verifier-1"},
 		Claim:    consensus.ClaimNode{ClaimID: "claim-1"},
-	}, `{"summary":"semantic","results":[{"claimId":"claim-1","verdict":"supported","confidence":"0.41","rationale":"too low for supported"}]}`)
+	}, `{"summary":"semantic","results":[{"claimId":"claim-1","verdict":"supported","confidence":"0.41","rationale":"supported_core: The claim core is backed. | missing_or_conflict: none beyond caveats. | verdict_reason: supported is still intended."}]}`)
 	if err == nil {
 		t.Fatal("expected low-confidence supported verdict to fail normalization")
 	}
@@ -156,7 +156,7 @@ func TestNormalizeSemanticVerificationOutputRejectsHighConfidenceInsufficientEvi
 	_, err := NormalizeTaskOutputFromText(consensus.SemanticVerificationTask{
 		TaskMeta: consensus.TaskMeta{AgentID: "verifier-1"},
 		Claim:    consensus.ClaimNode{ClaimID: "claim-1"},
-	}, `{"summary":"semantic","results":[{"claimId":"claim-1","verdict":"insufficient_evidence","confidence":"0.82","rationale":"too high for insufficient evidence"}]}`)
+	}, `{"summary":"semantic","results":[{"claimId":"claim-1","verdict":"insufficient_evidence","confidence":"0.82","rationale":"supported_core: Repository friction is plausible. | missing_or_conflict: Missing quantified migration benefit. | verdict_reason: insufficient_evidence is intended because the direction is incomplete."}]}`)
 	if err == nil {
 		t.Fatal("expected high-confidence insufficient_evidence verdict to fail normalization")
 	}
@@ -166,9 +166,29 @@ func TestNormalizeSemanticVerificationOutputRejectsOutOfBandUndeterminedConfiden
 	_, err := NormalizeTaskOutputFromText(consensus.SemanticVerificationTask{
 		TaskMeta: consensus.TaskMeta{AgentID: "verifier-1"},
 		Claim:    consensus.ClaimNode{ClaimID: "claim-1"},
-	}, `{"summary":"semantic","results":[{"claimId":"claim-1","verdict":"undetermined","confidence":"0.9","rationale":"too confident for undetermined"}]}`)
+	}, `{"summary":"semantic","results":[{"claimId":"claim-1","verdict":"undetermined","confidence":"0.9","rationale":"supported_core: The record supports some coordination pain. | missing_or_conflict: Other evidence shows unresolved governance tradeoffs. | verdict_reason: the evidence is mixed, so undetermined is intended."}]}`)
 	if err == nil {
 		t.Fatal("expected out-of-band undetermined confidence to fail normalization")
+	}
+}
+
+func TestNormalizeSemanticVerificationOutputRejectsRationaleWithoutCanonicalSections(t *testing.T) {
+	_, err := NormalizeTaskOutputFromText(consensus.SemanticVerificationTask{
+		TaskMeta: consensus.TaskMeta{AgentID: "verifier-1"},
+		Claim:    consensus.ClaimNode{ClaimID: "claim-1"},
+	}, `{"summary":"semantic","results":[{"claimId":"claim-1","verdict":"supported","confidence":"0.7","rationale":"Need more evidence."}]}`)
+	if err == nil || !strings.Contains(err.Error(), "supported_core") {
+		t.Fatalf("expected rationale without canonical sections to fail, got %v", err)
+	}
+}
+
+func TestNormalizeSemanticVerificationOutputRejectsInsufficientEvidenceWithoutConcreteGap(t *testing.T) {
+	_, err := NormalizeTaskOutputFromText(consensus.SemanticVerificationTask{
+		TaskMeta: consensus.TaskMeta{AgentID: "verifier-1"},
+		Claim:    consensus.ClaimNode{ClaimID: "claim-1"},
+	}, `{"summary":"semantic","results":[{"claimId":"claim-1","verdict":"insufficient_evidence","confidence":"0.4","rationale":"supported_core: Repository friction exists. | missing_or_conflict: none. | verdict_reason: insufficient_evidence fits best."}]}`)
+	if err == nil || !strings.Contains(err.Error(), "missing_or_conflict") {
+		t.Fatalf("expected insufficient_evidence without concrete gap to fail, got %v", err)
 	}
 }
 

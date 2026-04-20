@@ -19,6 +19,7 @@ func New() *cli.Command {
 			newRunCommand(),
 			newFollowUpCommand(),
 			newConfigCommand(),
+			newTelemetryCommand(),
 			newActCommand(),
 			newSessionCommand(),
 			newViewCommand(),

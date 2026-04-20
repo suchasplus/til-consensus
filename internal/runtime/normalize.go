@@ -723,6 +723,9 @@ func validateSemanticFindings(expectedClaimID string, results []consensus.Semant
 		if strings.TrimSpace(finding.Rationale) == "" {
 			return fmt.Errorf("results[%d].rationale is required", idx)
 		}
+		if err := validateSemanticRationale(idx, finding.Verdict, finding.Rationale); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -746,6 +749,75 @@ func validateSemanticConfidence(idx int, verdict consensus.ClaimVerdict, confide
 		}
 	}
 	return nil
+}
+
+func validateSemanticRationale(idx int, verdict consensus.ClaimVerdict, rationale string) error {
+	sections, err := parseSemanticRationaleSections(rationale)
+	if err != nil {
+		return fmt.Errorf("results[%d].rationale %w", idx, err)
+	}
+	supportedCore := strings.TrimSpace(sections["supported_core"])
+	missingOrConflict := strings.TrimSpace(sections["missing_or_conflict"])
+	verdictReason := strings.TrimSpace(sections["verdict_reason"])
+	if supportedCore == "" {
+		return fmt.Errorf("results[%d].rationale supported_core must be non-empty", idx)
+	}
+	if verdictReason == "" {
+		return fmt.Errorf("results[%d].rationale verdict_reason must be non-empty", idx)
+	}
+	switch verdict {
+	case consensus.ClaimVerdictInsufficientEvidence, consensus.ClaimVerdictUndetermined:
+		if semanticRationaleSectionMeansNone(missingOrConflict) {
+			return fmt.Errorf("results[%d].rationale missing_or_conflict must name a concrete gap or conflict when verdict=%s", idx, verdict)
+		}
+	}
+	return nil
+}
+
+func parseSemanticRationaleSections(rationale string) (map[string]string, error) {
+	labels := []string{"supported_core:", "missing_or_conflict:", "verdict_reason:"}
+	lower := strings.ToLower(rationale)
+	indices := make([]int, 0, len(labels))
+	for _, label := range labels {
+		idx := strings.Index(lower, label)
+		if idx < 0 {
+			return nil, fmt.Errorf("must contain %q", strings.TrimSuffix(label, ":"))
+		}
+		indices = append(indices, idx)
+	}
+	if !(indices[0] < indices[1] && indices[1] < indices[2]) {
+		return nil, fmt.Errorf("must contain supported_core, missing_or_conflict, and verdict_reason in that order")
+	}
+	sections := make(map[string]string, len(labels))
+	for i, label := range labels {
+		start := indices[i] + len(label)
+		end := len(rationale)
+		if i+1 < len(indices) {
+			end = indices[i+1]
+		}
+		key := strings.TrimSuffix(label, ":")
+		sections[key] = strings.TrimSpace(strings.Trim(rationale[start:end], " |"))
+	}
+	return sections, nil
+}
+
+func semanticRationaleSectionMeansNone(value string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	normalized = strings.Map(func(r rune) rune {
+		switch r {
+		case '.', ',', ';', ':', '|', '!', '?', '，', '。', '；', '：', '！', '？':
+			return -1
+		default:
+			return r
+		}
+	}, normalized)
+	normalized = strings.Join(strings.Fields(normalized), " ")
+	switch normalized {
+	case "", "none", "n/a", "na", "no material gaps", "no material conflict", "no material conflicts", "already stated caveats only":
+		return true
+	default:
+		return false
+	}
 }
 
 func validateRevisionDrafts(claims []consensus.ClaimNode, revisions []consensus.ClaimRevisionDraft) error {

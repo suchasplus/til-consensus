@@ -138,6 +138,9 @@ func semanticVerificationPromptHints(task consensus.SemanticVerificationTask) []
 	lines := []string{
 		"- Return exactly one semantic result row for the current claim. Do not emit separate rows for challenges, source materials, or other targets.",
 		"- If targetType is included, it must be exactly \"claim\".",
+		"- Before choosing a verdict, identify the narrowest evidence-backed core that still survives in the current claim as written.",
+		"- For recommendation claims, separate the directional recommendation from rollout mechanics. If the directional core is supported and the claim already exposes its caveats, do not downgrade to insufficient_evidence just because execution details remain open.",
+		"- For inference claims, distinguish supported observations from unsupported causal strength. If only the causal strength is uncertain, keep the supported core explicit instead of defaulting to undetermined.",
 		"- supported: use only when the current materials directly back the claim after considering caveats and open challenges.",
 		"- supported confidence must be between 0.60 and 1.00.",
 		"- refuted: use when the claim is contradicted, materially overstated, or internally inconsistent with the available materials.",
@@ -148,7 +151,10 @@ func semanticVerificationPromptHints(task consensus.SemanticVerificationTask) []
 		"- undetermined confidence must stay between 0.35 and 0.65.",
 		"- Prefer supported, refuted, or insufficient_evidence whenever the evidence direction is clear.",
 		"- confidence measures certainty in the verdict classification, not confidence that the underlying project decision is good.",
-		"- rationale must explain why this verdict follows from the current claim and challenges; do not only say \"need more evidence\".",
+		"- rationale must use exactly this structure: supported_core: ... | missing_or_conflict: ... | verdict_reason: ...",
+		"- The supported_core clause must name the surviving claim core, even when the final verdict is insufficient_evidence or undetermined.",
+		"- The missing_or_conflict clause must name the concrete missing data or conflicting record; do not only say \"need more evidence\".",
+		"- The verdict_reason clause must explain why this verdict wins over the other three canonical verdicts.",
 	}
 	if claimID != "" {
 		lines = append(lines, fmt.Sprintf("- The only valid claimId for this task is %s.", claimID))
@@ -167,6 +173,8 @@ func semanticVerificationRepairHints(task consensus.SemanticVerificationTask) []
 		"- If the previous verdict was a vague safe fallback, choose insufficient_evidence when support is missing, and choose undetermined only when the evidence is genuinely mixed.",
 		"- Repair confidence to match the canonical verdict bands: supported/refuted 0.60-1.00, insufficient_evidence 0.01-0.60, undetermined 0.35-0.65.",
 		"- Preserve the original judgment intent, but make the rationale concrete and claim-focused.",
+		"- Rewrite rationale into exactly this structure: supported_core: ... | missing_or_conflict: ... | verdict_reason: ...",
+		"- Do not leave supported_core blank. Even for insufficient_evidence or undetermined, say which narrow core remains supported or plausible.",
 	}
 	if claimID != "" {
 		lines = append(lines, fmt.Sprintf("- The repaired results[0].claimId must be exactly %s.", claimID))
@@ -176,10 +184,10 @@ func semanticVerificationRepairHints(task consensus.SemanticVerificationTask) []
 
 func semanticVerificationExampleLines(claimID string) []string {
 	return []string{
-		fmt.Sprintf(`- Valid supported example: {"summary":"The current claim is directly backed by the record.","results":[{"claimId":"%s","targetType":"claim","verdict":"supported","confidence":0.78,"rationale":"The source materials explicitly document repeated cross-repo coordination delays, so the claim's diagnosis is directly supported."}]}`, claimID),
-		fmt.Sprintf(`- Valid refuted example: {"summary":"The current claim overstates what the record proves.","results":[{"claimId":"%s","targetType":"claim","verdict":"refuted","confidence":0.73,"rationale":"The claim says the migration will eliminate version drift, but the materials only show it could reduce drift under additional governance constraints."}]}`, claimID),
-		fmt.Sprintf(`- Valid insufficient_evidence example: {"summary":"The current claim is plausible but under-supported.","results":[{"claimId":"%s","targetType":"claim","verdict":"insufficient_evidence","confidence":0.42,"rationale":"The record shows coordination pain, but it does not quantify whether monorepo would improve throughput enough to justify the migration."}]}`, claimID),
-		fmt.Sprintf(`- Valid undetermined example: {"summary":"The current claim has genuinely mixed evidence.","results":[{"claimId":"%s","targetType":"claim","verdict":"undetermined","confidence":0.5,"rationale":"The materials support the diagnosis of repository friction, but they also show unresolved release-governance tradeoffs that could negate the claimed benefit."}]}`, claimID),
+		fmt.Sprintf(`- Valid supported example: {"summary":"The current claim is directly backed by the record.","results":[{"claimId":"%s","targetType":"claim","verdict":"supported","confidence":0.78,"rationale":"supported_core: The record directly documents repeated cross-repo coordination delays. | missing_or_conflict: none beyond already-stated caveats. | verdict_reason: The directional diagnosis survives as written, so supported is stronger than insufficient_evidence or undetermined."}]}`, claimID),
+		fmt.Sprintf(`- Valid refuted example: {"summary":"The current claim overstates what the record proves.","results":[{"claimId":"%s","targetType":"claim","verdict":"refuted","confidence":0.73,"rationale":"supported_core: The materials only support a potential reduction in version drift under added governance constraints. | missing_or_conflict: The claim says migration will eliminate drift outright, which the record does not support. | verdict_reason: Because the claim overstates the evidence rather than merely lacking detail, refuted is stronger than insufficient_evidence."}]}`, claimID),
+		fmt.Sprintf(`- Valid insufficient_evidence example: {"summary":"The current claim is plausible but under-supported.","results":[{"claimId":"%s","targetType":"claim","verdict":"insufficient_evidence","confidence":0.42,"rationale":"supported_core: The record supports that repository coordination pain exists and that phased consolidation remains a plausible path. | missing_or_conflict: The materials do not quantify whether the migration benefit is large enough to justify the cost for this organization. | verdict_reason: The evidence direction is incomplete rather than conflicting, so insufficient_evidence fits better than supported or undetermined."}]}`, claimID),
+		fmt.Sprintf(`- Valid undetermined example: {"summary":"The current claim has genuinely mixed evidence.","results":[{"claimId":"%s","targetType":"claim","verdict":"undetermined","confidence":0.5,"rationale":"supported_core: The materials support the diagnosis of repository friction and some case for gradual convergence. | missing_or_conflict: Other materials show unresolved release-governance tradeoffs that could erase the claimed benefit. | verdict_reason: The record points in two live directions at once, so undetermined is more accurate than supported or insufficient_evidence."}]}`, claimID),
 	}
 }
 
@@ -245,10 +253,12 @@ func arbiterPromptHints(task consensus.ArbiterTask) []string {
 	lines := []string{
 		"- Arbiter decisions should judge the current revised claim text as written, not the broader earlier claim it replaced.",
 		"- Prefer verdict=supported when the revised claim already narrows itself to the evidence-backed directional core and explicitly leaves implementation details, rollout sequencing, or prerequisites unresolved.",
+		"- For recommendation claims, first ask whether a directional candidate path is still supported after all narrowing. If yes, keep that directional core and carry remaining execution uncertainty as caveats.",
 		"- Use insufficient_evidence only when no stable supported core remains even after considering the claim's caveats, applicability, and boundaryConditions.",
 		"- For strategy or operational recommendations, 'direction is supported but path details remain conditional' should usually be treated as supported with caveats, not as wholly unresolved.",
 		"- Use undetermined only for genuinely mixed or conflicting evidence, not merely because some execution details are still unknown.",
-		"- rationale must explain whether the supported core survives and which caveats still gate execution.",
+		"- recommendation claims should fall to insufficient_evidence or undetermined only when the directional core itself cannot be defended.",
+		"- rationale must explain whether the supported core survives, which caveats still gate execution, and why the verdict is not simply unresolved by default.",
 	}
 	if lines = append(lines, arbiterExampleLines(task.Claims)...); len(lines) > 0 {
 		return lines
@@ -260,6 +270,7 @@ func arbiterRepairHints(task consensus.ArbiterTask) []string {
 	lines := []string{
 		"- Repair arbiter output so it preserves claim-level meaning but avoids collapsing caveated directional support into insufficient_evidence when the revised claim already encodes its own uncertainty.",
 		"- If the revised claim text is cautiously worded and the evidence supports that cautious core, prefer verdict=supported with caveat-style rationale.",
+		"- For recommendation claims, preserve the supported directional path whenever it survives, and move the remaining execution uncertainty into caveats instead of downgrading the whole claim.",
 		"- Keep insufficient_evidence or undetermined only when no narrower supported core remains after reading the revised claim text, caveats, applicability, and boundaryConditions.",
 	}
 	return append(lines, arbiterExampleLines(task.Claims)...)

@@ -70,6 +70,8 @@ func runViewCommand(ctx context.Context, cmd *cli.Command) error {
 				ManifestPath:          artifactPaths.ManifestPath,
 				EventsPath:            artifactPaths.EventsPath,
 				ComplianceSummaryPath: filepath.Join(artifactPaths.ArtifactsDir, "strict-compliance-summary.json"),
+				ProviderReadinessPath: filepath.Join(artifactPaths.ArtifactsDir, "provider-readiness.json"),
+				RunTelemetryPath:      filepath.Join(artifactPaths.ArtifactsDir, "run-telemetry.json"),
 			}
 		} else {
 			latest, err := viewer.ResolveLatestRun(template)
@@ -90,6 +92,8 @@ func runViewCommand(ctx context.Context, cmd *cli.Command) error {
 				ManifestPath:          artifactPaths.ManifestPath,
 				EventsPath:            artifactPaths.EventsPath,
 				ComplianceSummaryPath: filepath.Join(artifactPaths.ArtifactsDir, "strict-compliance-summary.json"),
+				ProviderReadinessPath: filepath.Join(artifactPaths.ArtifactsDir, "provider-readiness.json"),
+				RunTelemetryPath:      filepath.Join(artifactPaths.ArtifactsDir, "run-telemetry.json"),
 			}
 		}
 	}

@@ -46,6 +46,10 @@ func TestE2EQuickstartCommandChainAndWeb(t *testing.T) {
 		t.Fatalf("quickstart run failed: %v\nstderr=%s", err, runStderr)
 	}
 	resultPath := extractResultPath(t, runStdout)
+	runTelemetryPath := filepath.Join(filepath.Dir(resultPath), "artifacts", "run-telemetry.json")
+	if _, err := os.Stat(runTelemetryPath); err != nil {
+		t.Fatalf("expected run telemetry artifact: %v", err)
+	}
 
 	viewCmd := newViewCommand()
 	viewStdout, viewStderr, err := runCLICommand(context.Background(), viewCmd, []string{"view", "--result", resultPath, "--verbose"})

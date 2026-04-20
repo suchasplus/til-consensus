@@ -21,6 +21,7 @@ import (
 	"github.com/suchasplus/til-consensus/internal/config"
 	"github.com/suchasplus/til-consensus/internal/consensus"
 	tilruntime "github.com/suchasplus/til-consensus/internal/runtime"
+	"github.com/suchasplus/til-consensus/internal/telemetry"
 	"github.com/urfave/cli/v3"
 	"gopkg.in/yaml.v3"
 )
@@ -219,6 +220,7 @@ func TestE2ERealCLIFixtureMatrix(t *testing.T) {
 				t.Fatalf("real cli e2e run failed: %v\nstderr=%s\nstdout=%s", err, runStderr, runStdout)
 			}
 			result := loadRunResult(t, resultPath)
+			writeProviderReadinessArtifact(t, resultPath, readiness)
 			assertE2EResultForFixture(t, fixture, result)
 
 			viewArgs := append([]string{"view", "--result", resultPath, "--verbose"}, renderViewSections(fixture.Manifest.ViewSections)...)
@@ -917,6 +919,31 @@ func countReadyCLIProviders(results []cliProviderPreflightResult) int {
 		}
 	}
 	return count
+}
+
+func writeProviderReadinessArtifact(t *testing.T, resultPath string, readiness []cliProviderPreflightResult) {
+	t.Helper()
+	if strings.TrimSpace(resultPath) == "" || len(readiness) == 0 {
+		return
+	}
+	entries := make([]telemetry.ProviderReadinessEntry, 0, len(readiness))
+	for _, item := range readiness {
+		entries = append(entries, telemetry.ProviderReadinessEntry{
+			Provider:        item.Provider,
+			Command:         append([]string(nil), item.Command...),
+			Ready:           item.Ready,
+			StrictJSON:      item.StrictJSON,
+			RecoverableJSON: item.RecoverableJSON,
+			DurationMs:      item.Duration.Milliseconds(),
+			StdoutPreview:   item.StdoutPreview,
+			StderrPreview:   item.StderrPreview,
+			Error:           item.Error,
+		})
+	}
+	path := filepath.Join(filepath.Dir(resultPath), "artifacts", "provider-readiness.json")
+	if err := telemetry.WriteProviderReadinessFile(path, entries, time.Now().UTC()); err != nil {
+		t.Fatalf("write provider readiness artifact failed: %v", err)
+	}
 }
 
 func runRealCLIProviderPreflight() []cliProviderPreflightResult {

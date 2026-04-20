@@ -80,9 +80,17 @@ func (a *DefaultArbiter) tryDelegateArbiter(ctx context.Context, input ArbiterIn
 	if len(report.Records) == 0 {
 		report.Records = deriveRecordsFromDecisions(input.Request, input.Claims, report.Decisions)
 	}
-	if report.TaskVerdict == "" {
-		report.TaskVerdict = DetermineTaskVerdict(ApplyDecisions(append([]ClaimNode(nil), input.Claims...), report.Decisions))
+	finalClaims := ApplyDecisions(append([]ClaimNode(nil), input.Claims...), report.Decisions)
+	finalClaims = ApplyAdjudicationRecords(finalClaims, report.Records)
+	reconciledVerdict := DetermineTaskVerdict(finalClaims)
+	if report.TaskVerdict != "" && report.TaskVerdict != reconciledVerdict {
+		if report.Metadata == nil {
+			report.Metadata = map[string]any{}
+		}
+		report.Metadata["modelTaskVerdict"] = report.TaskVerdict
+		report.Metadata["taskVerdictReconciled"] = true
 	}
+	report.TaskVerdict = reconciledVerdict
 	return report, true, nil
 }
 
@@ -282,9 +290,6 @@ func deriveRecordsFromDecisions(request StartRequest, claims []ClaimNode, decisi
 }
 
 func shouldPreferCaveatedSupportFromDecision(request StartRequest, claim ClaimNode, decision ArbiterDecision) bool {
-	if decision.Verdict != ClaimVerdictInsufficientEvidence {
-		return false
-	}
 	switch request.TaskSpec.TaskType {
 	case CaseTaskTypeStrategy, CaseTaskTypeOperational:
 	default:
@@ -296,13 +301,22 @@ func shouldPreferCaveatedSupportFromDecision(request StartRequest, claim ClaimNo
 	if claim.ClaimType == ClaimTypeFact {
 		return false
 	}
-	if decision.Confidence < 0.40 {
-		return false
-	}
 	if strings.TrimSpace(claim.Applicability) == "" && len(claim.Caveats) == 0 && len(claim.BoundaryConditions) == 0 {
 		return false
 	}
 	if strings.TrimSpace(claim.Statement) == "" {
+		return false
+	}
+	switch decision.Verdict {
+	case ClaimVerdictInsufficientEvidence:
+		if decision.Confidence < 0.40 {
+			return false
+		}
+	case ClaimVerdictUndetermined:
+		if claim.ClaimType != ClaimTypeRecommendation || decision.Confidence < 0.42 {
+			return false
+		}
+	default:
 		return false
 	}
 	return true

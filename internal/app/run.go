@@ -227,6 +227,9 @@ func executeResolvedPlan(ctx context.Context, loaded config.LoadedConfig, plan c
 	if err := artifact.WriteRunArtifacts(result, plan.ResultPath, plan.SummaryPath); err != nil {
 		return err
 	}
+	if err := writeRunTelemetryArtifact(result, plan.ArtifactsDir); err != nil {
+		return err
+	}
 	output.RunCompleted(plan.ResultPath, plan.SummaryPath)
 	return nil
 }
@@ -255,6 +258,9 @@ func executeResumedSession(ctx context.Context, loaded config.LoadedConfig, plan
 		return runErr
 	}
 	if err := artifact.WriteRunArtifacts(result, plan.ResultPath, plan.SummaryPath); err != nil {
+		return err
+	}
+	if err := writeRunTelemetryArtifact(result, plan.ArtifactsDir); err != nil {
 		return err
 	}
 	output.RunCompleted(plan.ResultPath, plan.SummaryPath)
