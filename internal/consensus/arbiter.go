@@ -257,6 +257,10 @@ func deriveRecordsFromDecisions(request StartRequest, claims []ClaimNode, decisi
 		case ClaimVerdictInsufficientEvidence, ClaimVerdictUndetermined:
 			disposition = ClaimDispositionUnresolved
 		}
+		if claim, ok := index[decision.ClaimID]; ok && shouldPreferCaveatedSupportFromDecision(request, claim, decision) {
+			disposition = ClaimDispositionKeepWithCaveat
+			actionability = ActionabilityGated
+		}
 		if claim, ok := index[decision.ClaimID]; ok && len(claim.Caveats) > 0 && disposition == ClaimDispositionKeep {
 			disposition = ClaimDispositionKeepWithCaveat
 			actionability = ActionabilityGated
@@ -275,6 +279,33 @@ func deriveRecordsFromDecisions(request StartRequest, claims []ClaimNode, decisi
 		})
 	}
 	return out
+}
+
+func shouldPreferCaveatedSupportFromDecision(request StartRequest, claim ClaimNode, decision ArbiterDecision) bool {
+	if decision.Verdict != ClaimVerdictInsufficientEvidence {
+		return false
+	}
+	switch request.TaskSpec.TaskType {
+	case CaseTaskTypeStrategy, CaseTaskTypeOperational:
+	default:
+		return false
+	}
+	if claim.Status != ClaimStatusRevised {
+		return false
+	}
+	if claim.ClaimType == ClaimTypeFact {
+		return false
+	}
+	if decision.Confidence < 0.40 {
+		return false
+	}
+	if strings.TrimSpace(claim.Applicability) == "" && len(claim.Caveats) == 0 && len(claim.BoundaryConditions) == 0 {
+		return false
+	}
+	if strings.TrimSpace(claim.Statement) == "" {
+		return false
+	}
+	return true
 }
 
 func buildArbiterSummary(verdict TaskVerdict, records []AdjudicationRecord) string {

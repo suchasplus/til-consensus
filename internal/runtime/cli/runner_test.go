@@ -149,6 +149,9 @@ func TestHardenPromptForCLIAddsArbiterAndProposalFieldContracts(t *testing.T) {
 		"Arbiter taskVerdict must be a JSON string, not an object.",
 		"Arbiter aliases forbidden: targetClaimId, targetId, reasoning, reason, keyEvidenceRefs.",
 		"Arbiter claim verdict allowed: supported, refuted, insufficient_evidence, undetermined.",
+		"Arbiter must judge the current revised claim text as written, not the broader superseded claim.",
+		"Arbiter should prefer supported when a narrowed strategy/operational claim keeps a supported directional core but leaves execution details or prerequisites conditional.",
+		"Arbiter should use insufficient_evidence only when no narrower supported core remains even after considering caveats, applicability, and boundaryConditions.",
 		"Claude-specific: do not wrap the answer in prose or explanatory paragraphs. Output JSON only.",
 	} {
 		if !strings.Contains(arbiterPrompt, fragment) {
@@ -168,6 +171,21 @@ func TestHardenPromptForCLIAddsDebateRoundContract(t *testing.T) {
 	} {
 		if !strings.Contains(debatePrompt, fragment) {
 			t.Fatalf("expected debate hardened prompt to contain %q, got:\n%s", fragment, debatePrompt)
+		}
+	}
+}
+
+func TestHardenPromptForCLIAddsReviseContract(t *testing.T) {
+	revisePrompt := hardenPromptForCLI("codex", consensus.ReviseTask{}, "base")
+	for _, fragment := range []string{
+		"Revise fields: summary, revisions[].targetClaimId, revisions[].action, revisions[].reason, revisions[].confidenceDelta, revisions[].unresolved.",
+		"Revise targetClaimId must copy an existing claims[].claimId exactly.",
+		"Revise should prefer action=revise when a narrower evidence-backed statement can be written.",
+		"Revise action=revise requires revisedText, and revisedText must be materially narrower than the current claim text.",
+		"Revise action=mark_unresolved requires revisedText and unresolved=true. Use it only when no narrower supported statement can be written.",
+	} {
+		if !strings.Contains(revisePrompt, fragment) {
+			t.Fatalf("expected revise hardened prompt to contain %q, got:\n%s", fragment, revisePrompt)
 		}
 	}
 }

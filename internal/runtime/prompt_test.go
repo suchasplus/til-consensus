@@ -63,6 +63,49 @@ func TestBuildRepairPromptAddsProposalRepairHints(t *testing.T) {
 	}
 }
 
+func TestBuildTaskPromptAddsReviseHintsAndExamples(t *testing.T) {
+	prompt := BuildTaskPrompt(consensus.ReviseTask{
+		TaskMeta: consensus.TaskMeta{AgentID: "proposer-a"},
+		Claims: []consensus.ClaimNode{
+			{ClaimID: "claim-a", Statement: "A monorepo migration should finish in one quarter."},
+			{ClaimID: "claim-b", Statement: "Polyrepo is the only scalable option."},
+		},
+	}, ResolvedAgentRuntime{}, true)
+
+	for _, fragment := range []string{
+		"Task-specific output rules:",
+		"Prefer action=revise when you can remove unsupported numbers, timelines, universals, causal strength, or rollout scope while preserving the evidence-backed core.",
+		"Valid targetClaimId values for this task: claim-a, claim-b.",
+		`"targetClaimId":"claim-a","action":"revise","revisedText":"Cross-repo changes currently create measurable coordination overhead, but the available record does not yet prove monorepo is the right remedy."`,
+		`"targetClaimId":"claim-a","action":"mark_unresolved","revisedText":"A phased monorepo migration remains a candidate path`,
+		`"action":"mark_unresolved","reason":"Need more evidence"`,
+	} {
+		if !strings.Contains(prompt, fragment) {
+			t.Fatalf("expected revise prompt to contain %q, got:\n%s", fragment, prompt)
+		}
+	}
+}
+
+func TestBuildRepairPromptAddsReviseRepairHints(t *testing.T) {
+	prompt := BuildRepairPrompt(consensus.ReviseTask{
+		TaskMeta: consensus.TaskMeta{AgentID: "proposer-a"},
+		Claims: []consensus.ClaimNode{
+			{ClaimID: "claim-a", Statement: "A monorepo migration should finish in one quarter."},
+		},
+	}, ResolvedAgentRuntime{}, `{"summary":"revise","revisions":[{"targetClaimId":"claim-a","action":"mark_unresolved","reason":"Need more evidence"}]}`, errors.New("revisions[0].revisedText is required when action=mark_unresolved"), true)
+
+	for _, fragment := range []string{
+		"Task-specific repair rules:",
+		"prefer narrower revisedText over unresolved whenever a smaller supported claim can be stated.",
+		"mark_unresolved requires unresolved=true and revisedText.",
+		"Valid targetClaimId values for repair: claim-a.",
+	} {
+		if !strings.Contains(prompt, fragment) {
+			t.Fatalf("expected revise repair prompt to contain %q, got:\n%s", fragment, prompt)
+		}
+	}
+}
+
 func TestBuildRepairPromptAddsDebateRoundRepairHints(t *testing.T) {
 	prompt := BuildRepairPrompt(consensus.DebateRoundTask{
 		TaskMeta: consensus.TaskMeta{AgentID: "participant-a"},
@@ -145,6 +188,60 @@ func TestBuildRepairPromptAddsSemanticVerificationRepairHints(t *testing.T) {
 	} {
 		if !strings.Contains(prompt, fragment) {
 			t.Fatalf("expected semantic repair prompt to contain %q, got:\n%s", fragment, prompt)
+		}
+	}
+}
+
+func TestBuildTaskPromptAddsArbiterHintsAndExamples(t *testing.T) {
+	prompt := BuildTaskPrompt(consensus.ArbiterTask{
+		TaskMeta: consensus.TaskMeta{AgentID: "arbiter-a"},
+		Claims: []consensus.ClaimNode{
+			{
+				ClaimID:            "claim-a",
+				Statement:          "渐进式收敛方向优于大爆炸式迁移，但具体层级优先级仍需数据验证。",
+				ClaimType:          consensus.ClaimTypeRecommendation,
+				Applicability:      "仅在补齐归因数据后适用",
+				BoundaryConditions: []string{"需确认平台团队容量"},
+				Caveats:            []string{"具体路径仍待验证"},
+			},
+		},
+	}, ResolvedAgentRuntime{}, true)
+
+	for _, fragment := range []string{
+		"Task-specific output rules:",
+		"Prefer verdict=supported when the revised claim already narrows itself to the evidence-backed directional core",
+		"For strategy or operational recommendations, 'direction is supported but path details remain conditional' should usually be treated as supported with caveats",
+		`"claimId":"claim-a","verdict":"supported","confidence":0.68`,
+		`"claimId":"claim-a","verdict":"insufficient_evidence","confidence":0.45`,
+	} {
+		if !strings.Contains(prompt, fragment) {
+			t.Fatalf("expected arbiter prompt to contain %q, got:\n%s", fragment, prompt)
+		}
+	}
+}
+
+func TestBuildRepairPromptAddsArbiterRepairHints(t *testing.T) {
+	prompt := BuildRepairPrompt(consensus.ArbiterTask{
+		TaskMeta: consensus.TaskMeta{AgentID: "arbiter-a"},
+		Claims: []consensus.ClaimNode{
+			{
+				ClaimID:            "claim-a",
+				Statement:          "渐进式收敛方向优于大爆炸式迁移，但具体层级优先级仍需数据验证。",
+				ClaimType:          consensus.ClaimTypeRecommendation,
+				Applicability:      "仅在补齐归因数据后适用",
+				BoundaryConditions: []string{"需确认平台团队容量"},
+				Caveats:            []string{"具体路径仍待验证"},
+			},
+		},
+	}, ResolvedAgentRuntime{}, `{"summary":"arbiter","taskVerdict":"undetermined","decisions":[{"claimId":"claim-a","verdict":"insufficient_evidence","confidence":0.45,"rationale":"Need more detail.","evidenceRefs":["ledger-1"]}]}`, errors.New("prefer supported directional core"), true)
+
+	for _, fragment := range []string{
+		"Task-specific repair rules:",
+		"avoids collapsing caveated directional support into insufficient_evidence",
+		"If the revised claim text is cautiously worded and the evidence supports that cautious core, prefer verdict=supported",
+	} {
+		if !strings.Contains(prompt, fragment) {
+			t.Fatalf("expected arbiter repair prompt to contain %q, got:\n%s", fragment, prompt)
 		}
 	}
 }

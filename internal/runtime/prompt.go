@@ -88,6 +88,10 @@ func taskPromptHints(task consensus.Task) []string {
 		return proposalPromptHints()
 	case consensus.SemanticVerificationTask:
 		return semanticVerificationPromptHints(typed)
+	case consensus.ReviseTask:
+		return revisePromptHints(typed)
+	case consensus.ArbiterTask:
+		return arbiterPromptHints(typed)
 	case consensus.DebateRoundTask:
 		return debateRoundPromptHints(typed)
 	default:
@@ -103,6 +107,10 @@ func taskRepairHints(task consensus.Task) []string {
 		return proposalRepairHints()
 	case consensus.SemanticVerificationTask:
 		return semanticVerificationRepairHints(typed)
+	case consensus.ReviseTask:
+		return reviseRepairHints(typed)
+	case consensus.ArbiterTask:
+		return arbiterRepairHints(typed)
 	case consensus.DebateRoundTask:
 		return debateRoundRepairHints(typed)
 	default:
@@ -173,6 +181,107 @@ func semanticVerificationExampleLines(claimID string) []string {
 		fmt.Sprintf(`- Valid insufficient_evidence example: {"summary":"The current claim is plausible but under-supported.","results":[{"claimId":"%s","targetType":"claim","verdict":"insufficient_evidence","confidence":0.42,"rationale":"The record shows coordination pain, but it does not quantify whether monorepo would improve throughput enough to justify the migration."}]}`, claimID),
 		fmt.Sprintf(`- Valid undetermined example: {"summary":"The current claim has genuinely mixed evidence.","results":[{"claimId":"%s","targetType":"claim","verdict":"undetermined","confidence":0.5,"rationale":"The materials support the diagnosis of repository friction, but they also show unresolved release-governance tradeoffs that could negate the claimed benefit."}]}`, claimID),
 	}
+}
+
+func revisePromptHints(task consensus.ReviseTask) []string {
+	validIDs := reviseClaimIDs(task.Claims)
+	lines := []string{
+		"- Revisions are for shrinking or clarifying a claim into the smallest statement still supported by the current record.",
+		"- Prefer action=revise when you can remove unsupported numbers, timelines, universals, causal strength, or rollout scope while preserving the evidence-backed core.",
+		"- Use action=mark_unresolved only when no narrower, still-useful statement can be written without depending on missing or conflicting evidence.",
+		"- revise and mark_unresolved both require revisedText. The revisedText must be materially narrower than the current claim text, not a restatement.",
+		"- mark_unresolved also requires unresolved=true.",
+		"- If only confidence should change and the claim text remains usable, use downgrade_confidence instead of mark_unresolved.",
+		"- If the claim survives after splitting fact from attribution, put the supported fact in revisedText instead of leaving the whole claim unresolved.",
+	}
+	if len(validIDs) == 0 {
+		lines = append(lines, "- There are no active claims in this task. Return revisions: [].")
+		return lines
+	}
+	lines = append(lines, fmt.Sprintf("- Valid targetClaimId values for this task: %s.", strings.Join(validIDs, ", ")))
+	lines = append(lines, reviseExampleLines(validIDs)...)
+	return lines
+}
+
+func reviseRepairHints(task consensus.ReviseTask) []string {
+	lines := []string{
+		"- Repair revisions so they preserve the same evidence-backed intent, but prefer narrower revisedText over unresolved whenever a smaller supported claim can be stated.",
+		"- For revise or mark_unresolved, write revisedText that removes unsupported specifics instead of repeating the original claim.",
+		"- Only keep mark_unresolved when the remaining uncertainty is essential even after narrowing the claim.",
+		"- mark_unresolved requires unresolved=true and revisedText.",
+	}
+	validIDs := reviseClaimIDs(task.Claims)
+	if len(validIDs) == 0 {
+		lines = append(lines, "- There are no active claims in this task. The repaired output must use revisions: [].")
+		return lines
+	}
+	lines = append(lines, fmt.Sprintf("- Valid targetClaimId values for repair: %s.", strings.Join(validIDs, ", ")))
+	return lines
+}
+
+func reviseClaimIDs(claims []consensus.ClaimNode) []string {
+	ids := make([]string, 0, len(claims))
+	for _, claim := range claims {
+		claimID := strings.TrimSpace(claim.ClaimID)
+		if claimID == "" || slices.Contains(ids, claimID) {
+			continue
+		}
+		ids = append(ids, claimID)
+	}
+	return ids
+}
+
+func reviseExampleLines(validIDs []string) []string {
+	exampleID := validIDs[0]
+	lines := []string{
+		fmt.Sprintf(`- Valid revise example: {"summary":"Narrowed the claim to the evidence-backed core.","revisions":[{"targetClaimId":"%s","action":"revise","revisedText":"Cross-repo changes currently create measurable coordination overhead, but the available record does not yet prove monorepo is the right remedy.","reason":"Removed unsupported causal strength and recommendation language.","confidenceDelta":-0.05}]}`, exampleID),
+		fmt.Sprintf(`- Valid unresolved example: {"summary":"Kept only a constrained candidate path.","revisions":[{"targetClaimId":"%s","action":"mark_unresolved","revisedText":"A phased monorepo migration remains a candidate path, but it should stay unresolved until team capacity, rollout scope, and independent-release requirements are quantified.","reason":"No narrower execution-ready statement is justified by the current evidence.","confidenceDelta":-0.08,"unresolved":true}]}`, exampleID),
+		fmt.Sprintf(`- Invalid example: {"summary":"...","revisions":[{"targetClaimId":"%s","action":"mark_unresolved","reason":"Need more evidence"}]}`, exampleID),
+	}
+	return lines
+}
+
+func arbiterPromptHints(task consensus.ArbiterTask) []string {
+	lines := []string{
+		"- Arbiter decisions should judge the current revised claim text as written, not the broader earlier claim it replaced.",
+		"- Prefer verdict=supported when the revised claim already narrows itself to the evidence-backed directional core and explicitly leaves implementation details, rollout sequencing, or prerequisites unresolved.",
+		"- Use insufficient_evidence only when no stable supported core remains even after considering the claim's caveats, applicability, and boundaryConditions.",
+		"- For strategy or operational recommendations, 'direction is supported but path details remain conditional' should usually be treated as supported with caveats, not as wholly unresolved.",
+		"- Use undetermined only for genuinely mixed or conflicting evidence, not merely because some execution details are still unknown.",
+		"- rationale must explain whether the supported core survives and which caveats still gate execution.",
+	}
+	if lines = append(lines, arbiterExampleLines(task.Claims)...); len(lines) > 0 {
+		return lines
+	}
+	return nil
+}
+
+func arbiterRepairHints(task consensus.ArbiterTask) []string {
+	lines := []string{
+		"- Repair arbiter output so it preserves claim-level meaning but avoids collapsing caveated directional support into insufficient_evidence when the revised claim already encodes its own uncertainty.",
+		"- If the revised claim text is cautiously worded and the evidence supports that cautious core, prefer verdict=supported with caveat-style rationale.",
+		"- Keep insufficient_evidence or undetermined only when no narrower supported core remains after reading the revised claim text, caveats, applicability, and boundaryConditions.",
+	}
+	return append(lines, arbiterExampleLines(task.Claims)...)
+}
+
+func arbiterExampleLines(claims []consensus.ClaimNode) []string {
+	for _, claim := range claims {
+		if claim.ClaimType == consensus.ClaimTypeFact {
+			continue
+		}
+		if strings.TrimSpace(claim.Statement) == "" {
+			continue
+		}
+		if strings.TrimSpace(claim.Applicability) == "" && len(claim.Caveats) == 0 && len(claim.BoundaryConditions) == 0 {
+			continue
+		}
+		return []string{
+			fmt.Sprintf(`- Valid caveated support example: {"summary":"The narrowed strategy claim keeps a supported directional core.","taskVerdict":"partially_supported","decisions":[{"claimId":"%s","verdict":"supported","confidence":0.68,"rationale":"The revised claim already limits itself to a directional recommendation and explicitly names the missing prerequisites, so the directional core is supported while execution remains gated.","evidenceRefs":["ledger-1"]}]}`, claim.ClaimID),
+			fmt.Sprintf(`- Invalid over-downgrade example: {"summary":"...","taskVerdict":"undetermined","decisions":[{"claimId":"%s","verdict":"insufficient_evidence","confidence":0.45,"rationale":"Some rollout details are still unknown.","evidenceRefs":["ledger-1"]}]}`, claim.ClaimID),
+		}
+	}
+	return nil
 }
 
 func debateRoundPromptHints(task consensus.DebateRoundTask) []string {

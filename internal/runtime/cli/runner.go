@@ -232,6 +232,10 @@ func taskSpecificContract(task consensus.Task) []string {
 			"- Revise fields: summary, revisions[].targetClaimId, revisions[].action, revisions[].reason, revisions[].confidenceDelta, revisions[].unresolved.",
 			"- Revise aliases forbidden: claimId, targetId, rationale, reasoning.",
 			"- Revise action allowed: revise, downgrade_confidence, withdraw, mark_unresolved, unchanged.",
+			"- Revise targetClaimId must copy an existing claims[].claimId exactly.",
+			"- Revise should prefer action=revise when a narrower evidence-backed statement can be written.",
+			"- Revise action=revise requires revisedText, and revisedText must be materially narrower than the current claim text.",
+			"- Revise action=mark_unresolved requires revisedText and unresolved=true. Use it only when no narrower supported statement can be written.",
 			"- Revise confidenceDelta must be a JSON number, not a string.",
 		}
 	case consensus.DebateRoundTask:
@@ -257,6 +261,9 @@ func taskSpecificContract(task consensus.Task) []string {
 			"- Arbiter aliases forbidden: targetClaimId, targetId, reasoning, reason, keyEvidenceRefs.",
 			"- Arbiter claim verdict allowed: supported, refuted, insufficient_evidence, undetermined.",
 			"- Arbiter task verdict allowed: supported, partially_supported, undetermined, failed.",
+			"- Arbiter must judge the current revised claim text as written, not the broader superseded claim.",
+			"- Arbiter should prefer supported when a narrowed strategy/operational claim keeps a supported directional core but leaves execution details or prerequisites conditional.",
+			"- Arbiter should use insufficient_evidence only when no narrower supported core remains even after considering caveats, applicability, and boundaryConditions.",
 			"- Arbiter confidence must be a JSON number, not a string.",
 		}
 	case consensus.DelphiQuestionnaireTask, consensus.DelphiRevisionTask:

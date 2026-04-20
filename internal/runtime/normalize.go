@@ -304,7 +304,7 @@ func normalizeTaskOutputFromJSON(task consensus.Task, payload []byte) (consensus
 }
 
 func decodeTaskOutputFromJSON(task consensus.Task, payload []byte) (consensus.TaskResult, error) {
-	switch task.(type) {
+	switch typed := task.(type) {
 	case consensus.ProposalTask:
 		var output consensus.ProposalOutput
 		if err := json.Unmarshal(payload, &output); err != nil {
@@ -346,7 +346,7 @@ func decodeTaskOutputFromJSON(task consensus.Task, payload []byte) (consensus.Ta
 		if strings.TrimSpace(output.Summary) == "" {
 			return nil, fmt.Errorf("revise output missing summary")
 		}
-		if err := validateRevisionDrafts(output.Revisions); err != nil {
+		if err := validateRevisionDrafts(typed.Claims, output.Revisions); err != nil {
 			return nil, fmt.Errorf("validate revise output: %w", err)
 		}
 		return consensus.ReviseTaskResult{Output: output}, nil
@@ -748,13 +748,50 @@ func validateSemanticConfidence(idx int, verdict consensus.ClaimVerdict, confide
 	return nil
 }
 
-func validateRevisionDrafts(revisions []consensus.ClaimRevisionDraft) error {
+func validateRevisionDrafts(claims []consensus.ClaimNode, revisions []consensus.ClaimRevisionDraft) error {
+	validClaims := make(map[string]consensus.ClaimNode, len(claims))
+	for _, claim := range claims {
+		if claimID := strings.TrimSpace(claim.ClaimID); claimID != "" {
+			validClaims[claimID] = claim
+		}
+	}
+	seen := make(map[string]struct{}, len(revisions))
 	for idx, revision := range revisions {
-		if strings.TrimSpace(revision.TargetClaimID) == "" {
+		targetClaimID := strings.TrimSpace(revision.TargetClaimID)
+		if targetClaimID == "" {
 			return fmt.Errorf("revisions[%d].targetClaimId is required", idx)
 		}
+		if _, exists := seen[targetClaimID]; exists {
+			return fmt.Errorf("revisions[%d].targetClaimId duplicates earlier entry for %q", idx, targetClaimID)
+		}
+		seen[targetClaimID] = struct{}{}
 		if !isAllowedRevisionAction(revision.Action) {
 			return fmt.Errorf("revisions[%d].action must be one of revise|downgrade_confidence|withdraw|mark_unresolved|unchanged", idx)
+		}
+		claim, ok := validClaims[targetClaimID]
+		if len(validClaims) > 0 && !ok {
+			return fmt.Errorf("revisions[%d].targetClaimId must reference an existing claim in this task", idx)
+		}
+		revisedText := strings.TrimSpace(revision.RevisedText)
+		if revision.Action == consensus.RevisionActionRevise || revision.Action == consensus.RevisionActionUnresolved {
+			if revisedText == "" {
+				return fmt.Errorf("revisions[%d].revisedText is required when action=%s", idx, revision.Action)
+			}
+			if ok && revisedText == strings.TrimSpace(claim.Statement) {
+				return fmt.Errorf("revisions[%d].revisedText must materially narrow or clarify the current claim when action=%s", idx, revision.Action)
+			}
+		}
+		if revision.Action == consensus.RevisionActionUnresolved && !revision.Unresolved {
+			return fmt.Errorf("revisions[%d].unresolved must be true when action=mark_unresolved", idx)
+		}
+		if revision.Action == consensus.RevisionActionWithdraw && revisedText != "" {
+			return fmt.Errorf("revisions[%d].revisedText is not allowed when action=withdraw", idx)
+		}
+		if revision.Action == consensus.RevisionActionUnchanged && (revisedText != "" || revision.Unresolved || revision.ConfidenceDelta != 0) {
+			return fmt.Errorf("revisions[%d].unchanged must not carry revisedText, unresolved, or confidenceDelta", idx)
+		}
+		if revision.Action != consensus.RevisionActionUnchanged && strings.TrimSpace(revision.Reason) == "" {
+			return fmt.Errorf("revisions[%d].reason is required when action=%s", idx, revision.Action)
 		}
 	}
 	return nil

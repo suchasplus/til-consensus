@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/suchasplus/til-consensus/internal/config"
@@ -223,6 +224,42 @@ func TestNormalizeReviseOutputRejectsClaimAliasAndRationale(t *testing.T) {
 	}, `{"summary":"revise","revisions":[{"claimId":"claim-1","action":"narrow","revisedStatement":"narrowed","rationale":"needs stronger context","verdict":"undetermined"}]}`)
 	if err == nil {
 		t.Fatal("expected revise aliases to fail normalization")
+	}
+}
+
+func TestNormalizeReviseOutputRequiresRevisedTextForMarkUnresolved(t *testing.T) {
+	_, err := NormalizeTaskOutputFromText(consensus.ReviseTask{
+		TaskMeta: consensus.TaskMeta{AgentID: "proposer-1"},
+		Claims: []consensus.ClaimNode{
+			{ClaimID: "claim-1", Statement: "A monorepo migration should finish in one quarter."},
+		},
+	}, `{"summary":"revise","revisions":[{"targetClaimId":"claim-1","action":"mark_unresolved","reason":"Need more evidence","unresolved":true}]}`)
+	if err == nil || !strings.Contains(err.Error(), "revisedText is required") {
+		t.Fatalf("expected mark_unresolved without revisedText to fail, got %v", err)
+	}
+}
+
+func TestNormalizeReviseOutputRejectsUnknownTargetClaimID(t *testing.T) {
+	_, err := NormalizeTaskOutputFromText(consensus.ReviseTask{
+		TaskMeta: consensus.TaskMeta{AgentID: "proposer-1"},
+		Claims: []consensus.ClaimNode{
+			{ClaimID: "claim-1", Statement: "Current claim"},
+		},
+	}, `{"summary":"revise","revisions":[{"targetClaimId":"claim-x","action":"revise","revisedText":"Narrowed claim","reason":"Removed unsupported scope"}]}`)
+	if err == nil || !strings.Contains(err.Error(), "must reference an existing claim") {
+		t.Fatalf("expected unknown targetClaimId to fail, got %v", err)
+	}
+}
+
+func TestNormalizeReviseOutputRejectsUnchangedRestatement(t *testing.T) {
+	_, err := NormalizeTaskOutputFromText(consensus.ReviseTask{
+		TaskMeta: consensus.TaskMeta{AgentID: "proposer-1"},
+		Claims: []consensus.ClaimNode{
+			{ClaimID: "claim-1", Statement: "A monorepo migration should finish in one quarter."},
+		},
+	}, `{"summary":"revise","revisions":[{"targetClaimId":"claim-1","action":"revise","revisedText":"A monorepo migration should finish in one quarter.","reason":"Kept the same text"}]}`)
+	if err == nil || !strings.Contains(err.Error(), "must materially narrow or clarify") {
+		t.Fatalf("expected unchanged revise text to fail, got %v", err)
 	}
 }
 
