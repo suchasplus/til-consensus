@@ -1,0 +1,67 @@
+schema_version: 1
+
+defaults:
+  success_criteria:
+    - 给出 claim 级裁决
+    - 输出关键 caveat 与 unresolved
+  per_task_timeout: 20m
+  task_retry_attempts: 1
+  proposal_policy:
+    max_passes: 1
+    max_claims_per_worker: 4
+    dedupe_strategy: normalized-statement
+  verification_policy:
+    allow_semantic_verifier: true
+    max_parallel_checks: 2
+  arbiter_policy:
+    allow_undetermined: true
+    blind_review: true
+
+output:
+  directory: ./out/{requestId}
+
+providers:
+  anthropic-api:
+    type: api
+    protocol: anthropic-compatible
+    base_url: https://api.anthropic.com/v1
+    api_key_env: ANTHROPIC_API_KEY
+    options:
+      endpoint_path: /messages
+      anthropic_version: "2023-06-01"
+      timeout_ms: 120000
+    models:
+      default:
+        provider_model: claude-opus-4-6
+        max_output_tokens: 4096
+        temperature: 0.2
+        reasoning: medium
+
+agents:
+  - id: proposer-anthropic
+    provider: anthropic-api
+    model: default
+    role: proposer
+  - id: challenger-anthropic
+    provider: anthropic-api
+    model: default
+    role: challenger
+  - id: verifier-anthropic
+    provider: anthropic-api
+    model: default
+    role: semantic-verifier
+  - id: arbiter-anthropic
+    provider: anthropic-api
+    model: default
+    role: arbiter
+  - id: reporter-anthropic
+    provider: anthropic-api
+    model: default
+    role: reporter
+
+roles:
+  proposers: [proposer-anthropic]
+  challengers: [challenger-anthropic]
+  semantic_verifier: verifier-anthropic
+  arbiter: arbiter-anthropic
+  reporter: reporter-anthropic

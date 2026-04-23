@@ -229,6 +229,11 @@ til-consensus config init --mode delphi --provider-profile mock --config ./til-c
 - [codex 组合包](docs/examples/codex.config.yaml)
 - [claude 组合包](docs/examples/claude.config.yaml)
 - [gemini 组合包](docs/examples/gemini.config.yaml)
+- [openai-compatible API 组合包](docs/examples/openai-compatible.config.yaml)
+- [anthropic-compatible API 组合包](docs/examples/anthropic-compatible.config.yaml)
+- [gemini API 组合包](docs/examples/gemini-api.config.yaml)
+- [OpenRouter 组合包](docs/examples/openrouter.config.yaml)
+- [Kimi 组合包](docs/examples/kimi.config.yaml)
 - [文档完善输入样例](docs/examples/document-refinement.run.yaml)
 - [架构选择输入样例](docs/examples/architecture-decision.run.yaml)
 - [coding review 输入样例](docs/examples/coding-review.run.yaml)
@@ -240,6 +245,65 @@ til-consensus config init --mode delphi --provider-profile mock --config ./til-c
 - `til-consensus config add-agent`
 
 它们的定位是“在模板基础上补 provider / agent”，不是第一次上手的首选入口。
+
+`config add-provider --protocol` 现在支持三种 API 协议：
+
+- `openai-compatible`
+- `anthropic-compatible`
+- `gemini-api`
+
+例如：
+
+```bash
+til-consensus config add-provider \
+  --config ./til-consensus.yaml \
+  --id gemini-api \
+  --type api \
+  --protocol gemini-api \
+  --base-url https://generativelanguage.googleapis.com/v1beta \
+  --api-key-env GEMINI_API_KEY \
+  --model-id default \
+  --provider-model gemini-2.5-flash
+```
+
+如果你要接兼容网关，当前推荐这样理解：
+
+- `OpenAI 官方 / OpenRouter / Kimi / 其他 OpenAI 风格网关`
+  - 用 `openai-compatible`
+- `Anthropic 官方 / 其他 Anthropic 风格网关`
+  - 用 `anthropic-compatible`
+- `Gemini 官方 generateContent`
+  - 用 `gemini-api`
+
+这三种 API provider 现在都支持细配：
+
+- `base_url`
+- `api_key_env`
+- `models.<id>.provider_model`
+- `models.<id>.max_output_tokens`
+- `models.<id>.temperature`
+- `headers`
+- `options`
+
+`options` 里当前最有用的键：
+
+- 通用
+  - `endpoint_path`
+  - `structured_output_mode`
+  - `api_key_header`
+  - `api_key_prefix`
+  - `api_key_query_param`
+  - `extra_body`
+  - `timeout_ms`
+- `openai-compatible`
+  - `max_output_tokens_field`
+  - `reasoning_field`
+  - `response_format_name`
+- `anthropic-compatible`
+  - `anthropic_version`
+- `gemini-api`
+  - `response_mime_type`
+  - `response_schema_field`
 
 ## 常用命令
 
@@ -442,6 +506,8 @@ til-consensus view --config ./til-consensus.yaml --section rounds --section conv
   - 生成并打印单元测试覆盖率
 - `make test-e2e`
   - 执行 CLI 端到端测试矩阵
+- `make test-e2e-real-api`
+  - 执行真实 API provider 预检与 E2E 矩阵
 - `make ci`
   - 本地对齐 GitHub CI 的质量门禁
 - `make release-archive`

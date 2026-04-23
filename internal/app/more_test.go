@@ -61,6 +61,8 @@ func TestConfigCommandsAndActCommand(t *testing.T) {
 		"--type", "api",
 		"--model-id", "general",
 		"--provider-model", "gpt-5",
+		"--context-window", "128000",
+		"--max-output-tokens", "4096",
 		"--protocol", "openai-compatible",
 		"--base-url", "https://example.com/v1",
 		"--api-key-env", "OPENAI_API_KEY",
@@ -96,6 +98,10 @@ func TestConfigCommandsAndActCommand(t *testing.T) {
 	}
 	if _, ok := loaded.Config.Providers["api1"]; !ok {
 		t.Fatalf("expected api1 provider in config: %#v", loaded.Config.Providers)
+	}
+	if loaded.Config.Providers["api1"].Models["general"].ContextWindow != 128000 ||
+		loaded.Config.Providers["api1"].Models["general"].MaxOutputTokens != 4096 {
+		t.Fatalf("expected provider model sizing to be written: %#v", loaded.Config.Providers["api1"].Models["general"])
 	}
 	if loaded.Config.Roles.Actor != "actor-b" || loaded.Config.Roles.Reporter != "actor-b" {
 		t.Fatalf("unexpected role assignment: %#v", loaded.Config.Roles)

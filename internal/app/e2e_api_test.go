@@ -207,6 +207,31 @@ func extractAnthropicPrompt(t *testing.T, raw any) string {
 	return content
 }
 
+func extractGeminiPrompt(t *testing.T, raw any) string {
+	t.Helper()
+	contents, ok := raw.([]any)
+	if !ok || len(contents) == 0 {
+		t.Fatalf("unexpected gemini contents payload: %#v", raw)
+	}
+	first, ok := contents[0].(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected gemini content shape: %#v", contents[0])
+	}
+	parts, ok := first["parts"].([]any)
+	if !ok || len(parts) == 0 {
+		t.Fatalf("unexpected gemini parts payload: %#v", first)
+	}
+	part, ok := parts[0].(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected gemini part shape: %#v", parts[0])
+	}
+	content, ok := part["text"].(string)
+	if !ok {
+		t.Fatalf("unexpected gemini text payload: %#v", part)
+	}
+	return content
+}
+
 func freeDebateTestResponse(prompt string) string {
 	switch {
 	case strings.Contains(prompt, `"maxClaims"`):

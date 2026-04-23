@@ -1,0 +1,458 @@
+schema_version: 1
+
+# 这是一个“六路 provider 总模板”：
+# - 3 个 CLI：codex / claude / gemini
+# - 3 个 API：openai-compatible / anthropic-compatible / gemini-api
+#
+# 设计目标：
+# 1. 先把所有 provider 都写全
+# 2. 把三种 mode 需要的角色都预留出来
+# 3. 你只需要填空和微调角色映射，不用再自己从零拼装
+#
+# 使用建议：
+# - 如果你只跑 adjudication：重点改 providers + roles.proposers/challengers/semantic_verifier/arbiter/reporter
+# - 如果你只跑 free_debate：重点改 roles.participants + roles.reporter
+# - 如果你只跑 delphi：重点改 roles.participants + roles.facilitator + roles.reporter
+# - OpenRouter / Kimi / 其他兼容网关：通常走 openai-compatible，把 base_url / api_key_env / provider_model 改掉即可
+
+defaults:
+  mode: adjudication
+  success_criteria:
+    - 给出 claim 级裁决
+    - 对证据不足部分明确标注 unresolved 或 keep_with_caveat
+    - 输出可执行的 caveat、边界条件与后续建议
+  out_of_scope:
+    - 不要求产出唯一真理
+    - 不要求替代人工最终拍板
+  allowed_tools: []
+  per_task_timeout: 20m
+  task_retry_attempts: 1
+  global_deadline: 90m
+  proposal_policy:
+    max_passes: 1
+    max_claims_per_worker: 4
+    dedupe_strategy: normalized-statement
+  verification_policy:
+    allow_semantic_verifier: true
+    max_parallel_checks: 2
+  arbiter_policy:
+    allow_undetermined: true
+    blind_review: true
+  debate_policy:
+    min_rounds: 2
+    max_rounds: 3
+    vote_threshold: 0.75
+    enable_early_stop: true
+    peer_context_mode: summary+active_claims
+  delphi_policy:
+    min_rounds: 2
+    max_rounds: 3
+    convergence_threshold: 0.8
+    rating_scale_min: 1
+    rating_scale_max: 5
+    anonymous: true
+    facilitator_summary_style: anonymous-aggregate
+
+output:
+  directory: ./out/{requestId}
+
+providers:
+  # ------------------------------
+  # CLI providers
+  # ------------------------------
+  codex-cli:
+    type: cli
+    cli_type: codex
+    command: codex
+    # 如需额外参数，可在这里补：
+    # args:
+    #   - --your-arg
+    # env:
+    #   YOUR_ENV: your-value
+    models:
+      default:
+        # 可替换成你实际想用的 Codex 模型
+        provider_model: gpt-5.4
+        max_output_tokens: 4096
+        reasoning: medium
+
+  claude-cli:
+    type: cli
+    cli_type: claude
+    command: claude
+    # args / env 可按你本地 Claude Code 的习惯补充
+    models:
+      default:
+        provider_model: claude-opus-4-6
+        max_output_tokens: 4096
+        reasoning: medium
+
+  gemini-cli:
+    type: cli
+    cli_type: gemini
+    command: gemini
+    # args / env 可按你本地 Gemini CLI 的习惯补充
+    models:
+      default:
+        provider_model: gemini-3.1-pro-preview
+        max_output_tokens: 4096
+        reasoning: medium
+
+  # ------------------------------
+  # API providers
+  # ------------------------------
+  openai-api:
+    type: api
+    protocol: openai-compatible
+    # 官方 OpenAI：
+    # base_url: https://api.openai.com/v1
+    #
+    # OpenRouter：
+    # base_url: https://openrouter.ai/api/v1
+    #
+    # Kimi / Moonshot：
+    # base_url: https://api.moonshot.cn/v1
+    #
+    # 其他 OpenAI 兼容网关：
+    # 直接改成你的网关地址
+    base_url: <FILL_OPENAI_COMPATIBLE_BASE_URL>
+    api_key_env: <FILL_OPENAI_COMPATIBLE_API_KEY_ENV>
+    headers:
+      # 如果你的网关不需要额外 header，可以删掉整个 headers 段
+      # OpenRouter 常见：
+      # HTTP-Referer: https://your-app.example.com
+      # X-Title: til-consensus
+      <FILL_OPTIONAL_HEADER_KEY>: <FILL_OPTIONAL_HEADER_VALUE>
+    options:
+      # 大多数 OpenAI 风格网关都还是 /chat/completions
+      endpoint_path: /chat/completions
+
+      # 如果网关支持 transport-level structured output，就保留 json_schema
+      # 如果网关不接受 response_format=json_schema，改成 none
+      structured_output_mode: json_schema
+
+      # OpenAI 官方常用：
+      max_output_tokens_field: max_completion_tokens
+      reasoning_field: reasoning_effort
+
+      # OpenRouter / Kimi 常见：
+      # max_output_tokens_field: max_tokens
+      # reasoning_field: "-"
+
+      # query 参数认证的网关可这样改：
+      # api_key_header: "-"
+      # api_key_query_param: key
+
+      timeout_ms: 120000
+
+      # 如果网关要求额外 body，可放这里
+      # extra_body:
+      #   top_p: 0.95
+      #   metadata:
+      #     source: til-consensus
+    models:
+      default:
+        # 官方 OpenAI 例子：
+        # provider_model: gpt-5.4
+        #
+        # OpenRouter 例子：
+        # provider_model: anthropic/claude-opus-4.1
+        #
+        # Kimi 例子：
+        # provider_model: kimi-k2-0711-preview
+        provider_model: <FILL_OPENAI_COMPATIBLE_MODEL>
+        context_window: 0
+        max_output_tokens: 4096
+        temperature: 0.2
+        reasoning: medium
+
+  anthropic-api:
+    type: api
+    protocol: anthropic-compatible
+    # 官方 Anthropic：
+    # base_url: https://api.anthropic.com/v1
+    #
+    # 其他 Anthropic 兼容网关：
+    # 直接改成你的网关地址
+    base_url: <FILL_ANTHROPIC_BASE_URL>
+    api_key_env: <FILL_ANTHROPIC_API_KEY_ENV>
+    headers:
+      # 如不需要可删掉整个 headers 段
+      <FILL_OPTIONAL_HEADER_KEY>: <FILL_OPTIONAL_HEADER_VALUE>
+    options:
+      endpoint_path: /messages
+      anthropic_version: "2023-06-01"
+      timeout_ms: 120000
+
+      # 如需额外 body，可放这里
+      # extra_body:
+      #   top_p: 0.95
+    models:
+      default:
+        provider_model: <FILL_ANTHROPIC_MODEL>
+        context_window: 0
+        max_output_tokens: 4096
+        temperature: 0.2
+        reasoning: medium
+
+  gemini-api:
+    type: api
+    protocol: gemini-api
+    # 官方 Gemini：
+    # base_url: https://generativelanguage.googleapis.com/v1beta
+    #
+    # 如果你有代理层，也可以替换成代理地址
+    base_url: <FILL_GEMINI_BASE_URL>
+    api_key_env: <FILL_GEMINI_API_KEY_ENV>
+    headers:
+      # 如不需要可删掉整个 headers 段
+      <FILL_OPTIONAL_HEADER_KEY>: <FILL_OPTIONAL_HEADER_VALUE>
+    options:
+      endpoint_path: /models/{model}:generateContent
+      structured_output_mode: json_schema
+      response_mime_type: application/json
+      response_schema_field: response_json_schema
+      timeout_ms: 120000
+
+      # 若你的代理要求 query 参数认证，可改成：
+      # api_key_header: "-"
+      # api_key_query_param: key
+
+      # 如需额外 body，可放这里
+      # extra_body:
+      #   generationConfig:
+      #     candidateCount: 1
+    models:
+      default:
+        provider_model: <FILL_GEMINI_MODEL>
+        context_window: 0
+        max_output_tokens: 4096
+        temperature: 0.2
+        reasoning: medium
+
+agents:
+  # ------------------------------
+  # Adjudication roles
+  # ------------------------------
+  - id: proposer-codex-cli
+    provider: codex-cli
+    model: default
+    role: proposer
+  - id: challenger-codex-cli
+    provider: codex-cli
+    model: default
+    role: challenger
+  - id: verifier-codex-cli
+    provider: codex-cli
+    model: default
+    role: semantic-verifier
+  - id: arbiter-codex-cli
+    provider: codex-cli
+    model: default
+    role: arbiter
+  - id: reporter-codex-cli
+    provider: codex-cli
+    model: default
+    role: reporter
+
+  - id: proposer-claude-cli
+    provider: claude-cli
+    model: default
+    role: proposer
+  - id: challenger-claude-cli
+    provider: claude-cli
+    model: default
+    role: challenger
+  - id: verifier-claude-cli
+    provider: claude-cli
+    model: default
+    role: semantic-verifier
+  - id: arbiter-claude-cli
+    provider: claude-cli
+    model: default
+    role: arbiter
+  - id: reporter-claude-cli
+    provider: claude-cli
+    model: default
+    role: reporter
+
+  - id: proposer-gemini-cli
+    provider: gemini-cli
+    model: default
+    role: proposer
+  - id: challenger-gemini-cli
+    provider: gemini-cli
+    model: default
+    role: challenger
+  - id: verifier-gemini-cli
+    provider: gemini-cli
+    model: default
+    role: semantic-verifier
+  - id: arbiter-gemini-cli
+    provider: gemini-cli
+    model: default
+    role: arbiter
+  - id: reporter-gemini-cli
+    provider: gemini-cli
+    model: default
+    role: reporter
+
+  - id: proposer-openai-api
+    provider: openai-api
+    model: default
+    role: proposer
+  - id: challenger-openai-api
+    provider: openai-api
+    model: default
+    role: challenger
+  - id: verifier-openai-api
+    provider: openai-api
+    model: default
+    role: semantic-verifier
+  - id: arbiter-openai-api
+    provider: openai-api
+    model: default
+    role: arbiter
+  - id: reporter-openai-api
+    provider: openai-api
+    model: default
+    role: reporter
+
+  - id: proposer-anthropic-api
+    provider: anthropic-api
+    model: default
+    role: proposer
+  - id: challenger-anthropic-api
+    provider: anthropic-api
+    model: default
+    role: challenger
+  - id: verifier-anthropic-api
+    provider: anthropic-api
+    model: default
+    role: semantic-verifier
+  - id: arbiter-anthropic-api
+    provider: anthropic-api
+    model: default
+    role: arbiter
+  - id: reporter-anthropic-api
+    provider: anthropic-api
+    model: default
+    role: reporter
+
+  - id: proposer-gemini-api
+    provider: gemini-api
+    model: default
+    role: proposer
+  - id: challenger-gemini-api
+    provider: gemini-api
+    model: default
+    role: challenger
+  - id: verifier-gemini-api
+    provider: gemini-api
+    model: default
+    role: semantic-verifier
+  - id: arbiter-gemini-api
+    provider: gemini-api
+    model: default
+    role: arbiter
+  - id: reporter-gemini-api
+    provider: gemini-api
+    model: default
+    role: reporter
+
+  # ------------------------------
+  # Free Debate / Delphi roles
+  # ------------------------------
+  - id: participant-codex-cli
+    provider: codex-cli
+    model: default
+    role: participant
+  - id: participant-claude-cli
+    provider: claude-cli
+    model: default
+    role: participant
+  - id: participant-gemini-cli
+    provider: gemini-cli
+    model: default
+    role: participant
+  - id: facilitator-claude-cli
+    provider: claude-cli
+    model: default
+    role: facilitator
+
+  - id: participant-openai-api
+    provider: openai-api
+    model: default
+    role: participant
+  - id: participant-anthropic-api
+    provider: anthropic-api
+    model: default
+    role: participant
+  - id: participant-gemini-api
+    provider: gemini-api
+    model: default
+    role: participant
+  - id: facilitator-anthropic-api
+    provider: anthropic-api
+    model: default
+    role: facilitator
+
+roles:
+  # ------------------------------
+  # 当前默认给一套“混合分工”
+  # 你可以直接改成全 CLI、全 API，或任意交叉组合
+  # ------------------------------
+
+  # adjudication
+  proposers: [proposer-codex-cli]
+  challengers: [challenger-claude-cli]
+  semantic_verifier: verifier-gemini-api
+  arbiter: arbiter-anthropic-api
+  reporter: reporter-openai-api
+
+  # free_debate / delphi
+  participants:
+    - participant-codex-cli
+    - participant-claude-cli
+    - participant-gemini-api
+  facilitator: facilitator-anthropic-api
+
+  # actor 非必需；如果你会用 act，再补一个 actor agent
+  # actor: actor-openai-api
+
+# ------------------------------
+# 你可以从这里复制“常见切换方案”
+# ------------------------------
+#
+# 1. 全 CLI adjudication
+# roles:
+#   proposers: [proposer-codex-cli]
+#   challengers: [challenger-claude-cli]
+#   semantic_verifier: verifier-gemini-cli
+#   arbiter: arbiter-claude-cli
+#   reporter: reporter-codex-cli
+#
+# 2. 全 API adjudication
+# roles:
+#   proposers: [proposer-openai-api]
+#   challengers: [challenger-anthropic-api]
+#   semantic_verifier: verifier-gemini-api
+#   arbiter: arbiter-anthropic-api
+#   reporter: reporter-openai-api
+#
+# 3. 三 CLI free_debate
+# roles:
+#   participants:
+#     - participant-codex-cli
+#     - participant-claude-cli
+#     - participant-gemini-cli
+#   reporter: reporter-codex-cli
+#
+# 4. 三 API delphi
+# roles:
+#   participants:
+#     - participant-openai-api
+#     - participant-anthropic-api
+#     - participant-gemini-api
+#   facilitator: facilitator-anthropic-api
+#   reporter: reporter-openai-api

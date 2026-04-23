@@ -22,7 +22,7 @@ else
 INSTALL_DIR ?= $(HOME)/.local/bin
 endif
 
-.PHONY: fmt test test-e2e test-e2e-real vet lint ci build build-debug build-release release-archive install run cover clean
+.PHONY: fmt test test-e2e test-e2e-real test-e2e-real-api vet lint ci build build-debug build-release release-archive install run cover clean
 
 fmt:
 	$(GO) fmt ./...
@@ -35,6 +35,9 @@ test-e2e:
 
 test-e2e-real:
 	TIL_CONSENSUS_E2E_REAL=1 $(GO) test ./internal/app -run '^TestE2ERealCLIFixtureMatrix$$' -count=1 -timeout 180m
+
+test-e2e-real-api:
+	TIL_CONSENSUS_E2E_REAL_API=1 $(GO) test ./internal/app -run '^TestE2EReal(APIFixtureMatrix|APIProviderReadinessPreflight)$$' -count=1 -timeout 180m
 
 vet:
 	$(GO) vet ./...

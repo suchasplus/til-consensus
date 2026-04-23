@@ -10,26 +10,28 @@ import (
 )
 
 type AddProviderInput struct {
-	ID            string
-	Type          string
-	ModelID       string
-	ProviderModel string
-	Protocol      string
-	BaseURL       string
-	APIKeyEnv     string
-	Headers       map[string]string
-	CLIType       string
-	Command       string
-	Args          []string
-	Env           map[string]string
-	Adapter       string
-	Options       map[string]any
-	Behavior      string
-	Delay         Duration
-	Error         string
-	Temperature   *float64
-	Reasoning     string
-	AgentID       string
+	ID              string
+	Type            string
+	ModelID         string
+	ProviderModel   string
+	ContextWindow   int
+	MaxOutputTokens int
+	Protocol        string
+	BaseURL         string
+	APIKeyEnv       string
+	Headers         map[string]string
+	CLIType         string
+	Command         string
+	Args            []string
+	Env             map[string]string
+	Adapter         string
+	Options         map[string]any
+	Behavior        string
+	Delay           Duration
+	Error           string
+	Temperature     *float64
+	Reasoning       string
+	AgentID         string
 }
 
 type AddAgentInput struct {
@@ -180,9 +182,11 @@ func BuildProvider(input AddProviderInput) (ProviderConfig, error) {
 	}
 	if modelID != "" {
 		model := ProviderModelConfig{
-			ProviderModel: input.ProviderModel,
-			Temperature:   input.Temperature,
-			Reasoning:     input.Reasoning,
+			ProviderModel:   input.ProviderModel,
+			ContextWindow:   input.ContextWindow,
+			MaxOutputTokens: input.MaxOutputTokens,
+			Temperature:     input.Temperature,
+			Reasoning:       input.Reasoning,
 		}
 		if strings.TrimSpace(model.ProviderModel) == "" {
 			model.ProviderModel = modelID

@@ -459,6 +459,82 @@ til-consensus config add-agent --help
 
 这两个命令适合增量修改，不适合替代模板初始化。
 
+`config add-provider --protocol` 目前支持：
+
+- `openai-compatible`
+- `anthropic-compatible`
+- `gemini-api`
+
+如果你想手动接入 Gemini API，最小 provider 配置可以写成：
+
+```yaml
+providers:
+  gemini-api:
+    type: api
+    protocol: gemini-api
+    base_url: https://generativelanguage.googleapis.com/v1beta
+    api_key_env: GEMINI_API_KEY
+    models:
+      default:
+        provider_model: gemini-2.5-flash
+```
+
+如果你要接兼容网关，例如 OpenRouter、Kimi 或公司内代理，建议记住：
+
+- `OpenAI 风格网关`
+  - 用 `openai-compatible`
+- `Anthropic 风格网关`
+  - 用 `anthropic-compatible`
+- `Gemini generateContent`
+  - 用 `gemini-api`
+
+这三种 API provider 当前都支持下面这些细配能力：
+
+- `base_url`
+- `api_key_env`
+- `headers`
+- `models.<id>.provider_model`
+- `models.<id>.context_window`
+- `models.<id>.max_output_tokens`
+- `models.<id>.temperature`
+- `models.<id>.reasoning`
+- `options`
+
+`config add-provider` 里也可以直接写：
+
+- `--context-window`
+- `--max-output-tokens`
+- `--header KEY=VALUE`
+- `--option KEY=VALUE`
+
+`options` 目前支持的常用键：
+
+- 通用
+  - `endpoint_path`
+  - `structured_output_mode`
+  - `api_key_header`
+  - `api_key_prefix`
+  - `api_key_query_param`
+  - `extra_body`
+  - `timeout_ms`
+- `openai-compatible`
+  - `max_output_tokens_field`
+  - `reasoning_field`
+  - `response_format_name`
+- `anthropic-compatible`
+  - `anthropic_version`
+- `gemini-api`
+  - `response_mime_type`
+  - `response_schema_field`
+
+可直接复制的完整样例：
+
+- [openai-compatible.config.yaml](examples/openai-compatible.config.yaml)
+- [anthropic-compatible.config.yaml](examples/anthropic-compatible.config.yaml)
+- [gemini-api.config.yaml](examples/gemini-api.config.yaml)
+- [openrouter.config.yaml](examples/openrouter.config.yaml)
+- [kimi.config.yaml](examples/kimi.config.yaml)
+
 ## follow-up 与 session store
 
 CLI 会把 session snapshot 持久化到输出目录同级的 `_sessions/` 下，例如：

@@ -1,0 +1,71 @@
+schema_version: 1
+
+defaults:
+  success_criteria:
+    - 给出 claim 级裁决
+    - 输出关键 caveat 与 unresolved
+  per_task_timeout: 20m
+  task_retry_attempts: 1
+  proposal_policy:
+    max_passes: 1
+    max_claims_per_worker: 4
+    dedupe_strategy: normalized-statement
+  verification_policy:
+    allow_semantic_verifier: true
+    max_parallel_checks: 2
+  arbiter_policy:
+    allow_undetermined: true
+    blind_review: true
+
+output:
+  directory: ./out/{requestId}
+
+providers:
+  openrouter-api:
+    type: api
+    protocol: openai-compatible
+    base_url: https://openrouter.ai/api/v1
+    api_key_env: OPENROUTER_API_KEY
+    headers:
+      HTTP-Referer: https://your-app.example.com
+      X-Title: til-consensus
+    options:
+      endpoint_path: /chat/completions
+      structured_output_mode: none
+      max_output_tokens_field: max_tokens
+      reasoning_field: "-"
+      timeout_ms: 120000
+    models:
+      default:
+        provider_model: anthropic/claude-opus-4.1
+        max_output_tokens: 4096
+        temperature: 0.2
+
+agents:
+  - id: proposer-openrouter
+    provider: openrouter-api
+    model: default
+    role: proposer
+  - id: challenger-openrouter
+    provider: openrouter-api
+    model: default
+    role: challenger
+  - id: verifier-openrouter
+    provider: openrouter-api
+    model: default
+    role: semantic-verifier
+  - id: arbiter-openrouter
+    provider: openrouter-api
+    model: default
+    role: arbiter
+  - id: reporter-openrouter
+    provider: openrouter-api
+    model: default
+    role: reporter
+
+roles:
+  proposers: [proposer-openrouter]
+  challengers: [challenger-openrouter]
+  semantic_verifier: verifier-openrouter
+  arbiter: arbiter-openrouter
+  reporter: reporter-openrouter

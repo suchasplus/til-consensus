@@ -21,7 +21,9 @@ func Validate(cfg Config) error {
 		switch provider.Type {
 		case ProviderTypeMock:
 		case ProviderTypeAPI:
-			if provider.Protocol != APIProtocolOpenAICompatible && provider.Protocol != APIProtocolAnthropicCompatible {
+			if provider.Protocol != APIProtocolOpenAICompatible &&
+				provider.Protocol != APIProtocolAnthropicCompatible &&
+				provider.Protocol != APIProtocolGemini {
 				return fmt.Errorf("provider %s: unsupported protocol %q", name, provider.Protocol)
 			}
 			if len(provider.Models) == 0 {

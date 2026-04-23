@@ -21,6 +21,7 @@ import (
 	"github.com/suchasplus/til-consensus/internal/config"
 	"github.com/suchasplus/til-consensus/internal/consensus"
 	tilruntime "github.com/suchasplus/til-consensus/internal/runtime"
+	apiruntime "github.com/suchasplus/til-consensus/internal/runtime/api"
 	"github.com/suchasplus/til-consensus/internal/telemetry"
 	"github.com/urfave/cli/v3"
 	"gopkg.in/yaml.v3"
@@ -79,9 +80,32 @@ type cliProviderPreflightResult struct {
 	Error           string
 }
 
+type apiProviderPreflightResult struct {
+	Provider        string
+	Protocol        string
+	Model           string
+	BaseURL         string
+	Duration        time.Duration
+	Ready           bool
+	StrictJSON      bool
+	RecoverableJSON bool
+	StdoutPreview   string
+	Error           string
+}
+
+type e2eAPIProviderLayout struct {
+	Agents               []config.AgentConfig
+	Roles                config.RolesConfig
+	ExpectedProviders    []string
+	AssignmentSummary    []string
+	UnavailableProviders []string
+}
+
 var (
 	realCLIPreflightOnce    sync.Once
 	realCLIPreflightResults []cliProviderPreflightResult
+	realAPIPreflightOnce    sync.Once
+	realAPIPreflightResults []apiProviderPreflightResult
 )
 
 func TestE2EFixtureCatalog(t *testing.T) {
@@ -117,9 +141,11 @@ func TestE2EAPIFixtureMatrix(t *testing.T) {
 		t.Run(fixture.Name, func(t *testing.T) {
 			openAIHits := 0
 			anthropicHits := 0
-			openAIServer, anthropicServer := startE2EAPIServers(t, fixture.Manifest.Mode, &openAIHits, &anthropicHits)
+			geminiHits := 0
+			openAIServer, anthropicServer, geminiServer := startE2EAPIServers(t, fixture.Manifest.Mode, &openAIHits, &anthropicHits, &geminiHits)
 			defer openAIServer.Close()
 			defer anthropicServer.Close()
+			defer geminiServer.Close()
 
 			staged := stageE2EFixture(t, fixture)
 			configPath := filepath.Join(staged, "til-consensus.yaml")
@@ -130,6 +156,7 @@ func TestE2EAPIFixtureMatrix(t *testing.T) {
 				ProviderKind:     "api",
 				OpenAIBaseURL:    openAIServer.URL,
 				AnthropicBaseURL: anthropicServer.URL,
+				GeminiBaseURL:    geminiServer.URL,
 			})
 
 			runCmd := newRunCommand()
@@ -154,10 +181,99 @@ func TestE2EAPIFixtureMatrix(t *testing.T) {
 			}
 
 			summary := loadComplianceSummary(t, resultPath)
-			assertComplianceSummary(t, summary, "api", []string{"openai-test", "anthropic-test"})
-			if openAIHits == 0 || anthropicHits == 0 {
-				t.Fatalf("expected both api providers to be exercised, openai=%d anthropic=%d", openAIHits, anthropicHits)
+			assertComplianceSummary(t, summary, "api", []string{"openai-test", "anthropic-test", "gemini-test"})
+			if openAIHits == 0 || anthropicHits == 0 || geminiHits == 0 {
+				t.Fatalf("expected all api providers to be exercised, openai=%d anthropic=%d gemini=%d", openAIHits, anthropicHits, geminiHits)
 			}
+		})
+	}
+}
+
+func TestE2ERealAPIFixtureMatrix(t *testing.T) {
+	if strings.TrimSpace(os.Getenv("TIL_CONSENSUS_E2E_REAL_API")) == "" {
+		t.Skip("set TIL_CONSENSUS_E2E_REAL_API=1 to run real API e2e matrix")
+	}
+	readiness := loadRealAPIProviderReadiness(t)
+	logRealAPIProviderReadiness(t, readiness)
+	if countReadyAPIProviders(readiness) == 0 {
+		t.Fatalf("no real API providers are ready in current test context")
+	}
+
+	fixtures := loadE2EFixtures(t)
+	for _, fixture := range fixtures {
+		t.Run(fixture.Name, func(t *testing.T) {
+			staged := stageE2EFixture(t, fixture)
+			latestResultPath := ""
+			latestStdout := ""
+			latestStderr := ""
+			defer func() {
+				_ = preserveE2EWorkspaceIfNeeded(t, fixture, staged, latestResultPath, latestStdout, latestStderr)
+			}()
+			configPath := filepath.Join(staged, "til-consensus.yaml")
+			layout := buildAPIE2EProviderLayout(fixture.Manifest.Mode, readiness)
+			if len(layout.ExpectedProviders) == 0 {
+				t.Skipf("no ready api providers available for mode %s", fixture.Manifest.Mode)
+			}
+			t.Logf("api provider layout: %s", strings.Join(layout.AssignmentSummary, ", "))
+			if len(layout.UnavailableProviders) > 0 {
+				t.Logf("api unavailable providers: %s", strings.Join(layout.UnavailableProviders, ", "))
+			}
+			writeE2EProviderConfig(t, e2eConfigParams{
+				Path:         configPath,
+				OutputDir:    filepath.Join(staged, "out", "{requestId}"),
+				Mode:         fixture.Manifest.Mode,
+				ProviderKind: "real-api",
+				APILayout:    &layout,
+			})
+			timeout := realAPIE2ETimeoutForMode(fixture.Manifest.Mode)
+			t.Logf("real api e2e timeout: mode=%s timeout=%s workspace=%s", fixture.Manifest.Mode, timeout, staged)
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+
+			runCmd := newRunCommand()
+			runStdout, runStderr, err := runCLICommandWithLiveLogs(ctx, t, fmt.Sprintf("%s/api-run", fixture.Name), runCmd, []string{"run", "--config", configPath, "--input", filepath.Join(staged, "run.yaml"), "--verbose", "--debug"})
+			resultPath := ""
+			if err == nil {
+				resultPath = tryExtractResultPath(runStdout)
+			}
+			latestResultPath = resultPath
+			latestStdout = runStdout
+			latestStderr = runStderr
+			preservePath := preserveE2EWorkspaceIfNeeded(t, fixture, staged, resultPath, runStdout, runStderr)
+			if err != nil {
+				if preservePath != "" {
+					t.Fatalf("real api e2e run failed: %v\npreserved=%s\nstderr=%s\nstdout=%s", err, preservePath, runStderr, runStdout)
+				}
+				t.Fatalf("real api e2e run failed: %v\nstderr=%s\nstdout=%s", err, runStderr, runStdout)
+			}
+			result := loadRunResult(t, resultPath)
+			writeAPIProviderReadinessArtifact(t, resultPath, readiness)
+			assertE2EResultForFixture(t, fixture, result)
+
+			viewArgs := append([]string{"view", "--result", resultPath, "--verbose"}, renderViewSections(fixture.Manifest.ViewSections)...)
+			viewCmd := newViewCommand()
+			viewStdout, viewStderr, err := runCLICommandWithLiveLogs(context.Background(), t, fmt.Sprintf("%s/api-view", fixture.Name), viewCmd, viewArgs)
+			latestStdout = viewStdout
+			latestStderr = viewStderr
+			if err != nil {
+				preservePath = preserveE2EWorkspaceIfNeeded(t, fixture, staged, resultPath, viewStdout, viewStderr)
+				if preservePath != "" {
+					t.Fatalf("real api e2e view failed: %v\npreserved=%s\nstderr=%s\nstdout=%s", err, preservePath, viewStderr, viewStdout)
+				}
+				t.Fatalf("real api e2e view failed: %v\nstderr=%s\nstdout=%s", err, viewStderr, viewStdout)
+			}
+			for _, fragment := range fixture.Manifest.ExpectedViewFragments {
+				if !strings.Contains(viewStdout, fragment) {
+					preservePath = preserveE2EWorkspaceIfNeeded(t, fixture, staged, resultPath, viewStdout, viewStderr)
+					if preservePath != "" {
+						t.Fatalf("expected %q in view output\npreserved=%s\n%s", fragment, preservePath, viewStdout)
+					}
+					t.Fatalf("expected %q in view output\n%s", fragment, viewStdout)
+				}
+			}
+
+			summary := loadComplianceSummary(t, resultPath)
+			assertComplianceSummary(t, summary, "api", layout.ExpectedProviders)
 		})
 	}
 }
@@ -271,6 +387,26 @@ func TestE2ERealCLIProviderReadinessPreflight(t *testing.T) {
 	}
 }
 
+func TestE2ERealAPIProviderReadinessPreflight(t *testing.T) {
+	if strings.TrimSpace(os.Getenv("TIL_CONSENSUS_E2E_REAL_API")) == "" {
+		t.Skip("set TIL_CONSENSUS_E2E_REAL_API=1 to run real API readiness preflight")
+	}
+	readiness := loadRealAPIProviderReadiness(t)
+	logRealAPIProviderReadiness(t, readiness)
+	readyCount := 0
+	for _, result := range readiness {
+		t.Run(result.Provider, func(t *testing.T) {
+			if !result.Ready {
+				t.Skipf("provider not ready: %s", formatAPIPreflightFailureReason(result))
+			}
+			readyCount++
+		})
+	}
+	if readyCount == 0 {
+		t.Fatalf("no real API providers are ready in current test context")
+	}
+}
+
 func TestBuildCLIE2EProviderLayoutDegradesUnavailableProviders(t *testing.T) {
 	layout := buildCLIE2EProviderLayout(consensus.WorkflowModeAdjudication, []cliProviderPreflightResult{
 		{Provider: "claude", Ready: true},
@@ -359,7 +495,9 @@ type e2eConfigParams struct {
 	ProviderKind     string
 	OpenAIBaseURL    string
 	AnthropicBaseURL string
+	GeminiBaseURL    string
 	CLILayout        *e2eCLIProviderLayout
+	APILayout        *e2eAPIProviderLayout
 }
 
 func writeE2EProviderConfig(t *testing.T, params e2eConfigParams) {
@@ -446,8 +584,52 @@ func writeE2EProviderConfig(t *testing.T, params e2eConfigParams) {
 					"default": {ProviderModel: "claude-test"},
 				},
 			},
+			"gemini-test": {
+				Type:     config.ProviderTypeAPI,
+				Protocol: config.APIProtocolGemini,
+				BaseURL:  params.GeminiBaseURL,
+				Models: map[string]config.ProviderModelConfig{
+					"default": {ProviderModel: "gemini-test"},
+				},
+			},
 		}
 		cfg.Agents, cfg.Roles = buildAPIE2EAgents(params.Mode)
+	case "real-api":
+		cfg.Providers = map[string]config.ProviderConfig{
+			"openai-api": {
+				Type:      config.ProviderTypeAPI,
+				Protocol:  config.APIProtocolOpenAICompatible,
+				BaseURL:   resolveRealAPIBaseURL("openai"),
+				APIKeyEnv: "OPENAI_API_KEY",
+				Models: map[string]config.ProviderModelConfig{
+					"default": {ProviderModel: resolveRealAPIModel("openai", "gpt-5.4")},
+				},
+			},
+			"anthropic-api": {
+				Type:      config.ProviderTypeAPI,
+				Protocol:  config.APIProtocolAnthropicCompatible,
+				BaseURL:   resolveRealAPIBaseURL("anthropic"),
+				APIKeyEnv: "ANTHROPIC_API_KEY",
+				Models: map[string]config.ProviderModelConfig{
+					"default": {ProviderModel: resolveRealAPIModel("anthropic", "claude-opus-4-6")},
+				},
+			},
+			"gemini-api": {
+				Type:      config.ProviderTypeAPI,
+				Protocol:  config.APIProtocolGemini,
+				BaseURL:   resolveRealAPIBaseURL("gemini"),
+				APIKeyEnv: "GEMINI_API_KEY",
+				Models: map[string]config.ProviderModelConfig{
+					"default": {ProviderModel: resolveRealAPIModel("gemini", "gemini-2.5-flash")},
+				},
+			},
+		}
+		if params.APILayout != nil {
+			cfg.Agents = append([]config.AgentConfig(nil), params.APILayout.Agents...)
+			cfg.Roles = params.APILayout.Roles
+		} else {
+			cfg.Agents, cfg.Roles = buildAPIE2EAgents(params.Mode)
+		}
 	default:
 		t.Fatalf("unsupported provider kind: %s", params.ProviderKind)
 	}
@@ -672,21 +854,21 @@ func buildAPIE2EAgents(mode consensus.WorkflowMode) ([]config.AgentConfig, confi
 		return []config.AgentConfig{
 				{ID: "participant-openai-a", Provider: "openai-test", Model: "default", Role: "participant"},
 				{ID: "participant-anthropic", Provider: "anthropic-test", Model: "default", Role: "participant"},
-				{ID: "participant-openai-b", Provider: "openai-test", Model: "default", Role: "participant"},
+				{ID: "participant-gemini", Provider: "gemini-test", Model: "default", Role: "participant"},
 				{ID: "reporter-openai", Provider: "openai-test", Model: "default", Role: "reporter"},
 			}, config.RolesConfig{
-				Participants: []string{"participant-openai-a", "participant-anthropic", "participant-openai-b"},
+				Participants: []string{"participant-openai-a", "participant-anthropic", "participant-gemini"},
 				Reporter:     "reporter-openai",
 			}
 	case consensus.WorkflowModeDelphi:
 		return []config.AgentConfig{
 				{ID: "participant-openai-a", Provider: "openai-test", Model: "default", Role: "participant"},
 				{ID: "participant-anthropic", Provider: "anthropic-test", Model: "default", Role: "participant"},
-				{ID: "participant-openai-b", Provider: "openai-test", Model: "default", Role: "participant"},
+				{ID: "participant-gemini", Provider: "gemini-test", Model: "default", Role: "participant"},
 				{ID: "facilitator-anthropic", Provider: "anthropic-test", Model: "default", Role: "facilitator"},
 				{ID: "reporter-openai", Provider: "openai-test", Model: "default", Role: "reporter"},
 			}, config.RolesConfig{
-				Participants: []string{"participant-openai-a", "participant-anthropic", "participant-openai-b"},
+				Participants: []string{"participant-openai-a", "participant-anthropic", "participant-gemini"},
 				Facilitator:  "facilitator-anthropic",
 				Reporter:     "reporter-openai",
 			}
@@ -694,17 +876,156 @@ func buildAPIE2EAgents(mode consensus.WorkflowMode) ([]config.AgentConfig, confi
 		return []config.AgentConfig{
 				{ID: "proposer-openai", Provider: "openai-test", Model: "default", Role: "proposer"},
 				{ID: "challenger-anthropic", Provider: "anthropic-test", Model: "default", Role: "challenger"},
-				{ID: "verifier-openai", Provider: "openai-test", Model: "default", Role: "semantic-verifier"},
+				{ID: "verifier-gemini", Provider: "gemini-test", Model: "default", Role: "semantic-verifier"},
 				{ID: "arbiter-anthropic", Provider: "anthropic-test", Model: "default", Role: "arbiter"},
 				{ID: "reporter-openai", Provider: "openai-test", Model: "default", Role: "reporter"},
 			}, config.RolesConfig{
 				Proposers:        []string{"proposer-openai"},
 				Challengers:      []string{"challenger-anthropic"},
-				SemanticVerifier: "verifier-openai",
+				SemanticVerifier: "verifier-gemini",
 				Arbiter:          "arbiter-anthropic",
 				Reporter:         "reporter-openai",
 			}
 	}
+}
+
+func buildAPIE2EProviderLayout(mode consensus.WorkflowMode, readiness []apiProviderPreflightResult) e2eAPIProviderLayout {
+	ready := readyAPIProviderSet(readiness)
+	ordered := orderedReadyAPIProviders(ready)
+	layout := e2eAPIProviderLayout{
+		UnavailableProviders: unavailableAPIProviders(readiness),
+	}
+	if len(ordered) == 0 {
+		return layout
+	}
+
+	addAgent := func(id string, provider string, role string) string {
+		layout.Agents = append(layout.Agents, config.AgentConfig{ID: id, Provider: provider, Model: "default", Role: role})
+		layout.AssignmentSummary = append(layout.AssignmentSummary, fmt.Sprintf("%s=%s", id, provider))
+		return id
+	}
+	usedProviders := map[string]struct{}{}
+	markProvider := func(provider string) {
+		if provider == "" {
+			return
+		}
+		usedProviders[provider] = struct{}{}
+	}
+	selectProvider := func(preferences ...string) string {
+		for _, candidate := range preferences {
+			if ready[candidate] {
+				return candidate
+			}
+		}
+		return ordered[0]
+	}
+
+	switch mode {
+	case consensus.WorkflowModeFreeDebate:
+		participantProviders := []string{
+			selectProvider("openai-api", "anthropic-api", "gemini-api"),
+			selectProvider("anthropic-api", "gemini-api", "openai-api"),
+			selectProvider("gemini-api", "openai-api", "anthropic-api"),
+		}
+		participantIDs := make([]string, 0, len(participantProviders))
+		for idx, provider := range participantProviders {
+			participantIDs = append(participantIDs, addAgent(fmt.Sprintf("participant-%d-%s", idx+1, shortAPIProviderName(provider)), provider, "participant"))
+			markProvider(provider)
+		}
+		reporterProvider := selectProvider("openai-api", "anthropic-api", "gemini-api")
+		reporterID := addAgent("reporter-"+shortAPIProviderName(reporterProvider), reporterProvider, "reporter")
+		markProvider(reporterProvider)
+		layout.Roles = config.RolesConfig{
+			Participants: participantIDs,
+			Reporter:     reporterID,
+		}
+	case consensus.WorkflowModeDelphi:
+		participantProviders := []string{
+			selectProvider("openai-api", "anthropic-api", "gemini-api"),
+			selectProvider("anthropic-api", "gemini-api", "openai-api"),
+			selectProvider("gemini-api", "openai-api", "anthropic-api"),
+		}
+		participantIDs := make([]string, 0, len(participantProviders))
+		for idx, provider := range participantProviders {
+			participantIDs = append(participantIDs, addAgent(fmt.Sprintf("participant-%d-%s", idx+1, shortAPIProviderName(provider)), provider, "participant"))
+			markProvider(provider)
+		}
+		facilitatorProvider := selectProvider("anthropic-api", "openai-api", "gemini-api")
+		reporterProvider := selectProvider("openai-api", "gemini-api", "anthropic-api")
+		facilitatorID := addAgent("facilitator-"+shortAPIProviderName(facilitatorProvider), facilitatorProvider, "facilitator")
+		reporterID := addAgent("reporter-"+shortAPIProviderName(reporterProvider), reporterProvider, "reporter")
+		markProvider(facilitatorProvider)
+		markProvider(reporterProvider)
+		layout.Roles = config.RolesConfig{
+			Participants: participantIDs,
+			Facilitator:  facilitatorID,
+			Reporter:     reporterID,
+		}
+	default:
+		proposerProvider := selectProvider("openai-api", "anthropic-api", "gemini-api")
+		challengerProvider := selectProvider("anthropic-api", "gemini-api", "openai-api")
+		verifierProvider := selectProvider("gemini-api", "openai-api", "anthropic-api")
+		arbiterProvider := selectProvider("anthropic-api", "openai-api", "gemini-api")
+		reporterProvider := selectProvider("openai-api", "gemini-api", "anthropic-api")
+		proposerID := addAgent("proposer-"+shortAPIProviderName(proposerProvider), proposerProvider, "proposer")
+		challengerID := addAgent("challenger-"+shortAPIProviderName(challengerProvider), challengerProvider, "challenger")
+		verifierID := addAgent("verifier-"+shortAPIProviderName(verifierProvider), verifierProvider, "semantic-verifier")
+		arbiterID := addAgent("arbiter-"+shortAPIProviderName(arbiterProvider), arbiterProvider, "arbiter")
+		reporterID := addAgent("reporter-"+shortAPIProviderName(reporterProvider), reporterProvider, "reporter")
+		markProvider(proposerProvider)
+		markProvider(challengerProvider)
+		markProvider(verifierProvider)
+		markProvider(arbiterProvider)
+		markProvider(reporterProvider)
+		layout.Roles = config.RolesConfig{
+			Proposers:        []string{proposerID},
+			Challengers:      []string{challengerID},
+			SemanticVerifier: verifierID,
+			Arbiter:          arbiterID,
+			Reporter:         reporterID,
+		}
+	}
+
+	for _, provider := range []string{"openai-api", "anthropic-api", "gemini-api"} {
+		if _, ok := usedProviders[provider]; ok {
+			layout.ExpectedProviders = append(layout.ExpectedProviders, provider)
+		}
+	}
+	return layout
+}
+
+func readyAPIProviderSet(results []apiProviderPreflightResult) map[string]bool {
+	ready := make(map[string]bool, len(results))
+	for _, result := range results {
+		if result.Ready {
+			ready[result.Provider] = true
+		}
+	}
+	return ready
+}
+
+func orderedReadyAPIProviders(ready map[string]bool) []string {
+	ordered := make([]string, 0, len(ready))
+	for _, provider := range []string{"openai-api", "anthropic-api", "gemini-api"} {
+		if ready[provider] {
+			ordered = append(ordered, provider)
+		}
+	}
+	return ordered
+}
+
+func unavailableAPIProviders(results []apiProviderPreflightResult) []string {
+	out := make([]string, 0)
+	for _, result := range results {
+		if !result.Ready {
+			out = append(out, result.Provider)
+		}
+	}
+	return out
+}
+
+func shortAPIProviderName(provider string) string {
+	return strings.TrimSuffix(provider, "-api")
 }
 
 func renderViewSections(sections []string) []string {
@@ -784,6 +1105,33 @@ func realE2ETimeoutForMode(mode consensus.WorkflowMode) time.Duration {
 	default:
 		key = "TIL_CONSENSUS_E2E_REAL_TIMEOUT_ADJUDICATION"
 		fallback = 15 * time.Minute
+	}
+	if override := strings.TrimSpace(os.Getenv(key)); override != "" {
+		if parsed, err := time.ParseDuration(override); err == nil && parsed > 0 {
+			return parsed
+		}
+	}
+	return fallback
+}
+
+func realAPIE2ETimeoutForMode(mode consensus.WorkflowMode) time.Duration {
+	if override := strings.TrimSpace(os.Getenv("TIL_CONSENSUS_E2E_REAL_API_TIMEOUT")); override != "" {
+		if parsed, err := time.ParseDuration(override); err == nil && parsed > 0 {
+			return parsed
+		}
+	}
+	var key string
+	var fallback time.Duration
+	switch mode {
+	case consensus.WorkflowModeFreeDebate:
+		key = "TIL_CONSENSUS_E2E_REAL_API_TIMEOUT_FREE_DEBATE"
+		fallback = 20 * time.Minute
+	case consensus.WorkflowModeDelphi:
+		key = "TIL_CONSENSUS_E2E_REAL_API_TIMEOUT_DELPHI"
+		fallback = 20 * time.Minute
+	default:
+		key = "TIL_CONSENSUS_E2E_REAL_API_TIMEOUT_ADJUDICATION"
+		fallback = 12 * time.Minute
 	}
 	if override := strings.TrimSpace(os.Getenv(key)); override != "" {
 		if parsed, err := time.ParseDuration(override); err == nil && parsed > 0 {
@@ -894,6 +1242,14 @@ func loadRealCLIProviderReadiness(t *testing.T) []cliProviderPreflightResult {
 	return realCLIPreflightResults
 }
 
+func loadRealAPIProviderReadiness(t *testing.T) []apiProviderPreflightResult {
+	t.Helper()
+	realAPIPreflightOnce.Do(func() {
+		realAPIPreflightResults = runRealAPIProviderPreflight()
+	})
+	return realAPIPreflightResults
+}
+
 func logRealCLIProviderReadiness(t *testing.T, results []cliProviderPreflightResult) {
 	t.Helper()
 	for _, result := range results {
@@ -911,7 +1267,35 @@ func logRealCLIProviderReadiness(t *testing.T, results []cliProviderPreflightRes
 	}
 }
 
+func logRealAPIProviderReadiness(t *testing.T, results []apiProviderPreflightResult) {
+	t.Helper()
+	for _, result := range results {
+		t.Logf("api provider readiness: provider=%s protocol=%s model=%s ready=%t duration=%s strict_json=%t recoverable_json=%t base_url=%s stdout=%q error=%q",
+			result.Provider,
+			result.Protocol,
+			result.Model,
+			result.Ready,
+			result.Duration.Round(time.Millisecond),
+			result.StrictJSON,
+			result.RecoverableJSON,
+			result.BaseURL,
+			result.StdoutPreview,
+			result.Error,
+		)
+	}
+}
+
 func countReadyCLIProviders(results []cliProviderPreflightResult) int {
+	count := 0
+	for _, result := range results {
+		if result.Ready {
+			count++
+		}
+	}
+	return count
+}
+
+func countReadyAPIProviders(results []apiProviderPreflightResult) int {
 	count := 0
 	for _, result := range results {
 		if result.Ready {
@@ -946,6 +1330,30 @@ func writeProviderReadinessArtifact(t *testing.T, resultPath string, readiness [
 	}
 }
 
+func writeAPIProviderReadinessArtifact(t *testing.T, resultPath string, readiness []apiProviderPreflightResult) {
+	t.Helper()
+	if strings.TrimSpace(resultPath) == "" || len(readiness) == 0 {
+		return
+	}
+	entries := make([]telemetry.ProviderReadinessEntry, 0, len(readiness))
+	for _, item := range readiness {
+		entries = append(entries, telemetry.ProviderReadinessEntry{
+			Provider:        item.Provider,
+			Command:         []string{item.Protocol, item.Model, item.BaseURL},
+			Ready:           item.Ready,
+			StrictJSON:      item.StrictJSON,
+			RecoverableJSON: item.RecoverableJSON,
+			DurationMs:      item.Duration.Milliseconds(),
+			StdoutPreview:   item.StdoutPreview,
+			Error:           item.Error,
+		})
+	}
+	path := filepath.Join(filepath.Dir(resultPath), "artifacts", "provider-readiness.json")
+	if err := telemetry.WriteProviderReadinessFile(path, entries, time.Now().UTC()); err != nil {
+		t.Fatalf("write api provider readiness artifact failed: %v", err)
+	}
+}
+
 func runRealCLIProviderPreflight() []cliProviderPreflightResult {
 	const prompt = `只返回一个 JSON 对象：{"ok":true}`
 	specs := []struct {
@@ -959,6 +1367,43 @@ func runRealCLIProviderPreflight() []cliProviderPreflightResult {
 	results := make([]cliProviderPreflightResult, 0, len(specs))
 	for _, spec := range specs {
 		results = append(results, probeCLIProviderReadiness(spec.provider, spec.command, prompt))
+	}
+	return results
+}
+
+func runRealAPIProviderPreflight() []apiProviderPreflightResult {
+	specs := []struct {
+		provider  string
+		protocol  string
+		baseURL   string
+		apiKeyEnv string
+		model     string
+	}{
+		{
+			provider:  "openai-api",
+			protocol:  config.APIProtocolOpenAICompatible,
+			baseURL:   resolveRealAPIBaseURL("openai"),
+			apiKeyEnv: "OPENAI_API_KEY",
+			model:     resolveRealAPIModel("openai", "gpt-5.4"),
+		},
+		{
+			provider:  "anthropic-api",
+			protocol:  config.APIProtocolAnthropicCompatible,
+			baseURL:   resolveRealAPIBaseURL("anthropic"),
+			apiKeyEnv: "ANTHROPIC_API_KEY",
+			model:     resolveRealAPIModel("anthropic", "claude-opus-4-6"),
+		},
+		{
+			provider:  "gemini-api",
+			protocol:  config.APIProtocolGemini,
+			baseURL:   resolveRealAPIBaseURL("gemini"),
+			apiKeyEnv: "GEMINI_API_KEY",
+			model:     resolveRealAPIModel("gemini", "gemini-2.5-flash"),
+		},
+	}
+	results := make([]apiProviderPreflightResult, 0, len(specs))
+	for _, spec := range specs {
+		results = append(results, probeAPIProviderReadiness(spec.provider, spec.protocol, spec.baseURL, spec.apiKeyEnv, spec.model))
 	}
 	return results
 }
@@ -1018,6 +1463,62 @@ func probeCLIProviderReadiness(provider string, command string, prompt string) c
 	}
 	if !result.RecoverableJSON {
 		result.Error = "command succeeded but did not return a recoverable JSON object"
+		return result
+	}
+	result.Ready = true
+	return result
+}
+
+func probeAPIProviderReadiness(provider string, protocol string, baseURL string, apiKeyEnv string, model string) apiProviderPreflightResult {
+	result := apiProviderPreflightResult{
+		Provider: provider,
+		Protocol: protocol,
+		Model:    model,
+		BaseURL:  baseURL,
+	}
+	if strings.TrimSpace(os.Getenv(apiKeyEnv)) == "" {
+		result.Error = fmt.Sprintf("env %s is not set", apiKeyEnv)
+		return result
+	}
+	providerConfig := config.ProviderConfig{
+		Type:      config.ProviderTypeAPI,
+		Protocol:  protocol,
+		BaseURL:   baseURL,
+		APIKeyEnv: apiKeyEnv,
+	}
+	runner := apiruntime.NewRunner(providerConfig)
+	schema := map[string]any{
+		"type":                 "object",
+		"additionalProperties": false,
+		"required":             []string{"ok"},
+		"properties": map[string]any{
+			"ok": map[string]any{
+				"type": "boolean",
+			},
+		},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), realAPIPreflightTimeout())
+	defer cancel()
+	startedAt := time.Now()
+	text, err := runner.RunTask(ctx, `只返回一个 JSON 对象：{"ok":true}`, "你必须只输出一个 JSON 对象，不要输出 markdown。", model, nil, "", 256, schema)
+	result.Duration = time.Since(startedAt)
+	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			result.Error = fmt.Sprintf("timed out after %s", realAPIPreflightTimeout())
+		} else {
+			result.Error = err.Error()
+		}
+		return result
+	}
+	result.StdoutPreview = previewText(text, 220)
+	if strict, strictErr := tilruntime.StrictJSONObjectBytes(text); strictErr == nil && len(strict) > 0 {
+		result.StrictJSON = true
+		result.RecoverableJSON = true
+	} else if _, parseErr := tilruntime.ParseJSONObject(text); parseErr == nil {
+		result.RecoverableJSON = true
+	}
+	if !result.RecoverableJSON {
+		result.Error = "request succeeded but did not return a recoverable JSON object"
 		return result
 	}
 	result.Ready = true
@@ -1125,6 +1626,15 @@ func realCLIPreflightTimeout() time.Duration {
 	return 90 * time.Second
 }
 
+func realAPIPreflightTimeout() time.Duration {
+	if override := strings.TrimSpace(os.Getenv("TIL_CONSENSUS_E2E_REAL_API_PREFLIGHT_TIMEOUT")); override != "" {
+		if parsed, err := time.ParseDuration(override); err == nil && parsed > 0 {
+			return parsed
+		}
+	}
+	return 45 * time.Second
+}
+
 func previewText(text string, max int) string {
 	trimmed := strings.TrimSpace(text)
 	if len(trimmed) <= max {
@@ -1150,7 +1660,83 @@ func formatPreflightFailureReason(result cliProviderPreflightResult) string {
 	return strings.Join(parts, " | ")
 }
 
-func startE2EAPIServers(t *testing.T, mode consensus.WorkflowMode, openAIHits *int, anthropicHits *int) (*httptest.Server, *httptest.Server) {
+func formatAPIPreflightFailureReason(result apiProviderPreflightResult) string {
+	parts := make([]string, 0, 3)
+	if strings.TrimSpace(result.Error) != "" {
+		parts = append(parts, strings.TrimSpace(result.Error))
+	}
+	if strings.TrimSpace(result.BaseURL) != "" {
+		parts = append(parts, "base_url="+strings.TrimSpace(result.BaseURL))
+	}
+	if strings.TrimSpace(result.StdoutPreview) != "" {
+		parts = append(parts, "stdout="+strings.TrimSpace(result.StdoutPreview))
+	}
+	if len(parts) == 0 {
+		return "unknown readiness failure"
+	}
+	return strings.Join(parts, " | ")
+}
+
+func resolveRealAPIBaseURL(provider string) string {
+	switch provider {
+	case "openai":
+		return firstNonEmptyString(
+			os.Getenv("TIL_CONSENSUS_E2E_OPENAI_BASE_URL"),
+			os.Getenv("OPENAI_BASE_URL"),
+			"https://api.openai.com/v1",
+		)
+	case "anthropic":
+		return firstNonEmptyString(
+			os.Getenv("TIL_CONSENSUS_E2E_ANTHROPIC_BASE_URL"),
+			os.Getenv("ANTHROPIC_BASE_URL"),
+			"https://api.anthropic.com/v1",
+		)
+	case "gemini":
+		return firstNonEmptyString(
+			os.Getenv("TIL_CONSENSUS_E2E_GEMINI_BASE_URL"),
+			os.Getenv("GEMINI_BASE_URL"),
+			"https://generativelanguage.googleapis.com/v1beta",
+		)
+	default:
+		return ""
+	}
+}
+
+func resolveRealAPIModel(provider string, fallback string) string {
+	switch provider {
+	case "openai":
+		return firstNonEmptyString(
+			os.Getenv("TIL_CONSENSUS_E2E_OPENAI_MODEL"),
+			os.Getenv("OPENAI_MODEL"),
+			fallback,
+		)
+	case "anthropic":
+		return firstNonEmptyString(
+			os.Getenv("TIL_CONSENSUS_E2E_ANTHROPIC_MODEL"),
+			os.Getenv("ANTHROPIC_MODEL"),
+			fallback,
+		)
+	case "gemini":
+		return firstNonEmptyString(
+			os.Getenv("TIL_CONSENSUS_E2E_GEMINI_MODEL"),
+			os.Getenv("GEMINI_MODEL"),
+			fallback,
+		)
+	default:
+		return fallback
+	}
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func startE2EAPIServers(t *testing.T, mode consensus.WorkflowMode, openAIHits *int, anthropicHits *int, geminiHits *int) (*httptest.Server, *httptest.Server, *httptest.Server) {
 	t.Helper()
 	openAIServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/chat/completions" {
@@ -1193,7 +1779,40 @@ func startE2EAPIServers(t *testing.T, mode consensus.WorkflowMode, openAIHits *i
 		})
 	}))
 
-	return openAIServer, anthropicServer
+	geminiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, "/models/") || !strings.HasSuffix(r.URL.Path, ":generateContent") {
+			t.Fatalf("unexpected gemini path: %s", r.URL.Path)
+		}
+		(*geminiHits)++
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode gemini request: %v", err)
+		}
+		generationConfig, ok := body["generationConfig"].(map[string]any)
+		if !ok {
+			t.Fatalf("expected generationConfig in gemini request, got %#v", body)
+		}
+		if got := generationConfig["response_mime_type"]; got != "application/json" {
+			t.Fatalf("expected response_mime_type in gemini request, got %#v", generationConfig)
+		}
+		if _, ok := generationConfig["response_json_schema"].(map[string]any); !ok {
+			t.Fatalf("expected response_json_schema in gemini request, got %#v", generationConfig)
+		}
+		prompt := extractGeminiPrompt(t, body["contents"])
+		response := e2eAPIResponse(mode, prompt)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"candidates": []map[string]any{{
+				"content": map[string]any{
+					"parts": []map[string]any{
+						{"text": response},
+					},
+				},
+			}},
+		})
+	}))
+
+	return openAIServer, anthropicServer, geminiServer
 }
 
 func e2eAPIResponse(mode consensus.WorkflowMode, prompt string) string {

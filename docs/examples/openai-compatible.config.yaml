@@ -1,0 +1,70 @@
+schema_version: 1
+
+defaults:
+  success_criteria:
+    - 给出 claim 级裁决
+    - 输出关键 caveat 与 unresolved
+  per_task_timeout: 20m
+  task_retry_attempts: 1
+  proposal_policy:
+    max_passes: 1
+    max_claims_per_worker: 4
+    dedupe_strategy: normalized-statement
+  verification_policy:
+    allow_semantic_verifier: true
+    max_parallel_checks: 2
+  arbiter_policy:
+    allow_undetermined: true
+    blind_review: true
+
+output:
+  directory: ./out/{requestId}
+
+providers:
+  openai-api:
+    type: api
+    protocol: openai-compatible
+    base_url: https://api.openai.com/v1
+    api_key_env: OPENAI_API_KEY
+    headers:
+      X-Title: til-consensus
+    options:
+      endpoint_path: /chat/completions
+      max_output_tokens_field: max_completion_tokens
+      reasoning_field: reasoning_effort
+      timeout_ms: 120000
+    models:
+      default:
+        provider_model: gpt-5.4
+        max_output_tokens: 4096
+        temperature: 0.2
+        reasoning: medium
+
+agents:
+  - id: proposer-openai
+    provider: openai-api
+    model: default
+    role: proposer
+  - id: challenger-openai
+    provider: openai-api
+    model: default
+    role: challenger
+  - id: verifier-openai
+    provider: openai-api
+    model: default
+    role: semantic-verifier
+  - id: arbiter-openai
+    provider: openai-api
+    model: default
+    role: arbiter
+  - id: reporter-openai
+    provider: openai-api
+    model: default
+    role: reporter
+
+roles:
+  proposers: [proposer-openai]
+  challengers: [challenger-openai]
+  semantic_verifier: verifier-openai
+  arbiter: arbiter-openai
+  reporter: reporter-openai

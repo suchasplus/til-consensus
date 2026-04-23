@@ -13,6 +13,19 @@
 
 ## Provider 样例
 
+### 六路总模板
+
+如果你想一次把 `3 CLI + 3 API` 都先铺好，再慢慢填空和切角色，直接用：
+
+- [all-providers.fill-in.config.yaml](examples/all-providers.fill-in.config.yaml)
+
+这份模板已经包含：
+
+- `codex / claude / gemini` 三个 CLI
+- `openai-compatible / anthropic-compatible / gemini-api` 三个 API
+- `adjudication / free_debate / delphi` 三种 mode 需要的角色位
+- OpenRouter / Kimi 这类兼容网关的填写说明
+
 ### `generic`
 
 适合包你自己的脚本、本地模型适配器或公司内部 CLI。
@@ -50,6 +63,28 @@ til-consensus config init --mode adjudication --provider-profile claude --config
 ```bash
 til-consensus config init --mode adjudication --provider-profile gemini --config ./til-consensus.yaml
 ```
+
+### API 协议与兼容网关
+
+下面这些样例都使用真实 API provider，不是 CLI：
+
+- [openai-compatible.config.yaml](examples/openai-compatible.config.yaml)
+- [anthropic-compatible.config.yaml](examples/anthropic-compatible.config.yaml)
+- [gemini-api.config.yaml](examples/gemini-api.config.yaml)
+
+如果你走兼容网关，也可以直接用下面两份：
+
+- [openrouter.config.yaml](examples/openrouter.config.yaml)
+- [kimi.config.yaml](examples/kimi.config.yaml)
+
+说明：
+
+- `OpenRouter` 和 `Kimi` 这类多数走 `openai-compatible`
+- 真正需要改的核心字段通常只有：
+  - `base_url`
+  - `api_key_env`
+  - `models.<id>.provider_model`
+  - 以及可选的 `headers / options`
 
 ### 多 CLI 交叉论证
 

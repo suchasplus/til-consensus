@@ -27,19 +27,21 @@ func TestApplyAddProviderAndAgent(t *testing.T) {
 	env := map[string]string{"DEBUG": "true"}
 	options := map[string]any{"retries": int64(3)}
 	next, err := ApplyAddProvider(cfg, AddProviderInput{
-		ID:            "api1",
-		Type:          ProviderTypeAPI,
-		ModelID:       "general",
-		ProviderModel: "gpt-5",
-		Protocol:      APIProtocolOpenAICompatible,
-		BaseURL:       "https://example.com/v1",
-		APIKeyEnv:     "OPENAI_API_KEY",
-		Headers:       headers,
-		Env:           env,
-		Options:       options,
-		Temperature:   &temperature,
-		Reasoning:     "medium",
-		AgentID:       "api-agent",
+		ID:              "api1",
+		Type:            ProviderTypeAPI,
+		ModelID:         "general",
+		ProviderModel:   "gpt-5",
+		ContextWindow:   128000,
+		MaxOutputTokens: 4096,
+		Protocol:        APIProtocolOpenAICompatible,
+		BaseURL:         "https://example.com/v1",
+		APIKeyEnv:       "OPENAI_API_KEY",
+		Headers:         headers,
+		Env:             env,
+		Options:         options,
+		Temperature:     &temperature,
+		Reasoning:       "medium",
+		AgentID:         "api-agent",
 	})
 	if err != nil {
 		t.Fatalf("ApplyAddProvider failed: %v", err)
@@ -51,6 +53,9 @@ func TestApplyAddProviderAndAgent(t *testing.T) {
 	provider := next.Providers["api1"]
 	if provider.Type != ProviderTypeAPI || provider.Models["general"].ProviderModel != "gpt-5" {
 		t.Fatalf("unexpected provider: %#v", provider)
+	}
+	if provider.Models["general"].ContextWindow != 128000 || provider.Models["general"].MaxOutputTokens != 4096 {
+		t.Fatalf("expected model sizing to be preserved: %#v", provider.Models["general"])
 	}
 	if provider.Headers["X-Test"] != "1" || provider.Env["DEBUG"] != "true" {
 		t.Fatalf("expected provider maps to be cloned: %#v", provider)
@@ -66,6 +71,22 @@ func TestApplyAddProviderAndAgent(t *testing.T) {
 	}
 	if !foundAgent {
 		t.Fatal("expected generated agent to exist")
+	}
+
+	next, err = ApplyAddProvider(next, AddProviderInput{
+		ID:            "gemini-api",
+		Type:          ProviderTypeAPI,
+		ModelID:       "default",
+		ProviderModel: "gemini-2.5-flash",
+		Protocol:      APIProtocolGemini,
+		BaseURL:       "https://generativelanguage.googleapis.com/v1beta",
+		APIKeyEnv:     "GEMINI_API_KEY",
+	})
+	if err != nil {
+		t.Fatalf("ApplyAddProvider gemini failed: %v", err)
+	}
+	if next.Providers["gemini-api"].Protocol != APIProtocolGemini {
+		t.Fatalf("expected gemini-api protocol, got %#v", next.Providers["gemini-api"])
 	}
 
 	next, err = ApplyAddAgent(next, AddAgentInput{
