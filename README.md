@@ -554,6 +554,12 @@ til-consensus view --config ./til-consensus.yaml --section rounds --section conv
   - 直接运行 CLI
 - `make cover`
   - 生成并打印单元测试覆盖率
+- `make pre-push`
+  - 推送前的快速质量门禁
+  - 执行格式检查、单元测试、`go vet`、`golangci-lint run` 和本地构建
+- `make install-git-hooks`
+  - 安装仓库内置 Git `pre-push` hook
+  - 安装后每次 `git push` 前会自动运行 `make pre-push`
 - `make test-e2e`
   - 执行 CLI 端到端测试矩阵
 - `make test-e2e-real-api`
@@ -676,6 +682,20 @@ make install INSTALL_DIR=/usr/local/bin
 ```bash
 make ci
 ```
+
+如果想在推送前自动拦截 `golangci-lint` / `staticcheck` 这类问题，先安装本地 hook：
+
+```bash
+make install-git-hooks
+```
+
+之后每次 `git push` 前会自动运行：
+
+```bash
+make pre-push
+```
+
+`make pre-push` 比 `make ci` 快，不跑 race 测试；它用于日常提交前拦截格式、单测、`go vet`、`golangci-lint` 和构建问题。需要完全对齐 GitHub Actions 时仍然运行 `make ci`。
 
 本地模拟单个平台发布：
 

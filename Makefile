@@ -11,6 +11,7 @@ VERSION_PKG ?= github.com/suchasplus/til-consensus/internal/buildinfo
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 BUILD_TIME ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
+GIT_HOOKS_DIR ?= .git/hooks
 DIRTY ?= $(shell if [ -n "$$(git status --porcelain 2>/dev/null)" ]; then echo true; else echo false; fi)
 COMMON_LDFLAGS := -X $(VERSION_PKG).Version=$(VERSION) -X $(VERSION_PKG).Commit=$(COMMIT) -X $(VERSION_PKG).BuildTime=$(BUILD_TIME) -X $(VERSION_PKG).Dirty=$(DIRTY)
 RELEASE_LDFLAGS := $(COMMON_LDFLAGS) -s -w
@@ -22,10 +23,18 @@ else
 INSTALL_DIR ?= $(HOME)/.local/bin
 endif
 
-.PHONY: fmt test test-e2e test-e2e-real test-e2e-real-api vet lint ci build build-debug build-release release-archive install run cover clean
+.PHONY: fmt fmt-check test test-e2e test-e2e-real test-e2e-real-api vet lint pre-push install-git-hooks ci build build-debug build-release release-archive install run cover clean
 
 fmt:
 	$(GO) fmt ./...
+
+fmt-check:
+	@output="$$(gofmt -l .)"; \
+	if [ -n "$$output" ]; then \
+		echo "以下文件未格式化:"; \
+		echo "$$output"; \
+		exit 1; \
+	fi
 
 test:
 	$(GO) test ./...
@@ -45,13 +54,17 @@ vet:
 lint:
 	golangci-lint run
 
+pre-push: fmt-check test vet lint build
+
+install-git-hooks:
+	@test -d .git || (echo "当前目录不是 git worktree 根目录"; exit 1)
+	mkdir -p $(GIT_HOOKS_DIR)
+	cp scripts/git-hooks/pre-push $(GIT_HOOKS_DIR)/pre-push
+	chmod +x $(GIT_HOOKS_DIR)/pre-push
+	@echo "installed git pre-push hook to $(GIT_HOOKS_DIR)/pre-push"
+
 ci:
-	@output="$$(gofmt -l .)"; \
-	if [ -n "$$output" ]; then \
-		echo "以下文件未格式化:"; \
-		echo "$$output"; \
-		exit 1; \
-	fi
+	$(MAKE) fmt-check
 	$(GO) test ./...
 	$(GO) test -race ./...
 	$(GO) vet ./...

@@ -56,6 +56,30 @@ make ci
 - `golangci-lint`
 - `make build`
 
+## 推送前本地检查
+
+日常开发不一定每次都要跑完整 `make ci`。为了在推送前提前发现 GitHub Actions 里的 `golangci-lint` / `staticcheck` 问题，可以运行：
+
+```bash
+make pre-push
+```
+
+它会顺序执行：
+
+- 格式检查
+- `go test ./...`
+- `go vet ./...`
+- `golangci-lint run`
+- `make build`
+
+如果希望每次 `git push` 前自动执行，可以安装仓库提供的 Git hook：
+
+```bash
+make install-git-hooks
+```
+
+安装后，`.git/hooks/pre-push` 会调用 `make pre-push`。这个 hook 不会提交到 Git，只在当前本地 clone 生效。
+
 ## 发布流水线
 
 工作流文件：
