@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/suchasplus/til-consensus/internal/config"
@@ -311,5 +312,70 @@ func TestGeminiRunnerSupportsCustomEndpointAndQueryAuth(t *testing.T) {
 	}
 	if text != `{"summary":"ok"}` {
 		t.Fatalf("unexpected response: %s", text)
+	}
+}
+
+func TestGeminiRunnerReportsNoTextDiagnostics(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"candidates": []map[string]any{{
+				"finishReason": "MAX_TOKENS",
+				"content": map[string]any{
+					"parts": []map[string]any{},
+				},
+			}},
+			"usageMetadata": map[string]any{
+				"promptTokenCount":     12,
+				"candidatesTokenCount": 0,
+				"thoughtsTokenCount":   256,
+				"totalTokenCount":      268,
+			},
+		})
+	}))
+	defer server.Close()
+
+	runner := NewRunner(config.ProviderConfig{
+		Type:     config.ProviderTypeAPI,
+		Protocol: config.APIProtocolGemini,
+		BaseURL:  server.URL,
+	})
+	_, err := runner.RunTask(context.Background(), "prompt", "system", "gemini-test", nil, "", 0, map[string]any{"type": "object"})
+	if err == nil {
+		t.Fatalf("expected no text diagnostic error")
+	}
+	message := err.Error()
+	for _, needle := range []string{
+		"gemini response contains no text parts",
+		"finishReason=MAX_TOKENS",
+		"thoughtsTokenCount=256",
+		"totalTokenCount=268",
+	} {
+		if !strings.Contains(message, needle) {
+			t.Fatalf("error missing %q: %s", needle, message)
+		}
+	}
+}
+
+func TestGeminiRunnerReportsPromptBlockDiagnostics(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"promptFeedback": map[string]any{
+				"blockReason": "SAFETY",
+			},
+		})
+	}))
+	defer server.Close()
+
+	runner := NewRunner(config.ProviderConfig{
+		Type:     config.ProviderTypeAPI,
+		Protocol: config.APIProtocolGemini,
+		BaseURL:  server.URL,
+	})
+	_, err := runner.RunTask(context.Background(), "prompt", "system", "gemini-test", nil, "", 0, map[string]any{"type": "object"})
+	if err == nil {
+		t.Fatalf("expected no candidates diagnostic error")
+	}
+	if !strings.Contains(err.Error(), "promptBlockReason=SAFETY") {
+		t.Fatalf("expected prompt block reason in error, got %s", err)
 	}
 }

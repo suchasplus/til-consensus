@@ -34,6 +34,7 @@ func newProfilePreflightCommand() *cli.Command {
 		Usage: "真实调用 provider / agent，检查最小 JSON 非交互输出",
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "config", Usage: "配置文件路径"},
+			&cli.StringFlag{Name: "output", Usage: "覆盖本次 preflight 输出目录模板，例如 ./out/{requestId}"},
 			&cli.BoolFlag{Name: "all", Usage: "检查所有 provider；不传 --provider/--agent 时默认等价于 --all"},
 			&cli.StringSliceFlag{Name: "provider", Usage: "要检查的 provider id，可重复或逗号分隔"},
 			&cli.StringSliceFlag{Name: "agent", Usage: "要检查的 agent id，可重复或逗号分隔"},
@@ -58,6 +59,9 @@ func runProfilePreflightCommand(ctx context.Context, cmd *cli.Command) error {
 	loaded, err := config.Load(configPath)
 	if err != nil {
 		return err
+	}
+	if output := strings.TrimSpace(cmd.String("output")); output != "" {
+		loaded.Config.Output.Directory = output
 	}
 	requestID := artifact.NewRequestID(time.Now().UTC())
 	paths := config.ResolveRunArtifacts(loaded, requestID)

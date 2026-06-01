@@ -268,18 +268,38 @@ func (r *Runner) runGemini(
 	}
 	var decoded struct {
 		Candidates []struct {
-			Content struct {
+			FinishReason string `json:"finishReason"`
+			Content      struct {
 				Parts []struct {
 					Text string `json:"text"`
 				} `json:"parts"`
 			} `json:"content"`
 		} `json:"candidates"`
+		PromptFeedback struct {
+			BlockReason string `json:"blockReason"`
+		} `json:"promptFeedback"`
+		UsageMetadata struct {
+			PromptTokenCount     int `json:"promptTokenCount"`
+			CandidatesTokenCount int `json:"candidatesTokenCount"`
+			ThoughtsTokenCount   int `json:"thoughtsTokenCount"`
+			TotalTokenCount      int `json:"totalTokenCount"`
+		} `json:"usageMetadata"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
 		return "", fmt.Errorf("decode gemini response: %w", err)
 	}
 	if len(decoded.Candidates) == 0 {
-		return "", fmt.Errorf("gemini response contains no candidates")
+		return "", fmt.Errorf(
+			"gemini response contains no candidates%s",
+			geminiResponseDiagnostics(
+				"",
+				decoded.PromptFeedback.BlockReason,
+				decoded.UsageMetadata.PromptTokenCount,
+				decoded.UsageMetadata.CandidatesTokenCount,
+				decoded.UsageMetadata.ThoughtsTokenCount,
+				decoded.UsageMetadata.TotalTokenCount,
+			),
+		)
 	}
 	parts := make([]string, 0, len(decoded.Candidates[0].Content.Parts))
 	for _, part := range decoded.Candidates[0].Content.Parts {
@@ -289,9 +309,49 @@ func (r *Runner) runGemini(
 	}
 	text := strings.TrimSpace(strings.Join(parts, "\n"))
 	if text == "" {
-		return "", fmt.Errorf("gemini response contains no text parts")
+		return "", fmt.Errorf(
+			"gemini response contains no text parts%s",
+			geminiResponseDiagnostics(
+				decoded.Candidates[0].FinishReason,
+				decoded.PromptFeedback.BlockReason,
+				decoded.UsageMetadata.PromptTokenCount,
+				decoded.UsageMetadata.CandidatesTokenCount,
+				decoded.UsageMetadata.ThoughtsTokenCount,
+				decoded.UsageMetadata.TotalTokenCount,
+			),
+		)
 	}
 	return text, nil
+}
+
+func geminiResponseDiagnostics(
+	finishReason string,
+	blockReason string,
+	promptTokenCount int,
+	candidatesTokenCount int,
+	thoughtsTokenCount int,
+	totalTokenCount int,
+) string {
+	details := []string{}
+	if strings.TrimSpace(finishReason) != "" {
+		details = append(details, "finishReason="+strings.TrimSpace(finishReason))
+	}
+	if strings.TrimSpace(blockReason) != "" {
+		details = append(details, "promptBlockReason="+strings.TrimSpace(blockReason))
+	}
+	if promptTokenCount > 0 || candidatesTokenCount > 0 || thoughtsTokenCount > 0 || totalTokenCount > 0 {
+		details = append(
+			details,
+			fmt.Sprintf("promptTokenCount=%d", promptTokenCount),
+			fmt.Sprintf("candidatesTokenCount=%d", candidatesTokenCount),
+			fmt.Sprintf("thoughtsTokenCount=%d", thoughtsTokenCount),
+			fmt.Sprintf("totalTokenCount=%d", totalTokenCount),
+		)
+	}
+	if len(details) == 0 {
+		return ""
+	}
+	return " " + strings.Join(details, " ")
 }
 
 func resolveAPIKey(provider config.ProviderConfig) (string, bool) {

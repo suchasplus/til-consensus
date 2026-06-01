@@ -599,6 +599,7 @@ til-consensus profile preflight --config ./til-consensus.yaml --all --verbose
 til-consensus profile preflight --config ./til-consensus.yaml --provider deepseek-api
 til-consensus profile preflight --config ./til-consensus.yaml --agent arbiter-qwen-max
 til-consensus profile preflight --config ./til-consensus.yaml --all --web --open
+til-consensus profile preflight --config docs/examples/deepseek.config.yaml --provider deepseek-api --output ./out/{requestId} --verbose
 ```
 
 行为：
@@ -606,8 +607,10 @@ til-consensus profile preflight --config ./til-consensus.yaml --all --web --open
 - `--all` 检查配置里的所有 provider；不传 `--provider/--agent` 时默认等价于 `--all`。
 - `--provider` 按 provider id 过滤，可重复传入，也可以逗号分隔。
 - `--agent` 按 agent id 检查，会使用该 agent 的 provider、model、temperature、reasoning 覆写。
+- `--output` 只覆盖本次 preflight 的 `output.directory`，不会写回配置文件。
 - API provider 会先检查 `api_key_env` 对应环境变量是否存在；不会把 key 写进 artifact。
-- 每个 provider 会执行最小非交互 JSON 探测：要求返回 `{"ok": true}`。
+- 每个 provider 会执行带 schema 的最小非交互 JSON 探测：要求返回 `{"ok": true}`。
+- preflight 默认探测预算是 `max_output_tokens=2048`；如果该 model 显式配置了更小的 `max_output_tokens`，则使用配置值。这个预算只影响 preflight，不会改正常 `run`。
 - 结果会写到标准输出目录，并生成 `artifacts/provider-readiness.json`，可被 `view` 和 `telemetry daily` 读取。
 
 推荐验证顺序：
@@ -630,6 +633,8 @@ til-consensus view --result ./out/tc_xxx/result.json --section debug --verbose
   - 当前 provider 被限流，换模型、降低频率或稍后重试
 - `did not return a recoverable JSON object`
   - provider 可调用，但当前 CLI/API 输出不满足最小 JSON 契约，需要检查模型名、structured output 能力或 provider-specific 参数
+- `gemini response contains no text parts ... finishReason=MAX_TOKENS`
+  - Gemini thinking 模型可能把输出预算消耗在思考阶段；提高该模型的 `max_output_tokens`，或在 provider `options.extra_body.generationConfig` 中按目标网关支持情况降低/关闭 thinking
 
 如果只想验证新增 API profile，可以先导出对应 key：
 

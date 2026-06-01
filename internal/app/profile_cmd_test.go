@@ -136,3 +136,60 @@ roles:
 		t.Fatalf("unexpected readiness: %#v", readiness)
 	}
 }
+
+func TestProfilePreflightCommandOutputOverride(t *testing.T) {
+	tmp := t.TempDir()
+	configPath := filepath.Join(tmp, "config", "til-consensus.yaml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("mkdir config dir: %v", err)
+	}
+	if err := os.WriteFile(configPath, []byte(`schema_version: 1
+defaults:
+  success_criteria: [ok]
+output:
+  directory: ./config-relative-out/{requestId}
+providers:
+  mock:
+    type: mock
+    models:
+      default:
+        provider_model: mock
+agents:
+  - id: proposer-a
+    provider: mock
+    model: default
+    role: proposer
+  - id: challenger-a
+    provider: mock
+    model: default
+    role: challenger
+  - id: arbiter-a
+    provider: mock
+    model: default
+    role: arbiter
+roles:
+  proposers: [proposer-a]
+  challengers: [challenger-a]
+  arbiter: arbiter-a
+`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	outputTemplate := filepath.Join(tmp, "override-out", "{requestId}")
+
+	cmd := newProfilePreflightCommand()
+	var stdout bytes.Buffer
+	cmd.Writer = &stdout
+	if err := cmd.Run(context.Background(), []string{"preflight", "--config", configPath, "--output", outputTemplate, "--all"}); err != nil {
+		t.Fatalf("profile preflight failed: %v", err)
+	}
+	resultPath := regexp.MustCompile(`result: ([^\n]+)`).FindStringSubmatch(stdout.String())
+	if len(resultPath) != 2 {
+		t.Fatalf("could not find result path in output:\n%s", stdout.String())
+	}
+	if !strings.HasPrefix(strings.TrimSpace(resultPath[1]), filepath.Join(tmp, "override-out")) {
+		t.Fatalf("expected output override path, got %s", resultPath[1])
+	}
+	if _, err := os.Stat(strings.TrimSpace(resultPath[1])); err != nil {
+		t.Fatalf("expected result under output override: %v", err)
+	}
+}

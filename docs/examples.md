@@ -90,6 +90,7 @@ til-consensus config init --mode adjudication --provider-profile gemini --config
 - `DeepSeek` 样例默认使用 `DEEPSEEK_API_KEY`，不会把明文 key 写进配置文件
 - `Qwen Max` 样例默认使用 `BAILIAN_API_KEY`，并通过 `extra_body.enable_thinking` 打开思考模式
 - 复制这些文件后，先用 `til-consensus config validate --config ./til-consensus.yaml` 做结构校验，再用 `til-consensus profile preflight --config ./til-consensus.yaml --all --verbose` 做真实连通性校验
+- `profile preflight` 会执行带 schema 的 `{"ok": true}` 最小探测，默认 `max_output_tokens=2048`。如果你直接测试 `docs/examples/*.config.yaml`，建议加 `--output ./out/{requestId}`，避免输出落到 `docs/examples/out/`
 
 ### 多 CLI 交叉论证
 

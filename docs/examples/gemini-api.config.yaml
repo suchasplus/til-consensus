@@ -33,7 +33,7 @@ providers:
       timeout_ms: 120000
     models:
       default:
-        provider_model: gemini-2.5-flash
+        provider_model: gemini-3.5-flash
         max_output_tokens: 4096
         temperature: 0.2
         reasoning: medium

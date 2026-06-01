@@ -334,10 +334,11 @@ func effectiveReasoning(item candidate) string {
 }
 
 func effectiveMaxOutputTokens(item candidate) int {
-	if item.ModelConfig.MaxOutputTokens > 0 && item.ModelConfig.MaxOutputTokens < 256 {
+	defaultTokens := 2048
+	if item.ModelConfig.MaxOutputTokens > 0 && item.ModelConfig.MaxOutputTokens < defaultTokens {
 		return item.ModelConfig.MaxOutputTokens
 	}
-	return 256
+	return defaultTokens
 }
 
 func providerModelFor(provider config.ProviderConfig, modelID string, model config.ProviderModelConfig) string {

@@ -332,10 +332,22 @@ til-consensus config add-provider \
 
 `config validate` 只检查配置结构；`profile preflight` 会真实调用 provider，适合手动确认 CLI 登录态、API key、base url 和模型名是否可用。
 
+preflight 会发起一次最小非交互 JSON 探测，要求 provider 返回 `{"ok": true}`。探测默认使用 `max_output_tokens=2048`；如果对应 model 配置了更小的 `max_output_tokens`，则尊重配置值。这个预算只影响 preflight，不会改正常 `run` 的输出预算。
+
 检查配置里的所有 provider：
 
 ```bash
 til-consensus profile preflight --config ./til-consensus.yaml --all --verbose
+```
+
+如果你临时使用 `docs/examples/*.config.yaml`，但不想把输出写到 `docs/examples/out/`，可以覆盖输出目录：
+
+```bash
+til-consensus profile preflight \
+  --config docs/examples/deepseek.config.yaml \
+  --provider deepseek-api \
+  --output ./out/{requestId} \
+  --verbose
 ```
 
 只检查某个 provider 或 agent：
@@ -359,6 +371,8 @@ preflight 会写出标准运行目录，最关键的是：
   - 记录 `ready / strictJSON / recoverableJSON / durationMs / error`
 - `summary.md`
   - 人可读的 readiness 摘要
+
+如果 Gemini 等 thinking 模型返回 `gemini response contains no text parts ... finishReason=MAX_TOKENS`，通常是思考阶段消耗了输出预算；提高该模型的 `max_output_tokens`，或按目标网关支持情况降低/关闭 thinking。
 
 ## `run` 示例
 

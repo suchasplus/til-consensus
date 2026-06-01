@@ -82,6 +82,8 @@
 
 `profile preflight` 和真实 E2E 会写出这个文件，用来记录 provider 是否能在当前环境完成最小非交互 JSON 调用。
 
+`profile preflight` 的探测默认使用 `max_output_tokens=2048`；如果 model 配置了更小的 `max_output_tokens`，则使用配置值。这个预算只影响 readiness 探测，不代表正式 workflow 的输出预算。
+
 核心字段：
 
 - `provider`
@@ -96,6 +98,8 @@
 - `recoverableJSON`
 - `durationMs`
 - `error`
+
+Gemini API 的无文本错误会尽量带上 `finishReason`、`promptBlockReason` 和 token usage，例如 `thoughtsTokenCount`，用于区分安全拦截、输出截断和 thinking 预算消耗。
 
 这个文件会被 `view --section debug --verbose`、`view --web` 和 `telemetry daily` 读取。
 

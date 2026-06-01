@@ -50,6 +50,14 @@ til-consensus view --result ./out/tc_xxx/result.json --section debug --verbose
 til-consensus view --result ./out/tc_xxx/result.json --web --open
 ```
 
+preflight 的 Debug / Telemetry 区块会展示 provider readiness，包括 `ready / strictJSON / recoverableJSON / durationMs / error`。探测默认使用 `max_output_tokens=2048`；如果 Gemini 等 thinking 模型耗尽预算，错误里会带 `finishReason` 和 token usage，便于判断是模型名、结构化输出参数还是输出预算问题。
+
+如果 preflight 使用的是 `docs/examples/*.config.yaml`，默认输出会相对配置文件目录解析。要统一写回项目根目录，可以加：
+
+```bash
+til-consensus profile preflight --config docs/examples/deepseek.config.yaml --output ./out/{requestId} --all --verbose
+```
+
 默认只监听 `127.0.0.1`，并打印实际 URL，不会自动打开浏览器。
 
 如果你要显式打开默认浏览器：
