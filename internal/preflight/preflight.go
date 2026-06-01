@@ -202,15 +202,16 @@ func probeCandidate(ctx context.Context, item candidate, opts Options, sink Arti
 	if item.ModelID != "" && item.ModelID != "default" {
 		entry.Model = item.ProviderModel + " (" + item.ModelID + ")"
 	}
-	if item.ProviderType == config.ProviderTypeCLI {
+	switch item.ProviderType {
+	case config.ProviderTypeCLI:
 		command := item.Provider.Command
 		if command == "" {
 			command = firstNonEmpty(item.Provider.CLIType, config.CLITypeGeneric)
 		}
 		entry.Command = append([]string{command}, item.Provider.Args...)
-	} else if item.ProviderType == config.ProviderTypeAPI {
+	case config.ProviderTypeAPI:
 		entry.Command = []string{item.Protocol, item.ProviderModel, item.Provider.BaseURL}
-	} else {
+	default:
 		entry.Command = []string{item.ProviderType}
 	}
 
