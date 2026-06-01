@@ -1443,6 +1443,13 @@ func probeCLIProviderReadiness(provider string, command string, prompt string) c
 	result.StdoutPreview = previewText(rawStdout, 220)
 	result.StderrPreview = previewText(rawStderr, 220)
 	normalizedStdout := normalizePreflightOutput(provider, rawStdout)
+	if provider == "codex" {
+		if lastMessagePath := outputLastMessagePath(result.Command); lastMessagePath != "" {
+			if body, readErr := os.ReadFile(lastMessagePath); readErr == nil && strings.TrimSpace(string(body)) != "" {
+				normalizedStdout = string(body)
+			}
+		}
+	}
 
 	if strict, strictErr := tilruntime.StrictJSONObjectBytes(normalizedStdout); strictErr == nil && len(strict) > 0 {
 		result.StrictJSON = true
@@ -1561,12 +1568,35 @@ func buildCLIProviderPreflightArgs(provider string, prompt string) ([]string, st
 			_ = os.Remove(file.Name())
 			return nil, "", nil, fmt.Errorf("close codex preflight schema temp file: %w", err)
 		}
-		return []string{"exec", "-m", "gpt-5.4", "--full-auto", "--color", "never", "--skip-git-repo-check", "--output-schema", file.Name()}, prompt, func() { _ = os.Remove(file.Name()) }, nil
+		outputFile, err := os.CreateTemp("", "til-consensus-e2e-codex-last-message-*.txt")
+		if err != nil {
+			_ = os.Remove(file.Name())
+			return nil, "", nil, fmt.Errorf("create codex preflight output-last-message temp file: %w", err)
+		}
+		outputPath := outputFile.Name()
+		if err := outputFile.Close(); err != nil {
+			_ = os.Remove(file.Name())
+			_ = os.Remove(outputPath)
+			return nil, "", nil, fmt.Errorf("close codex preflight output-last-message temp file: %w", err)
+		}
+		return []string{"exec", "-m", "gpt-5.4", "--full-auto", "--color", "never", "--skip-git-repo-check", "--output-schema", file.Name(), "--output-last-message", outputPath}, prompt, func() {
+			_ = os.Remove(file.Name())
+			_ = os.Remove(outputPath)
+		}, nil
 	case "gemini":
 		return []string{"--approval-mode", "yolo", "-m", "gemini-3.1-pro-preview"}, prompt, func() {}, nil
 	default:
 		return nil, prompt, func() {}, nil
 	}
+}
+
+func outputLastMessagePath(command []string) string {
+	for idx := 0; idx < len(command)-1; idx++ {
+		if command[idx] == "--output-last-message" {
+			return command[idx+1]
+		}
+	}
+	return ""
 }
 
 func normalizePreflightOutput(provider string, raw string) string {

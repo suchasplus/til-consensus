@@ -66,11 +66,22 @@ func (r *Runner) RunTask(
 	}
 	defer cleanup()
 	args = append(args, schemaArgs...)
+	captureArgs, readCapturedOutput, cleanupCapture, err := buildFinalOutputCaptureArgs(cliType)
+	if err != nil {
+		return "", err
+	}
+	defer cleanupCapture()
+	args = append(args, captureArgs...)
 	args = append(args, renderArgs(r.provider.Args, task, agentID, role, providerModel)...)
 	env := append(os.Environ(), renderEnv(r.provider.Env, task, agentID, role, providerModel)...)
 	raw, err := runCommand(ctx, commandName, args, env, stdin)
 	if err != nil {
 		return "", err
+	}
+	if captured, err := readCapturedOutput(); err != nil {
+		return "", err
+	} else if strings.TrimSpace(captured) != "" {
+		raw = captured
 	}
 	return normalizeStructuredCLIOutput(cliType, outputSchema, raw)
 }
@@ -108,6 +119,32 @@ func buildStructuredOutputArgs(cliType string, outputSchema map[string]any) ([]s
 	default:
 		return nil, func() {}, nil
 	}
+}
+
+func buildFinalOutputCaptureArgs(cliType string) ([]string, func() (string, error), func(), error) {
+	if cliType != "codex" {
+		return nil, func() (string, error) { return "", nil }, func() {}, nil
+	}
+	file, err := os.CreateTemp("", "til-consensus-codex-last-message-*.txt")
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create codex output-last-message temp file: %w", err)
+	}
+	path := file.Name()
+	if err := file.Close(); err != nil {
+		_ = os.Remove(path)
+		return nil, nil, nil, fmt.Errorf("close codex output-last-message temp file: %w", err)
+	}
+	read := func() (string, error) {
+		body, err := os.ReadFile(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return "", nil
+			}
+			return "", fmt.Errorf("read codex output-last-message file: %w", err)
+		}
+		return string(body), nil
+	}
+	return []string{"--output-last-message", path}, read, func() { _ = os.Remove(path) }, nil
 }
 
 func normalizeStructuredCLIOutput(cliType string, outputSchema map[string]any, raw string) (string, error) {

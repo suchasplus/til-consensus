@@ -1,0 +1,72 @@
+schema_version: 1
+
+defaults:
+  success_criteria:
+    - 给出 claim 级裁决
+    - 输出关键 caveat 与 unresolved
+  per_task_timeout: 20m
+  task_retry_attempts: 1
+  proposal_policy:
+    max_passes: 1
+    max_claims_per_worker: 4
+    dedupe_strategy: normalized-statement
+  verification_policy:
+    allow_semantic_verifier: true
+    max_parallel_checks: 2
+  arbiter_policy:
+    allow_undetermined: true
+    blind_review: true
+
+output:
+  directory: ./out/{requestId}
+
+providers:
+  qwen-max-api:
+    type: api
+    protocol: openai-compatible
+    base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    api_key_env: BAILIAN_API_KEY
+    options:
+      endpoint_path: /chat/completions
+      structured_output_mode: none
+      max_output_tokens_field: max_tokens
+      reasoning_field: "-"
+      timeout_ms: 120000
+      extra_body:
+        response_format:
+          type: json_object
+        # 可改为 false 关闭百炼兼容模式的思考输出。
+        enable_thinking: true
+    models:
+      default:
+        provider_model: qwen3.7-max
+        max_output_tokens: 4096
+
+agents:
+  - id: proposer-qwen-max
+    provider: qwen-max-api
+    model: default
+    role: proposer
+  - id: challenger-qwen-max
+    provider: qwen-max-api
+    model: default
+    role: challenger
+  - id: verifier-qwen-max
+    provider: qwen-max-api
+    model: default
+    role: semantic-verifier
+  - id: arbiter-qwen-max
+    provider: qwen-max-api
+    model: default
+    role: arbiter
+  - id: reporter-qwen-max
+    provider: qwen-max-api
+    model: default
+    role: reporter
+
+roles:
+  proposers: [proposer-qwen-max]
+  challengers: [challenger-qwen-max]
+  semantic_verifier: verifier-qwen-max
+  arbiter: arbiter-qwen-max
+  reporter: reporter-qwen-max

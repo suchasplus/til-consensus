@@ -18,6 +18,12 @@ type ProviderReadinessFile struct {
 
 type ProviderReadinessEntry struct {
 	Provider        string   `json:"provider"`
+	ProviderType    string   `json:"providerType,omitempty"`
+	Protocol        string   `json:"protocol,omitempty"`
+	Model           string   `json:"model,omitempty"`
+	BaseURL         string   `json:"baseUrl,omitempty"`
+	APIKeyEnv       string   `json:"apiKeyEnv,omitempty"`
+	Agent           string   `json:"agent,omitempty"`
 	Command         []string `json:"command,omitempty"`
 	Ready           bool     `json:"ready"`
 	StrictJSON      bool     `json:"strictJSON"`

@@ -42,6 +42,14 @@ til-consensus view --result ./out/tc_1710000000000_abcd12/result.json
 til-consensus view --result ./out/tc_1710000000000_abcd12/result.json --web
 ```
 
+`profile preflight` 也会写出标准 `result.json`，因此可以直接查看 readiness：
+
+```bash
+til-consensus profile preflight --config ./til-consensus.yaml --all --verbose
+til-consensus view --result ./out/tc_xxx/result.json --section debug --verbose
+til-consensus view --result ./out/tc_xxx/result.json --web --open
+```
+
 默认只监听 `127.0.0.1`，并打印实际 URL，不会自动打开浏览器。
 
 如果你要显式打开默认浏览器：

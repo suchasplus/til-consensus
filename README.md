@@ -234,6 +234,8 @@ til-consensus config init --mode delphi --provider-profile mock --config ./til-c
 - [gemini API 组合包](docs/examples/gemini-api.config.yaml)
 - [OpenRouter 组合包](docs/examples/openrouter.config.yaml)
 - [Kimi 组合包](docs/examples/kimi.config.yaml)
+- [DeepSeek 组合包](docs/examples/deepseek.config.yaml)
+- [Qwen Max 百炼组合包](docs/examples/qwen-max.config.yaml)
 - [文档完善输入样例](docs/examples/document-refinement.run.yaml)
 - [架构选择输入样例](docs/examples/architecture-decision.run.yaml)
 - [coding review 输入样例](docs/examples/coding-review.run.yaml)
@@ -268,7 +270,7 @@ til-consensus config add-provider \
 
 如果你要接兼容网关，当前推荐这样理解：
 
-- `OpenAI 官方 / OpenRouter / Kimi / 其他 OpenAI 风格网关`
+- `OpenAI 官方 / OpenRouter / Kimi / DeepSeek / Qwen 百炼兼容模式 / 其他 OpenAI 风格网关`
   - 用 `openai-compatible`
 - `Anthropic 官方 / 其他 Anthropic 风格网关`
   - 用 `anthropic-compatible`
@@ -317,6 +319,8 @@ til-consensus config add-provider \
   - 生成带注释的配置模板
 - `til-consensus config validate`
   - 校验配置是否可用
+- `til-consensus profile preflight`
+  - 真实调用配置里的 CLI/API provider，检查最小非交互 JSON 输出，并写出 readiness artifact
 - `til-consensus telemetry daily`
   - 扫描运行目录，输出 readiness / compliance / workflow 的 markdown 汇总
 - `til-consensus followup run`

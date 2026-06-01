@@ -49,15 +49,10 @@ func ResolveConfigPath(explicitPath string) (string, error) {
 }
 
 func Load(path string) (LoadedConfig, error) {
-	body, err := os.ReadFile(path)
+	path = toAbs(path, mustGetwd())
+	cfg, err := loadConfigWithIncludes(path, nil)
 	if err != nil {
-		return LoadedConfig{}, fmt.Errorf("read config: %w", err)
-	}
-	decoder := yaml.NewDecoder(bytes.NewReader(body))
-	decoder.KnownFields(true)
-	var cfg Config
-	if err := decoder.Decode(&cfg); err != nil {
-		return LoadedConfig{}, fmt.Errorf("decode yaml config: %w", err)
+		return LoadedConfig{}, err
 	}
 	cfg = Normalize(cfg)
 	if err := Validate(cfg); err != nil {
@@ -68,6 +63,68 @@ func Load(path string) (LoadedConfig, error) {
 		ConfigDir: filepath.Dir(path),
 		Config:    cfg,
 	}, nil
+}
+
+func loadConfigWithIncludes(path string, stack []string) (Config, error) {
+	path = toAbs(path, mustGetwd())
+	key, err := canonicalConfigPath(path)
+	if err != nil {
+		return Config{}, err
+	}
+	for _, active := range stack {
+		if active == key {
+			return Config{}, fmt.Errorf("config include cycle detected: %s", strings.Join(append(stack, key), " -> "))
+		}
+	}
+	cfg, err := decodeConfigFile(path)
+	if err != nil {
+		return Config{}, err
+	}
+	var merged Config
+	nextStack := append(stack, key)
+	for _, includePath := range cfg.Include {
+		includePath = strings.TrimSpace(includePath)
+		if includePath == "" {
+			return Config{}, fmt.Errorf("empty config include in %s", path)
+		}
+		resolvedInclude := toAbs(includePath, filepath.Dir(path))
+		included, err := loadConfigWithIncludes(resolvedInclude, nextStack)
+		if err != nil {
+			return Config{}, fmt.Errorf("load include %s from %s: %w", includePath, path, err)
+		}
+		merged = mergeConfig(merged, included)
+	}
+	cfg.Include = nil
+	return mergeConfig(merged, cfg), nil
+}
+
+func decodeConfigFile(path string) (Config, error) {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return Config{}, fmt.Errorf("read config: %w", err)
+	}
+	decoder := yaml.NewDecoder(bytes.NewReader(body))
+	decoder.KnownFields(true)
+	var cfg Config
+	if err := decoder.Decode(&cfg); err != nil {
+		return Config{}, fmt.Errorf("decode yaml config: %w", err)
+	}
+	return cfg, nil
+}
+
+func canonicalConfigPath(path string) (string, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("resolve config path %s: %w", path, err)
+	}
+	resolved, err := filepath.EvalSymlinks(abs)
+	if err == nil {
+		return resolved, nil
+	}
+	if _, statErr := os.Stat(abs); statErr != nil {
+		return "", fmt.Errorf("config file not found: %s", abs)
+	}
+	return filepath.Clean(abs), nil
 }
 
 func LoadRunInput(path string) (RunInput, error) {

@@ -24,7 +24,7 @@
 - `codex / claude / gemini` 三个 CLI
 - `openai-compatible / anthropic-compatible / gemini-api` 三个 API
 - `adjudication / free_debate / delphi` 三种 mode 需要的角色位
-- OpenRouter / Kimi 这类兼容网关的填写说明
+- OpenRouter / Kimi / DeepSeek / Qwen 百炼这类兼容网关的填写说明
 
 ### `generic`
 
@@ -76,15 +76,19 @@ til-consensus config init --mode adjudication --provider-profile gemini --config
 
 - [openrouter.config.yaml](examples/openrouter.config.yaml)
 - [kimi.config.yaml](examples/kimi.config.yaml)
+- [deepseek.config.yaml](examples/deepseek.config.yaml)
+- [qwen-max.config.yaml](examples/qwen-max.config.yaml)
 
 说明：
 
-- `OpenRouter` 和 `Kimi` 这类多数走 `openai-compatible`
+- `OpenRouter`、`Kimi`、`DeepSeek` 和 `Qwen 百炼兼容模式` 这类多数走 `openai-compatible`
 - 真正需要改的核心字段通常只有：
   - `base_url`
   - `api_key_env`
   - `models.<id>.provider_model`
   - 以及可选的 `headers / options`
+- `DeepSeek` 样例默认使用 `DEEPSEEK_API_KEY`，不会把明文 key 写进配置文件
+- `Qwen Max` 样例默认使用 `BAILIAN_API_KEY`，并通过 `extra_body.enable_thinking` 打开思考模式
 
 ### 多 CLI 交叉论证
 

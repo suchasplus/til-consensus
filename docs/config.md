@@ -11,6 +11,57 @@
 
 如果你显式设置了 `XDG_CONFIG_HOME`，对应路径会落到 `$XDG_CONFIG_HOME/til-consensus/...`。
 
+## include / overlay
+
+配置文件支持用 `include` 拆分片段，避免维护一份很大的总配置。
+
+```yaml
+schema_version: 1
+include:
+  - ./partials/providers.cli.yaml
+  - ./partials/providers.gemini-api.yaml
+  - ./partials/agents.tri-model.yaml
+  - ./partials/roles.adjudication.yaml
+
+defaults:
+  mode: adjudication
+output:
+  directory: ./out/{requestId}
+```
+
+规则：
+
+- `include` 路径相对当前配置文件所在目录解析。
+- include 可以继续 include 其他文件。
+- 如果出现循环 include，加载会直接失败。
+- 多个 include 按顺序合并，后面的 include 覆盖前面的 include。
+- 主配置文件最后覆盖所有 include。
+- map 字段会深合并，例如 `providers`、`providers.<id>.models`、`headers`、`env`、`options`。
+- `agents` 按 `id` 合并，同一个 agent 可以在主文件里只覆盖 `system_prompt`、`role` 或 `model`。
+- slice 字段默认整体替换，例如 `roles.proposers`、`success_criteria`、`required_checks`。
+- 标量字段只有非零值会覆盖；布尔字段目前只支持 `false -> true` 的覆盖，不适合用 include 把某个已启用的布尔值关掉。
+- 最终合并后的配置仍然走同一套 `Normalize` 和 `Validate`。
+- `config add-provider` / `config add-agent` 这类写回命令会写出合并后的完整配置，不会保留原始 include 结构；手工维护 include 配置时，建议直接编辑片段文件。
+
+推荐目录：
+
+```text
+configs/
+  adjudication.yaml
+  free-debate.yaml
+  delphi.yaml
+  partials/
+    providers.cli.yaml
+    providers.gemini-api.yaml
+    providers.openrouter.yaml
+    agents.tri-model.yaml
+    roles.adjudication.yaml
+    roles.debate.yaml
+    roles.delphi.yaml
+```
+
+建议把稳定的 provider、agent、roles 放在 include 片段里，把每次任务不同的内容放在 `run.yaml` 或 `--task-file` 里。
+
 ## 推荐起步方式
 
 第一次上手时，直接生成模板：
@@ -479,7 +530,7 @@ providers:
         provider_model: gemini-2.5-flash
 ```
 
-如果你要接兼容网关，例如 OpenRouter、Kimi 或公司内代理，建议记住：
+如果你要接兼容网关，例如 OpenRouter、Kimi、DeepSeek、Qwen 百炼兼容模式或公司内代理，建议记住：
 
 - `OpenAI 风格网关`
   - 用 `openai-compatible`
@@ -534,6 +585,30 @@ providers:
 - [gemini-api.config.yaml](examples/gemini-api.config.yaml)
 - [openrouter.config.yaml](examples/openrouter.config.yaml)
 - [kimi.config.yaml](examples/kimi.config.yaml)
+- [deepseek.config.yaml](examples/deepseek.config.yaml)
+- [qwen-max.config.yaml](examples/qwen-max.config.yaml)
+
+## profile preflight
+
+`config validate` 只证明配置结构合法；如果你要确认 API key、base url、CLI 登录态和模型名真的能用，使用 `profile preflight`。
+
+常用命令：
+
+```bash
+til-consensus profile preflight --config ./til-consensus.yaml --all --verbose
+til-consensus profile preflight --config ./til-consensus.yaml --provider deepseek-api
+til-consensus profile preflight --config ./til-consensus.yaml --agent arbiter-qwen-max
+til-consensus profile preflight --config ./til-consensus.yaml --all --web --open
+```
+
+行为：
+
+- `--all` 检查配置里的所有 provider；不传 `--provider/--agent` 时默认等价于 `--all`。
+- `--provider` 按 provider id 过滤，可重复传入，也可以逗号分隔。
+- `--agent` 按 agent id 检查，会使用该 agent 的 provider、model、temperature、reasoning 覆写。
+- API provider 会先检查 `api_key_env` 对应环境变量是否存在；不会把 key 写进 artifact。
+- 每个 provider 会执行最小非交互 JSON 探测：要求返回 `{"ok": true}`。
+- 结果会写到标准输出目录，并生成 `artifacts/provider-readiness.json`，可被 `view` 和 `telemetry daily` 读取。
 
 ## follow-up 与 session store
 

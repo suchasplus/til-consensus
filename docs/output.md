@@ -78,6 +78,27 @@
 - `delphi_round_summary`
 - `delphi_convergence_reached`
 
+## `artifacts/provider-readiness.json`
+
+`profile preflight` 和真实 E2E 会写出这个文件，用来记录 provider 是否能在当前环境完成最小非交互 JSON 调用。
+
+核心字段：
+
+- `provider`
+- `providerType`
+- `protocol`
+- `model`
+- `baseUrl`
+- `apiKeyEnv`
+- `agent`
+- `ready`
+- `strictJSON`
+- `recoverableJSON`
+- `durationMs`
+- `error`
+
+这个文件会被 `view --section debug --verbose`、`view --web` 和 `telemetry daily` 读取。
+
 ## `events.jsonl`
 
 运行事件日志。

@@ -13,7 +13,7 @@ schema_version: 1
 # - 如果你只跑 adjudication：重点改 providers + roles.proposers/challengers/semantic_verifier/arbiter/reporter
 # - 如果你只跑 free_debate：重点改 roles.participants + roles.reporter
 # - 如果你只跑 delphi：重点改 roles.participants + roles.facilitator + roles.reporter
-# - OpenRouter / Kimi / 其他兼容网关：通常走 openai-compatible，把 base_url / api_key_env / provider_model 改掉即可
+# - OpenRouter / Kimi / DeepSeek / Qwen 百炼 / 其他兼容网关：通常走 openai-compatible，把 base_url / api_key_env / provider_model 改掉即可
 
 defaults:
   mode: adjudication
@@ -113,6 +113,12 @@ providers:
     # Kimi / Moonshot：
     # base_url: https://api.moonshot.cn/v1
     #
+    # DeepSeek：
+    # base_url: https://api.deepseek.com
+    #
+    # Qwen 百炼兼容模式：
+    # base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    #
     # 其他 OpenAI 兼容网关：
     # 直接改成你的网关地址
     base_url: <FILL_OPENAI_COMPATIBLE_BASE_URL>
@@ -138,6 +144,16 @@ providers:
       # OpenRouter / Kimi 常见：
       # max_output_tokens_field: max_tokens
       # reasoning_field: "-"
+      #
+      # DeepSeek 常见：
+      # structured_output_mode: none
+      # max_output_tokens_field: max_tokens
+      # reasoning_field: reasoning_effort
+      #
+      # Qwen 百炼兼容模式常见：
+      # structured_output_mode: none
+      # max_output_tokens_field: max_tokens
+      # reasoning_field: "-"
 
       # query 参数认证的网关可这样改：
       # api_key_header: "-"
@@ -150,6 +166,19 @@ providers:
       #   top_p: 0.95
       #   metadata:
       #     source: til-consensus
+      #
+      # DeepSeek 思考模式：
+      # extra_body:
+      #   response_format:
+      #     type: json_object
+      #   thinking:
+      #     type: enabled
+      #
+      # Qwen 百炼兼容模式思考模式：
+      # extra_body:
+      #   response_format:
+      #     type: json_object
+      #   enable_thinking: true
     models:
       default:
         # 官方 OpenAI 例子：
@@ -160,6 +189,12 @@ providers:
         #
         # Kimi 例子：
         # provider_model: kimi-k2-0711-preview
+        #
+        # DeepSeek 例子：
+        # provider_model: deepseek-v4-pro
+        #
+        # Qwen 百炼例子：
+        # provider_model: qwen3.7-max
         provider_model: <FILL_OPENAI_COMPATIBLE_MODEL>
         context_window: 0
         max_output_tokens: 4096

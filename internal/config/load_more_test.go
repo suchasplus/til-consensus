@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -110,6 +111,153 @@ func TestLoadRunInputJSONAndHelpers(t *testing.T) {
 	}
 }
 
+func TestLoadConfigIncludesAndOverlays(t *testing.T) {
+	tmp := t.TempDir()
+	partials := filepath.Join(tmp, "partials")
+	if err := os.MkdirAll(partials, 0o755); err != nil {
+		t.Fatalf("mkdir partials: %v", err)
+	}
+	writeConfigTestFile(t, filepath.Join(partials, "base.yaml"), `
+defaults:
+  success_criteria:
+    - from-base
+  per_task_timeout: 10s
+  proposal_policy:
+    max_claims_per_worker: 3
+  verification_policy:
+    allow_semantic_verifier: true
+    max_parallel_checks: 2
+output:
+  directory: ./base-out/{requestId}
+providers:
+  mock:
+    type: mock
+    models:
+      default:
+        provider_model: mock-base
+agents:
+  - id: proposer-a
+    provider: mock
+    model: default
+    role: proposer
+  - id: challenger-a
+    provider: mock
+    model: default
+    role: challenger
+roles:
+  proposers: [proposer-a]
+  challengers: [challenger-a]
+`)
+	writeConfigTestFile(t, filepath.Join(partials, "override.yaml"), `
+providers:
+  mock:
+    models:
+      default:
+        max_output_tokens: 123
+agents:
+  - id: proposer-a
+    system_prompt: from-include-override
+`)
+	configPath := filepath.Join(tmp, "til-consensus.yaml")
+	writeConfigTestFile(t, configPath, `
+schema_version: 1
+include:
+  - partials/base.yaml
+  - partials/override.yaml
+defaults:
+  success_criteria:
+    - from-main
+  proposal_policy:
+    max_claims_per_worker: 5
+output:
+  directory: ./main-out/{requestId}
+providers:
+  mock:
+    models:
+      default:
+        provider_model: mock-main
+agents:
+  - id: proposer-a
+    system_prompt: from-main
+  - id: arbiter-a
+    provider: mock
+    model: default
+    role: arbiter
+roles:
+  arbiter: arbiter-a
+`)
+
+	loaded, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	cfg := loaded.Config
+	if cfg.SchemaVersion != 1 {
+		t.Fatalf("unexpected schema version: %d", cfg.SchemaVersion)
+	}
+	if got := cfg.Defaults.SuccessCriteria; len(got) != 1 || got[0] != "from-main" {
+		t.Fatalf("expected main list replacement, got %#v", got)
+	}
+	if cfg.Defaults.ProposalPolicy.MaxClaimsPerWorker != 5 {
+		t.Fatalf("expected main scalar override, got %#v", cfg.Defaults.ProposalPolicy)
+	}
+	if !cfg.Defaults.VerificationPolicy.AllowSemanticVerifier || cfg.Defaults.VerificationPolicy.MaxParallelChecks != 2 {
+		t.Fatalf("expected inherited verification policy, got %#v", cfg.Defaults.VerificationPolicy)
+	}
+	if cfg.Output.Directory != "./main-out/{requestId}" {
+		t.Fatalf("expected main output override, got %s", cfg.Output.Directory)
+	}
+	model := cfg.Providers["mock"].Models["default"]
+	if model.ProviderModel != "mock-main" || model.MaxOutputTokens != 123 {
+		t.Fatalf("expected provider model deep merge, got %#v", model)
+	}
+	var proposer AgentConfig
+	for _, agent := range cfg.Agents {
+		if agent.ID == "proposer-a" {
+			proposer = agent
+			break
+		}
+	}
+	if proposer.Provider != "mock" || proposer.SystemPrompt != "from-main" {
+		t.Fatalf("expected agent merge by id, got %#v", proposer)
+	}
+	if len(cfg.Roles.Proposers) != 1 || cfg.Roles.Proposers[0] != "proposer-a" || cfg.Roles.Arbiter != "arbiter-a" {
+		t.Fatalf("expected roles from include plus main, got %#v", cfg.Roles)
+	}
+}
+
+func TestLoadConfigIncludeCycleFails(t *testing.T) {
+	tmp := t.TempDir()
+	first := filepath.Join(tmp, "first.yaml")
+	second := filepath.Join(tmp, "second.yaml")
+	writeConfigTestFile(t, first, `
+schema_version: 1
+include:
+  - second.yaml
+providers:
+  mock:
+    type: mock
+agents:
+  - id: proposer-a
+    provider: mock
+roles:
+  proposers: [proposer-a]
+  challengers: [proposer-a]
+`)
+	writeConfigTestFile(t, second, `
+include:
+  - first.yaml
+`)
+
+	_, err := Load(first)
+	if err == nil {
+		t.Fatal("expected include cycle to fail")
+	}
+	if !strings.Contains(err.Error(), "config include cycle detected") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestModelIDsAndSingleModelID(t *testing.T) {
 	provider := ProviderConfig{
 		Models: map[string]ProviderModelConfig{
@@ -142,4 +290,11 @@ func samePath(t *testing.T, left string, right string) bool {
 		rightEval = right
 	}
 	return leftEval == rightEval
+}
+
+func writeConfigTestFile(t *testing.T, path string, body string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(strings.TrimSpace(body)+"\n"), 0o644); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
 }

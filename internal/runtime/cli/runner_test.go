@@ -97,6 +97,48 @@ func TestBuildStructuredOutputArgsCodexWritesTempFile(t *testing.T) {
 	}
 }
 
+func TestBuildFinalOutputCaptureArgsCodexReadsLastMessage(t *testing.T) {
+	args, read, cleanup, err := buildFinalOutputCaptureArgs("codex")
+	if err != nil {
+		t.Fatalf("buildFinalOutputCaptureArgs failed: %v", err)
+	}
+	if len(args) != 2 || args[0] != "--output-last-message" {
+		t.Fatalf("unexpected codex capture args: %#v", args)
+	}
+	if err := os.WriteFile(args[1], []byte(`{"ok":true}`), 0o644); err != nil {
+		t.Fatalf("write capture file: %v", err)
+	}
+	out, err := read()
+	if err != nil {
+		t.Fatalf("read capture failed: %v", err)
+	}
+	if out != `{"ok":true}` {
+		t.Fatalf("unexpected captured output: %s", out)
+	}
+	cleanup()
+	if _, statErr := os.Stat(args[1]); !os.IsNotExist(statErr) {
+		t.Fatalf("expected capture temp file removed, statErr=%v", statErr)
+	}
+}
+
+func TestBuildFinalOutputCaptureArgsNonCodexNoops(t *testing.T) {
+	args, read, cleanup, err := buildFinalOutputCaptureArgs("claude")
+	if err != nil {
+		t.Fatalf("buildFinalOutputCaptureArgs failed: %v", err)
+	}
+	defer cleanup()
+	if len(args) != 0 {
+		t.Fatalf("expected no capture args, got %#v", args)
+	}
+	out, err := read()
+	if err != nil {
+		t.Fatalf("read capture failed: %v", err)
+	}
+	if out != "" {
+		t.Fatalf("expected empty capture output, got %q", out)
+	}
+}
+
 func TestHardenPromptForCLIAddsProviderSpecificContract(t *testing.T) {
 	base := "Return exactly one JSON object only."
 	prompt := hardenPromptForCLI("gemini", consensus.SemanticVerificationTask{

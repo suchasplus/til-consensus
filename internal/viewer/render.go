@@ -255,6 +255,12 @@ type TelemetryView struct {
 
 type ProviderReadinessEntryView struct {
 	Provider        string   `json:"provider"`
+	ProviderType    string   `json:"providerType,omitempty"`
+	Protocol        string   `json:"protocol,omitempty"`
+	Model           string   `json:"model,omitempty"`
+	BaseURL         string   `json:"baseUrl,omitempty"`
+	APIKeyEnv       string   `json:"apiKeyEnv,omitempty"`
+	Agent           string   `json:"agent,omitempty"`
 	Command         []string `json:"command,omitempty"`
 	Ready           bool     `json:"ready"`
 	StrictJSON      bool     `json:"strictJSON"`
@@ -824,11 +830,27 @@ func renderText(doc Document, verbose bool) string {
 				if len(doc.Telemetry.Readiness.Providers) > 0 {
 					b.WriteString("provider readiness:\n")
 					for _, item := range doc.Telemetry.Readiness.Providers {
-						fmt.Fprintf(&b, "- %s | ready=%t strict=%t recoverable=%t duration=%dms\n", item.Provider, item.Ready, item.StrictJSON, item.RecoverableJSON, item.DurationMs)
+						label := item.Provider
+						if item.Model != "" {
+							label += "/" + item.Model
+						}
+						if item.Agent != "" {
+							label += " agent=" + item.Agent
+						}
+						fmt.Fprintf(&b, "- %s | ready=%t strict=%t recoverable=%t duration=%dms\n", label, item.Ready, item.StrictJSON, item.RecoverableJSON, item.DurationMs)
 						if item.Error != "" {
 							fmt.Fprintf(&b, "  error: %s\n", item.Error)
 						}
 						if verbose {
+							if item.ProviderType != "" || item.Protocol != "" {
+								fmt.Fprintf(&b, "  provider: type=%s protocol=%s\n", firstNonEmpty(item.ProviderType, "-"), firstNonEmpty(item.Protocol, "-"))
+							}
+							if item.BaseURL != "" {
+								fmt.Fprintf(&b, "  base_url: %s\n", item.BaseURL)
+							}
+							if item.APIKeyEnv != "" {
+								fmt.Fprintf(&b, "  api_key_env: %s\n", item.APIKeyEnv)
+							}
 							if len(item.Command) > 0 {
 								fmt.Fprintf(&b, "  command: %s\n", strings.Join(item.Command, " "))
 							}
@@ -1076,7 +1098,14 @@ func renderMarkdown(doc Document, verbose bool) string {
 				fmt.Fprintf(&b, "- readinessGeneratedAt: `%s`\n", doc.Telemetry.Readiness.GeneratedAt)
 			}
 			for _, item := range doc.Telemetry.Readiness.Providers {
-				fmt.Fprintf(&b, "- readiness | `%s` | ready=%t strict=%t recoverable=%t duration=%dms\n", item.Provider, item.Ready, item.StrictJSON, item.RecoverableJSON, item.DurationMs)
+				label := item.Provider
+				if item.Model != "" {
+					label += "/" + item.Model
+				}
+				if item.Agent != "" {
+					label += " agent=" + item.Agent
+				}
+				fmt.Fprintf(&b, "- readiness | `%s` | ready=%t strict=%t recoverable=%t duration=%dms\n", label, item.Ready, item.StrictJSON, item.RecoverableJSON, item.DurationMs)
 				if item.Error != "" {
 					fmt.Fprintf(&b, "  error: `%s`\n", item.Error)
 				}
@@ -1383,6 +1412,12 @@ func buildTelemetry(bundle Bundle, limit int) *TelemetryView {
 		for _, item := range bundle.ProviderReadiness.Providers[:min(limit, len(bundle.ProviderReadiness.Providers))] {
 			view.Readiness.Providers = append(view.Readiness.Providers, ProviderReadinessEntryView{
 				Provider:        item.Provider,
+				ProviderType:    item.ProviderType,
+				Protocol:        item.Protocol,
+				Model:           item.Model,
+				BaseURL:         item.BaseURL,
+				APIKeyEnv:       item.APIKeyEnv,
+				Agent:           item.Agent,
 				Command:         append([]string(nil), item.Command...),
 				Ready:           item.Ready,
 				StrictJSON:      item.StrictJSON,

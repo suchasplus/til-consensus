@@ -43,6 +43,7 @@ func (d Duration) MarshalYAML() (any, error) {
 
 type Config struct {
 	SchemaVersion int                       `yaml:"schema_version"`
+	Include       []string                  `yaml:"include,omitempty"`
 	Defaults      DefaultsConfig            `yaml:"defaults"`
 	Output        OutputConfig              `yaml:"output"`
 	Providers     map[string]ProviderConfig `yaml:"providers"`
