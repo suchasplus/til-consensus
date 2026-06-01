@@ -296,6 +296,12 @@ strict compliance telemetry 用来回答一个更具体的问题：
 典型字段：
 
 - `provider`
+- `providerType`
+- `protocol`
+- `model`
+- `baseUrl`
+- `apiKeyEnv`
+- `agent`
 - `command`
 - `ready`
 - `strictJSON`

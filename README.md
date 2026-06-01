@@ -328,6 +328,38 @@ til-consensus config add-provider \
 - `til-consensus session list`
   - 按 request/session 查看持久化快照
 
+## `profile preflight` 示例
+
+`config validate` 只检查配置结构；`profile preflight` 会真实调用 provider，适合手动确认 CLI 登录态、API key、base url 和模型名是否可用。
+
+检查配置里的所有 provider：
+
+```bash
+til-consensus profile preflight --config ./til-consensus.yaml --all --verbose
+```
+
+只检查某个 provider 或 agent：
+
+```bash
+til-consensus profile preflight --config ./til-consensus.yaml --provider deepseek-api
+til-consensus profile preflight --config ./til-consensus.yaml --agent arbiter-qwen-max
+```
+
+完成后直接打开本地 Web viewer：
+
+```bash
+til-consensus profile preflight --config ./til-consensus.yaml --all --web --open
+```
+
+preflight 会写出标准运行目录，最关键的是：
+
+- `result.json`
+  - 可用 `til-consensus view --result ...` 打开
+- `artifacts/provider-readiness.json`
+  - 记录 `ready / strictJSON / recoverableJSON / durationMs / error`
+- `summary.md`
+  - 人可读的 readiness 摘要
+
 ## `run` 示例
 
 默认 `adjudication`：

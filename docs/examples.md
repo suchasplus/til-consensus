@@ -72,7 +72,7 @@ til-consensus config init --mode adjudication --provider-profile gemini --config
 - [anthropic-compatible.config.yaml](examples/anthropic-compatible.config.yaml)
 - [gemini-api.config.yaml](examples/gemini-api.config.yaml)
 
-如果你走兼容网关，也可以直接用下面两份：
+如果你走兼容网关，也可以直接用下面这些组合包：
 
 - [openrouter.config.yaml](examples/openrouter.config.yaml)
 - [kimi.config.yaml](examples/kimi.config.yaml)
@@ -89,6 +89,7 @@ til-consensus config init --mode adjudication --provider-profile gemini --config
   - 以及可选的 `headers / options`
 - `DeepSeek` 样例默认使用 `DEEPSEEK_API_KEY`，不会把明文 key 写进配置文件
 - `Qwen Max` 样例默认使用 `BAILIAN_API_KEY`，并通过 `extra_body.enable_thinking` 打开思考模式
+- 复制这些文件后，先用 `til-consensus config validate --config ./til-consensus.yaml` 做结构校验，再用 `til-consensus profile preflight --config ./til-consensus.yaml --all --verbose` 做真实连通性校验
 
 ### 多 CLI 交叉论证
 

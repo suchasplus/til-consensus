@@ -16,3 +16,9 @@
 - [CI 与发布](release.md)
 - [浏览器 Viewer](viewer.md)
 - [多工作流技术设计](rewrite.md)
+
+如果你在调试 provider 配置，优先看：
+
+- [配置说明：profile preflight](config.md#profile-preflight)
+- [输出产物说明：provider readiness](output.md#provider-readiness-telemetry)
+- [终端 view：查看 readiness](view.md)

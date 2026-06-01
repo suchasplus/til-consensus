@@ -610,6 +610,37 @@ til-consensus profile preflight --config ./til-consensus.yaml --all --web --open
 - 每个 provider 会执行最小非交互 JSON 探测：要求返回 `{"ok": true}`。
 - 结果会写到标准输出目录，并生成 `artifacts/provider-readiness.json`，可被 `view` 和 `telemetry daily` 读取。
 
+推荐验证顺序：
+
+```bash
+til-consensus config validate --config ./til-consensus.yaml
+til-consensus profile preflight --config ./til-consensus.yaml --all --verbose
+til-consensus view --result ./out/tc_xxx/result.json --section debug --verbose
+```
+
+常见失败含义：
+
+- `env XXX is not set`
+  - `api_key_env` 指向的环境变量没有配置，先 `export XXX=...`
+- `binary <name> not found`
+  - CLI provider 的本地命令不存在或不在 `PATH`
+- `request failed: status=401/403`
+  - API key、base url 或 provider 账号权限不正确
+- `request failed: status=429`
+  - 当前 provider 被限流，换模型、降低频率或稍后重试
+- `did not return a recoverable JSON object`
+  - provider 可调用，但当前 CLI/API 输出不满足最小 JSON 契约，需要检查模型名、structured output 能力或 provider-specific 参数
+
+如果只想验证新增 API profile，可以先导出对应 key：
+
+```bash
+export DEEPSEEK_API_KEY=...
+til-consensus profile preflight --config docs/examples/deepseek.config.yaml --all --verbose
+
+export BAILIAN_API_KEY=...
+til-consensus profile preflight --config docs/examples/qwen-max.config.yaml --all --verbose
+```
+
 ## follow-up 与 session store
 
 CLI 会把 session snapshot 持久化到输出目录同级的 `_sessions/` 下，例如：
