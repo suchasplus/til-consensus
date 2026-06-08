@@ -1,6 +1,6 @@
 # 输出产物说明
 
-每次运行默认写到 `./out/{requestId}/`。
+每次运行默认写到当前执行目录下的 `./out/{requestId}/`。相对 `output.directory` 按当前执行目录解析，而不是按配置文件所在目录解析。
 
 ## `result.json`
 
@@ -78,26 +78,13 @@
 - `delphi_round_summary`
 - `delphi_convergence_reached`
 
-## `artifacts/provider-readiness.json`
+## provider readiness 快速入口
 
 `profile preflight` 和真实 E2E 会写出这个文件，用来记录 provider 是否能在当前环境完成最小非交互 JSON 调用。
 
 `profile preflight` 的探测默认使用 `max_output_tokens=2048`；如果 model 配置了更小的 `max_output_tokens`，则使用配置值。这个预算只影响 readiness 探测，不代表正式 workflow 的输出预算。
 
-核心字段：
-
-- `provider`
-- `providerType`
-- `protocol`
-- `model`
-- `baseUrl`
-- `apiKeyEnv`
-- `agent`
-- `ready`
-- `strictJSON`
-- `recoverableJSON`
-- `durationMs`
-- `error`
+运行时的完整字段说明见本文后面的 [provider readiness telemetry](#provider-readiness-telemetry)。终端执行 `profile preflight` 时会逐个 provider 分块输出；`artifacts/provider-readiness.json` 仍然会在全部探测结束后写出，供 `view` 和 `telemetry daily` 读取。
 
 Gemini API 的无文本错误会尽量带上 `finishReason`、`promptBlockReason` 和 token usage，例如 `thoughtsTokenCount`，用于区分安全拦截、输出截断和 thinking 预算消耗。
 
@@ -292,7 +279,13 @@ strict compliance telemetry 用来回答一个更具体的问题：
 
 ### `provider-readiness.json`
 
-这份文件主要回答：
+这份文件位于：
+
+```text
+artifacts/provider-readiness.json
+```
+
+它主要回答：
 
 - 当前测试 / 运行上下文里，`claude / gemini / codex` 这类 provider 到底是不是 ready
 - 失败是 provider 自身不可用，还是 workflow 本身出问题
@@ -314,6 +307,8 @@ strict compliance telemetry 用来回答一个更具体的问题：
 - `stdoutPreview`
 - `stderrPreview`
 - `error`
+
+`profile preflight` 的终端输出是逐 provider 分块打印的：每个 provider 完成后立即显示 readiness，最后再打印 `profile preflight completed ready=x/y` 和 artifact 路径。stdout 是真实终端时，全部 ready 的最终摘要会显示为绿色；只要有一个 provider 不 ready，最终摘要会显示为红色。
 
 ## run telemetry
 

@@ -258,6 +258,71 @@ include:
 	}
 }
 
+func TestLoadProfilesDoesNotRequireWorkflowRoles(t *testing.T) {
+	tmp := t.TempDir()
+	configPath := filepath.Join(tmp, "providers-only.yaml")
+	writeConfigTestFile(t, configPath, `
+schema_version: 1
+providers:
+  api:
+    type: api
+    protocol: openai-compatible
+    base_url: http://127.0.0.1:1
+    models:
+      default:
+        provider_model: test-model
+`)
+
+	loaded, err := LoadProfiles(configPath)
+	if err != nil {
+		t.Fatalf("LoadProfiles should accept provider-only config: %v", err)
+	}
+	if _, ok := loaded.Config.Providers["api"]; !ok {
+		t.Fatalf("expected api provider in loaded config")
+	}
+
+	if _, err := Load(configPath); err == nil {
+		t.Fatalf("Load should still require full workflow config")
+	}
+}
+
+func TestLoadProfilesValidatesProviderProfilesOnly(t *testing.T) {
+	tmp := t.TempDir()
+	configPath := filepath.Join(tmp, "bad-provider.yaml")
+	writeConfigTestFile(t, configPath, `
+schema_version: 1
+providers:
+  api:
+    type: api
+    protocol: unsupported
+    models:
+      default:
+        provider_model: test-model
+`)
+	if _, err := LoadProfiles(configPath); err == nil {
+		t.Fatalf("expected LoadProfiles to reject invalid provider protocol")
+	}
+
+	configPath = filepath.Join(tmp, "bad-agent.yaml")
+	writeConfigTestFile(t, configPath, `
+schema_version: 1
+providers:
+  api:
+    type: api
+    protocol: openai-compatible
+    models:
+      default:
+        provider_model: test-model
+agents:
+  - id: verifier-a
+    provider: missing
+    model: default
+`)
+	if _, err := LoadProfiles(configPath); err != nil {
+		t.Fatalf("LoadProfiles should ignore unrelated agent references: %v", err)
+	}
+}
+
 func TestModelIDsAndSingleModelID(t *testing.T) {
 	provider := ProviderConfig{
 		Models: map[string]ProviderModelConfig{

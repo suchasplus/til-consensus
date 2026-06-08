@@ -89,7 +89,7 @@ til-consensus config init --mode adjudication --provider-profile gemini --config
 til-consensus config init --mode adjudication --provider-profile generic --config ./til-consensus.yaml
 ```
 
-默认输出会写到 `./out/{requestId}/`。最重要的文件是：
+默认输出会写到当前执行目录下的 `./out/{requestId}/`。相对 `output.directory` 按当前执行目录解析，而不是按配置文件所在目录解析。最重要的文件是：
 
 - `result.json`
   - 统一结果壳，包含 `mode` 和对应的 mode-specific section
@@ -265,7 +265,7 @@ til-consensus config add-provider \
   --base-url https://generativelanguage.googleapis.com/v1beta \
   --api-key-env GEMINI_API_KEY \
   --model-id default \
-  --provider-model gemini-2.5-flash
+  --provider-model gemini-3.5-flash
 ```
 
 如果你要接兼容网关，当前推荐这样理解：
@@ -330,9 +330,13 @@ til-consensus config add-provider \
 
 ## `profile preflight` 示例
 
-`config validate` 只检查配置结构；`profile preflight` 会真实调用 provider，适合手动确认 CLI 登录态、API key、base url 和模型名是否可用。
+`config validate` 检查完整 workflow 配置；`profile preflight` 只聚焦 provider / agent profile，会真实调用 provider，适合手动确认 CLI 登录态、API key、base url 和模型名是否可用。
 
 preflight 会发起一次最小非交互 JSON 探测，要求 provider 返回 `{"ok": true}`。探测默认使用 `max_output_tokens=2048`；如果对应 model 配置了更小的 `max_output_tokens`，则尊重配置值。这个预算只影响 preflight，不会改正常 `run` 的输出预算。
+
+因此，`profile preflight` 默认不要求 `roles.proposers / roles.challengers / participants` 等 workflow 角色完整；只要 `providers` 层级合法，且被指定的 `agents` 能正确引用 provider/model，就可以执行探测。要检查完整运行配置，仍然使用 `til-consensus config validate`。
+
+多个 provider 会逐个探测并分块输出：每个 provider 完成后立即打印该 provider 的 readiness，最后再打印 `profile preflight completed ready=x/y` 和 artifact 路径。stdout 是真实终端时，最终 summary 全部 ready 会显示为绿色，否则显示为红色。
 
 检查配置里的所有 provider：
 
@@ -340,7 +344,7 @@ preflight 会发起一次最小非交互 JSON 探测，要求 provider 返回 `{
 til-consensus profile preflight --config ./til-consensus.yaml --all --verbose
 ```
 
-如果你临时使用 `docs/examples/*.config.yaml`，但不想把输出写到 `docs/examples/out/`，可以覆盖输出目录：
+相对 `output.directory` 会按当前执行目录解析，而不是按配置文件所在目录解析。也可以临时覆盖输出目录：
 
 ```bash
 til-consensus profile preflight \
@@ -562,6 +566,8 @@ til-consensus view --config ./til-consensus.yaml --section rounds --section conv
   - 安装后每次 `git push` 前会自动运行 `make pre-push`
 - `make test-e2e`
   - 执行 CLI 端到端测试矩阵
+- `make test-e2e-real`
+  - 执行真实 CLI provider 预检与 E2E 矩阵
 - `make test-e2e-real-api`
   - 执行真实 API provider 预检与 E2E 矩阵
 - `make ci`

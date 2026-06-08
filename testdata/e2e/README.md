@@ -14,7 +14,8 @@
 - `cli` 配置
   - 真实调用本机已安装的 `claude / gemini / codex`
 - `api` 配置
-  - 使用本地 `httptest` server 模拟 openai-compatible / anthropic-compatible 协议
+  - 默认使用本地 `httptest` server 模拟 `openai-compatible / anthropic-compatible / gemini-api`
+  - 显式开启真实 API E2E 时，改为调用线上 API provider
 
 这样做的原因：
 
@@ -25,16 +26,26 @@
 默认 `go test ./internal/app -run '^TestE2E'` 只会跑：
 
 - 夹具发现
-- API provider × 三种 mode 的矩阵
+- mock 命令链路和历史场景夹具
+- 本地模拟 API provider × 三种 mode 的矩阵
 
-真实 CLI × 三种 mode 的矩阵需要显式开启：
+真实 provider 矩阵需要显式开启。测试开始前会先执行 readiness preflight；单个 provider 不 ready 时按 provider 级降级跳过，只有当前环境没有任何 provider ready 时才 fail。
+
+真实 CLI × 三种 mode：
 
 ```bash
 TIL_CONSENSUS_E2E_REAL=1 go test ./internal/app -run '^TestE2ERealCLIFixtureMatrix$' -count=1
+```
+
+真实 API × 三种 mode：
+
+```bash
+TIL_CONSENSUS_E2E_REAL_API=1 go test ./internal/app -run '^TestE2ERealAPIFixtureMatrix$' -count=1
 ```
 
 对应的 `Makefile` 入口：
 
 ```bash
 make test-e2e-real
+make test-e2e-real-api
 ```

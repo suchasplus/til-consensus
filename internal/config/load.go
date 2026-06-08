@@ -65,6 +65,23 @@ func Load(path string) (LoadedConfig, error) {
 	}, nil
 }
 
+func LoadProfiles(path string) (LoadedConfig, error) {
+	path = toAbs(path, mustGetwd())
+	cfg, err := loadConfigWithIncludes(path, nil)
+	if err != nil {
+		return LoadedConfig{}, err
+	}
+	cfg = Normalize(cfg)
+	if err := ValidateProfiles(cfg); err != nil {
+		return LoadedConfig{}, err
+	}
+	return LoadedConfig{
+		Path:      path,
+		ConfigDir: filepath.Dir(path),
+		Config:    cfg,
+	}, nil
+}
+
 func loadConfigWithIncludes(path string, stack []string) (Config, error) {
 	path = toAbs(path, mustGetwd())
 	key, err := canonicalConfigPath(path)

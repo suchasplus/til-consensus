@@ -102,6 +102,14 @@ til-consensus view --config ./til-consensus.yaml --web
 ./out/{requestId}/
 ```
 
+这个路径按当前执行命令的目录解析，不按 `--config` 文件所在目录解析。比如你在仓库根目录执行：
+
+```bash
+til-consensus run --config docs/examples/codex.config.yaml --task "..."
+```
+
+默认输出仍然会落到仓库根目录的 `./out/{requestId}/`，而不是 `docs/examples/out/{requestId}/`。
+
 里面最重要的是：
 
 - `result.json`
@@ -211,6 +219,26 @@ til-consensus config init --mode adjudication --provider-profile gemini --config
 
 ```bash
 til-consensus config init --mode adjudication --provider-profile generic --config ./til-consensus.yaml
+```
+
+接真实 provider 后，先不要直接跑完整 workflow，先做一次 provider 预检：
+
+```bash
+til-consensus profile preflight --config ./til-consensus.yaml --all --verbose
+```
+
+`profile preflight` 会真实调用 provider 做最小 JSON 探测，默认 `max_output_tokens=2048`。它只聚焦 provider / model / agent profile 是否可用，不要求 `roles.proposers / roles.challengers / participants` 已经完整可运行；如果你加 `--agent`，才会校验这个 agent 的 provider/model 引用。
+
+如果同一份配置里有多个 provider，`--all` 会逐个探测并分块输出。最后的 `ready=x/y` 在真实终端中全部 ready 为绿色，否则为红色。
+
+如果你想临时改变输出目录：
+
+```bash
+til-consensus profile preflight \
+  --config ./til-consensus.yaml \
+  --all \
+  --output ./out/{requestId} \
+  --verbose
 ```
 
 完整样例在：

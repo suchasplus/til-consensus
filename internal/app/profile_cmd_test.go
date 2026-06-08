@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -16,14 +17,14 @@ import (
 func TestProfilePreflightCommandWritesReadinessArtifacts(t *testing.T) {
 	tmp := t.TempDir()
 	configPath := filepath.Join(tmp, "til-consensus.yaml")
-	if err := os.WriteFile(configPath, []byte(`schema_version: 1
+	if err := os.WriteFile(configPath, []byte(fmt.Sprintf(`schema_version: 1
 defaults:
   success_criteria: [ok]
   per_task_timeout: 1m
   verification_policy:
     allow_semantic_verifier: true
 output:
-  directory: ./out/{requestId}
+  directory: %s
 providers:
   mock:
     type: mock
@@ -47,7 +48,7 @@ roles:
   proposers: [proposer-a]
   challengers: [challenger-a]
   arbiter: arbiter-a
-`), 0o644); err != nil {
+`, filepath.ToSlash(filepath.Join(tmp, "out", "{requestId}")))), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 
@@ -62,6 +63,11 @@ roles:
 		if !strings.Contains(output, needle) {
 			t.Fatalf("preflight output missing %q:\n%s", needle, output)
 		}
+	}
+	entryIndex := strings.Index(output, "  - mock/mock")
+	finalIndex := strings.Index(output, "[til-consensus] profile preflight completed ready=1/1")
+	if entryIndex < 0 || finalIndex < 0 || entryIndex > finalIndex {
+		t.Fatalf("expected provider block before final summary:\n%s", output)
 	}
 	resultPath := regexp.MustCompile(`result: ([^\n]+)`).FindStringSubmatch(output)
 	if len(resultPath) != 2 {
@@ -79,11 +85,11 @@ roles:
 func TestProfilePreflightAPIReportsMissingEnv(t *testing.T) {
 	tmp := t.TempDir()
 	configPath := filepath.Join(tmp, "til-consensus.yaml")
-	if err := os.WriteFile(configPath, []byte(`schema_version: 1
+	if err := os.WriteFile(configPath, []byte(fmt.Sprintf(`schema_version: 1
 defaults:
   success_criteria: [ok]
 output:
-  directory: ./out/{requestId}
+  directory: %s
 providers:
   api:
     type: api
@@ -110,7 +116,7 @@ roles:
   proposers: [proposer-a]
   challengers: [challenger-a]
   arbiter: arbiter-a
-`), 0o644); err != nil {
+`, filepath.ToSlash(filepath.Join(tmp, "out", "{requestId}")))), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 	t.Setenv("TIL_CONSENSUS_TEST_MISSING_KEY", "")
@@ -191,5 +197,178 @@ roles:
 	}
 	if _, err := os.Stat(strings.TrimSpace(resultPath[1])); err != nil {
 		t.Fatalf("expected result under output override: %v", err)
+	}
+}
+
+func TestProfilePreflightCommandRelativeOutputUsesWorkingDirectory(t *testing.T) {
+	tmp := t.TempDir()
+	cwd := filepath.Join(tmp, "cwd")
+	configDir := filepath.Join(tmp, "config")
+	if err := os.MkdirAll(cwd, 0o755); err != nil {
+		t.Fatalf("mkdir cwd: %v", err)
+	}
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("mkdir config dir: %v", err)
+	}
+	original, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(original) })
+	resolvedCWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get cwd after chdir: %v", err)
+	}
+
+	configPath := filepath.Join(configDir, "til-consensus.yaml")
+	if err := os.WriteFile(configPath, []byte(`schema_version: 1
+output:
+  directory: ./out/{requestId}
+providers:
+  mock:
+    type: mock
+    models:
+      default:
+        provider_model: mock
+`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cmd := newProfilePreflightCommand()
+	var stdout bytes.Buffer
+	cmd.Writer = &stdout
+	if err := cmd.Run(context.Background(), []string{"preflight", "--config", configPath, "--all"}); err != nil {
+		t.Fatalf("profile preflight failed: %v", err)
+	}
+	resultPath := regexp.MustCompile(`result: ([^\n]+)`).FindStringSubmatch(stdout.String())
+	if len(resultPath) != 2 {
+		t.Fatalf("could not find result path in output:\n%s", stdout.String())
+	}
+	got := strings.TrimSpace(resultPath[1])
+	wantPrefix := filepath.Join(resolvedCWD, "out")
+	if !strings.HasPrefix(got, wantPrefix) {
+		t.Fatalf("expected relative output under cwd %s, got %s", wantPrefix, got)
+	}
+	if strings.HasPrefix(got, configDir) {
+		t.Fatalf("relative output should not be under config dir: %s", got)
+	}
+}
+
+func TestProfilePreflightCommandDoesNotRequireWorkflowRoles(t *testing.T) {
+	tmp := t.TempDir()
+	configPath := filepath.Join(tmp, "providers-only.yaml")
+	if err := os.WriteFile(configPath, []byte(fmt.Sprintf(`schema_version: 1
+output:
+  directory: %s
+providers:
+  mock:
+    type: mock
+    models:
+      default:
+        provider_model: mock
+`, filepath.ToSlash(filepath.Join(tmp, "out", "{requestId}")))), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cmd := newProfilePreflightCommand()
+	var stdout bytes.Buffer
+	cmd.Writer = &stdout
+	if err := cmd.Run(context.Background(), []string{"preflight", "--config", configPath, "--all"}); err != nil {
+		t.Fatalf("profile preflight should not require workflow roles: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "profile preflight completed ready=1/1") {
+		t.Fatalf("unexpected output:\n%s", stdout.String())
+	}
+}
+
+func TestProfilePreflightAgentFilterValidatesSelectedAgent(t *testing.T) {
+	tmp := t.TempDir()
+	configPath := filepath.Join(tmp, "bad-agent.yaml")
+	if err := os.WriteFile(configPath, []byte(fmt.Sprintf(`schema_version: 1
+output:
+  directory: %s
+providers:
+  mock:
+    type: mock
+    models:
+      default:
+        provider_model: mock
+agents:
+  - id: verifier-a
+    provider: missing
+    model: default
+`, filepath.ToSlash(filepath.Join(tmp, "out", "{requestId}")))), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cmd := newProfilePreflightCommand()
+	var stdout bytes.Buffer
+	cmd.Writer = &stdout
+	err := cmd.Run(context.Background(), []string{"preflight", "--config", configPath, "--agent", "verifier-a"})
+	if err == nil {
+		t.Fatalf("expected selected invalid agent to fail")
+	}
+	if !strings.Contains(err.Error(), "agent verifier-a references unknown provider missing") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestProfilePreflightCommandColorizesFinalSummaryWhenForced(t *testing.T) {
+	t.Setenv("FORCE_COLOR", "1")
+	t.Setenv("NO_COLOR", "")
+	t.Setenv("TERM", "xterm-256color")
+
+	tmp := t.TempDir()
+	successConfig := filepath.Join(tmp, "success.yaml")
+	if err := os.WriteFile(successConfig, []byte(fmt.Sprintf(`schema_version: 1
+output:
+  directory: %s
+providers:
+  mock:
+    type: mock
+    models:
+      default:
+        provider_model: mock
+`, filepath.ToSlash(filepath.Join(tmp, "success-out", "{requestId}")))), 0o644); err != nil {
+		t.Fatalf("write success config: %v", err)
+	}
+	successCmd := newProfilePreflightCommand()
+	var successOut bytes.Buffer
+	successCmd.Writer = &successOut
+	if err := successCmd.Run(context.Background(), []string{"preflight", "--config", successConfig, "--all"}); err != nil {
+		t.Fatalf("success preflight failed: %v", err)
+	}
+	if !strings.Contains(successOut.String(), ansi(32, "[til-consensus] profile preflight completed ready=1/1")) {
+		t.Fatalf("expected green final summary, got:\n%q", successOut.String())
+	}
+
+	failureConfig := filepath.Join(tmp, "failure.yaml")
+	if err := os.WriteFile(failureConfig, []byte(fmt.Sprintf(`schema_version: 1
+output:
+  directory: %s
+providers:
+  api:
+    type: api
+    protocol: openai-compatible
+    base_url: http://127.0.0.1:1
+    api_key_env: TIL_CONSENSUS_TEST_MISSING_KEY
+    models:
+      default:
+        provider_model: test-model
+`, filepath.ToSlash(filepath.Join(tmp, "failure-out", "{requestId}")))), 0o644); err != nil {
+		t.Fatalf("write failure config: %v", err)
+	}
+	t.Setenv("TIL_CONSENSUS_TEST_MISSING_KEY", "")
+	failureCmd := newProfilePreflightCommand()
+	var failureOut bytes.Buffer
+	failureCmd.Writer = &failureOut
+	if err := failureCmd.Run(context.Background(), []string{"preflight", "--config", failureConfig, "--provider", "api"}); err != nil {
+		t.Fatalf("failure preflight command should complete with readiness failure: %v", err)
+	}
+	if !strings.Contains(failureOut.String(), ansi(31, "[til-consensus] profile preflight completed ready=0/1")) {
+		t.Fatalf("expected red final summary, got:\n%q", failureOut.String())
 	}
 }

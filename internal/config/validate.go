@@ -8,14 +8,32 @@ import (
 )
 
 func Validate(cfg Config) error {
+	if err := validateProviderProfiles(cfg); err != nil {
+		return err
+	}
+	knownAgents, err := validateAgentProfiles(cfg, true)
+	if err != nil {
+		return err
+	}
+	if err := validateRoles(cfg, knownAgents); err != nil {
+		return err
+	}
+	if err := validateDefaults(cfg); err != nil {
+		return err
+	}
+	return nil
+}
+
+func ValidateProfiles(cfg Config) error {
+	return validateProviderProfiles(cfg)
+}
+
+func validateProviderProfiles(cfg Config) error {
 	if cfg.SchemaVersion != 1 {
 		return fmt.Errorf("unsupported schema_version: %d", cfg.SchemaVersion)
 	}
 	if len(cfg.Providers) == 0 {
 		return fmt.Errorf("providers must not be empty")
-	}
-	if len(cfg.Agents) == 0 {
-		return fmt.Errorf("agents must not be empty")
 	}
 	for name, provider := range cfg.Providers {
 		switch provider.Type {
@@ -61,31 +79,42 @@ func Validate(cfg Config) error {
 			}
 		}
 	}
+	return nil
+}
+
+func validateAgentProfiles(cfg Config, requireAgents bool) (map[string]struct{}, error) {
+	if requireAgents && len(cfg.Agents) == 0 {
+		return nil, fmt.Errorf("agents must not be empty")
+	}
 	knownAgents := map[string]struct{}{}
 	for _, agent := range cfg.Agents {
 		if strings.TrimSpace(agent.ID) == "" {
-			return fmt.Errorf("agent id is required")
+			return nil, fmt.Errorf("agent id is required")
 		}
 		if _, ok := knownAgents[agent.ID]; ok {
-			return fmt.Errorf("duplicate agent id: %s", agent.ID)
+			return nil, fmt.Errorf("duplicate agent id: %s", agent.ID)
 		}
 		knownAgents[agent.ID] = struct{}{}
 		if agent.Temperature != nil && (*agent.Temperature < 0 || *agent.Temperature > 2) {
-			return fmt.Errorf("agent %s: temperature must be in [0,2]", agent.ID)
+			return nil, fmt.Errorf("agent %s: temperature must be in [0,2]", agent.ID)
 		}
 		provider, ok := cfg.Providers[agent.Provider]
 		if !ok {
-			return fmt.Errorf("agent %s: unknown provider %s", agent.ID, agent.Provider)
+			return nil, fmt.Errorf("agent %s: unknown provider %s", agent.ID, agent.Provider)
 		}
 		if len(provider.Models) > 0 {
 			if strings.TrimSpace(agent.Model) == "" {
-				return fmt.Errorf("agent %s: model is required", agent.ID)
+				return nil, fmt.Errorf("agent %s: model is required", agent.ID)
 			}
 			if _, ok := provider.Models[agent.Model]; !ok {
-				return fmt.Errorf("agent %s: unknown model %s for provider %s", agent.ID, agent.Model, agent.Provider)
+				return nil, fmt.Errorf("agent %s: unknown model %s for provider %s", agent.ID, agent.Model, agent.Provider)
 			}
 		}
 	}
+	return knownAgents, nil
+}
+
+func validateRoles(cfg Config, knownAgents map[string]struct{}) error {
 	for _, id := range cfg.Roles.Proposers {
 		if _, ok := knownAgents[id]; !ok {
 			return fmt.Errorf("roles.proposers references unknown agent %s", id)
@@ -126,6 +155,10 @@ func Validate(cfg Config) error {
 			return fmt.Errorf("roles.challengers must not be empty")
 		}
 	}
+	return nil
+}
+
+func validateDefaults(cfg Config) error {
 	if cfg.Defaults.ProposalPolicy.MaxPasses < 0 {
 		return fmt.Errorf("defaults.proposal_policy.max_passes must be >= 0")
 	}

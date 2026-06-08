@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -56,7 +57,7 @@ func runProfilePreflightCommand(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
-	loaded, err := config.Load(configPath)
+	loaded, err := config.LoadProfiles(configPath)
 	if err != nil {
 		return err
 	}
@@ -74,11 +75,13 @@ func runProfilePreflightCommand(ctx context.Context, cmd *cli.Command) error {
 
 	startedAt := time.Now()
 	sink := preflightArtifactSink{dir: paths.ArtifactsDir}
+	printer := newPreflightPrinter(cmd.Writer, cmd.Bool("verbose"))
 	entries, err := preflight.Run(ctx, loaded.Config, preflight.Options{
 		ProviderIDs: cmd.StringSlice("provider"),
 		AgentIDs:    cmd.StringSlice("agent"),
 		All:         cmd.Bool("all"),
 		Timeout:     cmd.Duration("timeout"),
+		OnEntry:     printer.PrintEntry,
 	}, sink)
 	if err != nil {
 		return err
@@ -100,7 +103,7 @@ func runProfilePreflightCommand(ctx context.Context, cmd *cli.Command) error {
 		return fmt.Errorf("write preflight summary: %w", err)
 	}
 
-	printPreflightSummary(cmd.Writer, entries, paths, cmd.Bool("verbose"))
+	printer.PrintFinal(entries, paths)
 	if cmd.Bool("web") {
 		bundle, err := viewer.LoadBundle(viewer.InferRunFiles(paths.ResultPath))
 		if err != nil {
@@ -221,50 +224,86 @@ func buildPreflightSummary(result consensus.RunResult, entries []telemetry.Provi
 	return b.String()
 }
 
-func printPreflightSummary(writer interface{ Write([]byte) (int, error) }, entries []telemetry.ProviderReadinessEntry, paths config.RunArtifactPaths, verbose bool) {
+type preflightPrinter struct {
+	writer  io.Writer
+	verbose bool
+	color   bool
+}
+
+func newPreflightPrinter(writer io.Writer, verbose bool) *preflightPrinter {
+	return &preflightPrinter{
+		writer:  writer,
+		verbose: verbose,
+		color:   shouldEnableColor(writer),
+	}
+}
+
+func (p *preflightPrinter) PrintEntry(entry telemetry.ProviderReadinessEntry) {
+	label := entry.Provider
+	if entry.Model != "" {
+		label += "/" + entry.Model
+	}
+	if entry.Agent != "" {
+		label += " agent=" + entry.Agent
+	}
+	readyText := fmt.Sprintf("ready=%t", entry.Ready)
+	if p.color {
+		if entry.Ready {
+			readyText = ansi(32, readyText)
+		} else {
+			readyText = ansi(31, readyText)
+		}
+	}
+	_, _ = fmt.Fprintf(p.writer, "  - %s %s strict=%t recoverable=%t duration=%dms\n", label, readyText, entry.StrictJSON, entry.RecoverableJSON, entry.DurationMs)
+	if entry.Error != "" {
+		errorText := "error: " + entry.Error
+		if p.color {
+			errorText = ansi(31, errorText)
+		}
+		_, _ = fmt.Fprintf(p.writer, "    %s\n", errorText)
+	}
+	if !p.verbose {
+		return
+	}
+	if entry.ProviderType != "" || entry.Protocol != "" {
+		_, _ = fmt.Fprintf(p.writer, "    provider: type=%s protocol=%s\n", firstNonEmptyProfile(entry.ProviderType, "-"), firstNonEmptyProfile(entry.Protocol, "-"))
+	}
+	if entry.BaseURL != "" {
+		_, _ = fmt.Fprintf(p.writer, "    base_url: %s\n", entry.BaseURL)
+	}
+	if entry.APIKeyEnv != "" {
+		_, _ = fmt.Fprintf(p.writer, "    api_key_env: %s\n", entry.APIKeyEnv)
+	}
+	if len(entry.Command) > 0 {
+		_, _ = fmt.Fprintf(p.writer, "    command: %s\n", strings.Join(entry.Command, " "))
+	}
+	if entry.StdoutPreview != "" {
+		_, _ = fmt.Fprintf(p.writer, "    stdout: %s\n", entry.StdoutPreview)
+	}
+	if entry.StderrPreview != "" {
+		_, _ = fmt.Fprintf(p.writer, "    stderr: %s\n", entry.StderrPreview)
+	}
+}
+
+func (p *preflightPrinter) PrintFinal(entries []telemetry.ProviderReadinessEntry, paths config.RunArtifactPaths) {
 	ready := 0
 	for _, entry := range entries {
 		if entry.Ready {
 			ready++
 		}
 	}
-	_, _ = fmt.Fprintf(writer, "[til-consensus] profile preflight completed ready=%d/%d\n", ready, len(entries))
-	for _, entry := range entries {
-		label := entry.Provider
-		if entry.Model != "" {
-			label += "/" + entry.Model
-		}
-		if entry.Agent != "" {
-			label += " agent=" + entry.Agent
-		}
-		_, _ = fmt.Fprintf(writer, "  - %s ready=%t strict=%t recoverable=%t duration=%dms\n", label, entry.Ready, entry.StrictJSON, entry.RecoverableJSON, entry.DurationMs)
-		if entry.Error != "" {
-			_, _ = fmt.Fprintf(writer, "    error: %s\n", entry.Error)
-		}
-		if verbose {
-			if entry.ProviderType != "" || entry.Protocol != "" {
-				_, _ = fmt.Fprintf(writer, "    provider: type=%s protocol=%s\n", firstNonEmptyProfile(entry.ProviderType, "-"), firstNonEmptyProfile(entry.Protocol, "-"))
-			}
-			if entry.BaseURL != "" {
-				_, _ = fmt.Fprintf(writer, "    base_url: %s\n", entry.BaseURL)
-			}
-			if entry.APIKeyEnv != "" {
-				_, _ = fmt.Fprintf(writer, "    api_key_env: %s\n", entry.APIKeyEnv)
-			}
-			if len(entry.Command) > 0 {
-				_, _ = fmt.Fprintf(writer, "    command: %s\n", strings.Join(entry.Command, " "))
-			}
-			if entry.StdoutPreview != "" {
-				_, _ = fmt.Fprintf(writer, "    stdout: %s\n", entry.StdoutPreview)
-			}
-			if entry.StderrPreview != "" {
-				_, _ = fmt.Fprintf(writer, "    stderr: %s\n", entry.StderrPreview)
-			}
+	line := fmt.Sprintf("[til-consensus] profile preflight completed ready=%d/%d", ready, len(entries))
+	if p.color {
+		if ready == len(entries) {
+			line = ansi(32, line)
+		} else {
+			line = ansi(31, line)
 		}
 	}
-	_, _ = fmt.Fprintf(writer, "  result: %s\n", paths.ResultPath)
-	_, _ = fmt.Fprintf(writer, "  readiness: %s\n", filepath.Join(paths.ArtifactsDir, "provider-readiness.json"))
-	_, _ = fmt.Fprintf(writer, "  summary: %s\n", paths.SummaryPath)
+	_, _ = fmt.Fprintf(p.writer, "%s\n", line)
+	_, _ = fmt.Fprintf(p.writer, "  result: %s\n", paths.ResultPath)
+	_, _ = fmt.Fprintf(p.writer, "  readiness: %s\n", filepath.Join(paths.ArtifactsDir, "provider-readiness.json"))
+	_, _ = fmt.Fprintf(p.writer, "  summary: %s\n", paths.SummaryPath)
 }
 
 func writeJSONFile(path string, value any) error {

@@ -13,6 +13,15 @@ import (
 
 func TestReadmeQuickstartCommands(t *testing.T) {
 	tmp := t.TempDir()
+	original, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(tmp); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(original) })
+
 	configPath := filepath.Join(tmp, "til-consensus.yaml")
 
 	var initOut bytes.Buffer

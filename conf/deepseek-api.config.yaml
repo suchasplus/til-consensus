@@ -1,0 +1,77 @@
+schema_version: 1
+
+defaults:
+  success_criteria:
+    - 给出 claim 级裁决
+    - 输出关键 caveat 与 unresolved
+  per_task_timeout: 20m
+  task_retry_attempts: 1
+  proposal_policy:
+    max_passes: 1
+    max_claims_per_worker: 4
+    dedupe_strategy: normalized-statement
+  verification_policy:
+    allow_semantic_verifier: true
+    max_parallel_checks: 2
+  arbiter_policy:
+    allow_undetermined: true
+    blind_review: true
+
+output:
+  directory: ./out/{requestId}
+
+providers:
+  deepseek-api:
+    type: api
+    protocol: openai-compatible
+    base_url: https://api.deepseek.com
+    api_key_env: DEEPSEEK_API_KEY
+    options:
+      endpoint_path: /chat/completions
+      structured_output_mode: none
+      max_output_tokens_field: max_tokens
+      reasoning_field: reasoning_effort
+      timeout_ms: 120000
+      extra_body:
+        response_format:
+          type: json_object
+        thinking:
+          # 可改为 disabled 关闭思考模式。
+          type: enabled
+        # 可选：按业务维度隔离调度与 KVCache。不要填写用户隐私。
+        # user_id: til-consensus
+    models:
+      default:
+        provider_model: deepseek-v4-pro
+        max_output_tokens: 4096
+        # DeepSeek OpenAI 格式支持 high / max。
+        reasoning: max
+
+agents:
+  - id: proposer-deepseek
+    provider: deepseek-api
+    model: default
+    role: proposer
+  - id: challenger-deepseek
+    provider: deepseek-api
+    model: default
+    role: challenger
+  - id: verifier-deepseek
+    provider: deepseek-api
+    model: default
+    role: semantic-verifier
+  - id: arbiter-deepseek
+    provider: deepseek-api
+    model: default
+    role: arbiter
+  - id: reporter-deepseek
+    provider: deepseek-api
+    model: default
+    role: reporter
+
+roles:
+  proposers: [proposer-deepseek]
+  challengers: [challenger-deepseek]
+  semantic_verifier: verifier-deepseek
+  arbiter: arbiter-deepseek
+  reporter: reporter-deepseek

@@ -52,7 +52,9 @@ til-consensus view --result ./out/tc_xxx/result.json --web --open
 
 preflight 的 Debug / Telemetry 区块会展示 provider readiness，包括 `ready / strictJSON / recoverableJSON / durationMs / error`。探测默认使用 `max_output_tokens=2048`；如果 Gemini 等 thinking 模型耗尽预算，错误里会带 `finishReason` 和 token usage，便于判断是模型名、结构化输出参数还是输出预算问题。
 
-如果 preflight 使用的是 `docs/examples/*.config.yaml`，默认输出会相对配置文件目录解析。要统一写回项目根目录，可以加：
+`profile preflight` 运行时会逐 provider 分块输出；`view` 负责事后读取同一 run 目录里的 `artifacts/provider-readiness.json`，因此适合把一次预检结果分享给别人或在 Web Debug 区块里展开查看。
+
+相对 `output.directory` 会按当前执行目录解析，而不是按配置文件所在目录解析。要临时指定输出目录，可以加：
 
 ```bash
 til-consensus profile preflight --config docs/examples/deepseek.config.yaml --output ./out/{requestId} --all --verbose
@@ -337,6 +339,7 @@ til-consensus view \
 - Debug 区块直接展示：
   - `rawVerdict`
   - `rawTaskVerdict`
+  - provider readiness `Telemetry`
   - strict compliance `Telemetry`
 
 Web 的 `Debug` 面板现在分成两部分：
@@ -344,6 +347,8 @@ Web 的 `Debug` 面板现在分成两部分：
 - `Events`
   - 运行期事件、payload、provider artifact 路径提示
 - `Telemetry`
+  - `provider readiness`
+    - 各 provider 的 `ready / strictJSON / recoverableJSON / duration / error`
   - `summary`
     - `provider / providerModel / taskKind`
     - `strict / normalized / repaired / failed`

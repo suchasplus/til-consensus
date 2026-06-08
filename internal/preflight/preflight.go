@@ -28,6 +28,7 @@ type Options struct {
 	All         bool
 	Timeout     time.Duration
 	Prompt      string
+	OnEntry     func(telemetry.ProviderReadinessEntry)
 }
 
 type ArtifactSink interface {
@@ -67,7 +68,11 @@ func Run(ctx context.Context, cfg config.Config, opts Options, sink ArtifactSink
 	}
 	entries := make([]telemetry.ProviderReadinessEntry, 0, len(candidates))
 	for _, item := range candidates {
-		entries = append(entries, probeCandidate(ctx, item, opts, sink))
+		entry := probeCandidate(ctx, item, opts, sink)
+		entries = append(entries, entry)
+		if opts.OnEntry != nil {
+			opts.OnEntry(entry)
+		}
 	}
 	return entries, nil
 }

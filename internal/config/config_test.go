@@ -1,7 +1,9 @@
 package config
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -10,8 +12,21 @@ import (
 
 func TestResolveRunPlanPrecedence(t *testing.T) {
 	tmp := t.TempDir()
+	original, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(tmp); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(original) })
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get cwd after chdir: %v", err)
+	}
+
 	loaded := LoadedConfig{
-		ConfigDir: tmp,
+		ConfigDir: filepath.Join(tmp, "config"),
 		Config: Normalize(Config{
 			SchemaVersion: 1,
 			Defaults: DefaultsConfig{
@@ -60,8 +75,48 @@ func TestResolveRunPlanPrecedence(t *testing.T) {
 	if plan.StartRequest.WaitingPolicy.RetryAttempts != consensus.DefaultTaskRetryAttempts {
 		t.Fatalf("unexpected retry attempts: %#v", plan.StartRequest.WaitingPolicy)
 	}
-	if plan.ResultPath != filepath.Join(tmp, "out", plan.RequestID, "result.json") {
+	if plan.ResultPath != filepath.Join(cwd, "out", plan.RequestID, "result.json") {
 		t.Fatalf("unexpected result path: %s", plan.ResultPath)
+	}
+}
+
+func TestResolveRunArtifactsRelativeOutputUsesWorkingDirectory(t *testing.T) {
+	tmp := t.TempDir()
+	cwd := filepath.Join(tmp, "cwd")
+	configDir := filepath.Join(tmp, "configs")
+	if err := os.MkdirAll(cwd, 0o755); err != nil {
+		t.Fatalf("mkdir cwd: %v", err)
+	}
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("mkdir config dir: %v", err)
+	}
+	original, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(original) })
+	resolvedCWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get cwd after chdir: %v", err)
+	}
+
+	loaded := LoadedConfig{
+		ConfigDir: configDir,
+		Config: Normalize(Config{
+			SchemaVersion: 1,
+			Output:        OutputConfig{Directory: "./out/{requestId}"},
+		}),
+	}
+	paths := ResolveRunArtifacts(loaded, "req-1")
+	want := filepath.Join(resolvedCWD, "out", "req-1", "result.json")
+	if paths.ResultPath != want {
+		t.Fatalf("relative output should resolve from cwd: got=%s want=%s", paths.ResultPath, want)
+	}
+	if strings.HasPrefix(paths.ResultPath, configDir) {
+		t.Fatalf("relative output should not resolve from config dir: %s", paths.ResultPath)
 	}
 }
 
@@ -245,8 +300,21 @@ func TestResolveRunPlanCarriesAdjudicationFallbackAndObservationPolicies(t *test
 
 func TestResolveRunPlanForRequestAndSessionStoreDir(t *testing.T) {
 	tmp := t.TempDir()
+	original, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(tmp); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(original) })
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get cwd after chdir: %v", err)
+	}
+
 	loaded := LoadedConfig{
-		ConfigDir: tmp,
+		ConfigDir: filepath.Join(tmp, "config"),
 		Config: Normalize(Config{
 			SchemaVersion: 1,
 			Output:        OutputConfig{Directory: "./out/{requestId}"},
@@ -289,7 +357,7 @@ func TestResolveRunPlanForRequestAndSessionStoreDir(t *testing.T) {
 	if plan.RequestID != "child-request-1" || plan.StartRequest.Lineage == nil || plan.StartRequest.Lineage.ParentRequestID != "parent-request-1" {
 		t.Fatalf("unexpected plan lineage: %#v", plan)
 	}
-	want := filepath.Join(tmp, "out", "_sessions")
+	want := filepath.Join(cwd, "out", "_sessions")
 	if plan.SessionStoreDir != want {
 		t.Fatalf("unexpected session store dir: got=%s want=%s", plan.SessionStoreDir, want)
 	}

@@ -90,7 +90,9 @@ til-consensus config init --mode adjudication --provider-profile gemini --config
 - `DeepSeek` 样例默认使用 `DEEPSEEK_API_KEY`，不会把明文 key 写进配置文件
 - `Qwen Max` 样例默认使用 `BAILIAN_API_KEY`，并通过 `extra_body.enable_thinking` 打开思考模式
 - 复制这些文件后，先用 `til-consensus config validate --config ./til-consensus.yaml` 做结构校验，再用 `til-consensus profile preflight --config ./til-consensus.yaml --all --verbose` 做真实连通性校验
-- `profile preflight` 会执行带 schema 的 `{"ok": true}` 最小探测，默认 `max_output_tokens=2048`。如果你直接测试 `docs/examples/*.config.yaml`，建议加 `--output ./out/{requestId}`，避免输出落到 `docs/examples/out/`
+- `profile preflight` 会执行带 schema 的 `{"ok": true}` 最小探测，默认 `max_output_tokens=2048`。相对 `output.directory` 按当前执行目录解析；如果需要临时改目录，可加 `--output ./out/{requestId}`
+- `profile preflight` 默认只校验 provider / model / agent profile 层，不要求 `roles` 已经能跑完整 workflow；如果加 `--agent`，才会检查该 agent 的 provider/model 引用是否有效
+- 一个 config 里同时包含多个 provider 时，直接用 `--all` 或不传 `--provider/--agent` 即可逐个探测；终端会按 provider 分块输出，最后用绿色或红色汇总 `ready=x/y`
 
 ### 多 CLI 交叉论证
 

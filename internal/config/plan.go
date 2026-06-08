@@ -198,45 +198,48 @@ func ResolveRunPlanForRequest(loaded LoadedConfig, request consensus.StartReques
 }
 
 func ResolveRunArtifacts(loaded LoadedConfig, requestID string) RunArtifactPaths {
+	basePath := mustGetwd()
 	baseDir := loaded.Config.Output.Directory
 	if strings.TrimSpace(baseDir) == "" {
 		baseDir = "./out/{requestId}"
 	}
-	baseDir = resolveOutputPath(baseDir, loaded.ConfigDir, requestID)
-	artifactsDir := resolveOutputPath(fallbackPath(loaded.Config.Output.ArtifactsDir, filepath.Join(baseDir, "artifacts")), loaded.ConfigDir, requestID)
+	baseDir = resolveOutputPath(baseDir, basePath, requestID)
+	artifactsDir := resolveOutputPath(fallbackPath(loaded.Config.Output.ArtifactsDir, filepath.Join(baseDir, "artifacts")), basePath, requestID)
 	return RunArtifactPaths{
 		RunDir:       baseDir,
-		LedgerPath:   resolveOutputPath(fallbackPath(loaded.Config.Output.LedgerPath, filepath.Join(baseDir, "ledger.jsonl")), loaded.ConfigDir, requestID),
-		ManifestPath: resolveOutputPath(filepath.Join(artifactsDirPlaceholder(loaded.Config.Output.ArtifactsDir, baseDir), "manifest.jsonl"), loaded.ConfigDir, requestID),
-		EventsPath:   resolveOutputPath(fallbackPath(loaded.Config.Output.EventsPath, filepath.Join(baseDir, "events.jsonl")), loaded.ConfigDir, requestID),
-		ResultPath:   resolveOutputPath(fallbackPath(loaded.Config.Output.ResultPath, filepath.Join(baseDir, "result.json")), loaded.ConfigDir, requestID),
-		SummaryPath:  resolveOutputPath(fallbackPath(loaded.Config.Output.SummaryPath, filepath.Join(baseDir, "summary.md")), loaded.ConfigDir, requestID),
-		ErrorPath:    resolveOutputPath(fallbackPath(loaded.Config.Output.ErrorPath, filepath.Join(baseDir, "error.json")), loaded.ConfigDir, requestID),
+		LedgerPath:   resolveOutputPath(fallbackPath(loaded.Config.Output.LedgerPath, filepath.Join(baseDir, "ledger.jsonl")), basePath, requestID),
+		ManifestPath: resolveOutputPath(filepath.Join(artifactsDirPlaceholder(loaded.Config.Output.ArtifactsDir, baseDir), "manifest.jsonl"), basePath, requestID),
+		EventsPath:   resolveOutputPath(fallbackPath(loaded.Config.Output.EventsPath, filepath.Join(baseDir, "events.jsonl")), basePath, requestID),
+		ResultPath:   resolveOutputPath(fallbackPath(loaded.Config.Output.ResultPath, filepath.Join(baseDir, "result.json")), basePath, requestID),
+		SummaryPath:  resolveOutputPath(fallbackPath(loaded.Config.Output.SummaryPath, filepath.Join(baseDir, "summary.md")), basePath, requestID),
+		ErrorPath:    resolveOutputPath(fallbackPath(loaded.Config.Output.ErrorPath, filepath.Join(baseDir, "error.json")), basePath, requestID),
 		ArtifactsDir: artifactsDir,
 	}
 }
 
 func ResolveResultTemplate(loaded LoadedConfig) string {
+	basePath := mustGetwd()
 	requestToken := "{requestId}"
 	baseDir := loaded.Config.Output.Directory
 	if strings.TrimSpace(baseDir) == "" {
 		baseDir = "./out/{requestId}"
 	}
-	baseDir = resolveOutputPath(baseDir, loaded.ConfigDir, requestToken)
+	baseDir = resolveOutputPath(baseDir, basePath, requestToken)
 	return resolveOutputPath(
 		fallbackPath(loaded.Config.Output.ResultPath, filepath.Join(baseDir, "result.json")),
-		loaded.ConfigDir,
+		basePath,
 		requestToken,
 	)
 }
 
 func ResolveSessionStoreDir(loaded LoadedConfig) string {
+	basePath := mustGetwd()
 	requestToken := "{requestId}"
 	baseDir := loaded.Config.Output.Directory
 	if strings.TrimSpace(baseDir) == "" {
 		baseDir = "./out/{requestId}"
 	}
-	baseDir = resolveOutputPath(baseDir, loaded.ConfigDir, requestToken)
+	baseDir = resolveOutputPath(baseDir, basePath, requestToken)
 	return resolveSessionStoreDir(strings.ReplaceAll(baseDir, requestToken, "_template_"))
 }
 

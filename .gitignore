@@ -6,6 +6,7 @@ references/
 # IDE / Editor
 .idea/
 .vscode/
+.antigravitycli/
 
 # Local runtime artifacts
 out/

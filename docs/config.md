@@ -527,7 +527,7 @@ providers:
     api_key_env: GEMINI_API_KEY
     models:
       default:
-        provider_model: gemini-2.5-flash
+        provider_model: gemini-3.5-flash
 ```
 
 如果你要接兼容网关，例如 OpenRouter、Kimi、DeepSeek、Qwen 百炼兼容模式或公司内代理，建议记住：
@@ -590,7 +590,7 @@ providers:
 
 ## profile preflight
 
-`config validate` 只证明配置结构合法；如果你要确认 API key、base url、CLI 登录态和模型名真的能用，使用 `profile preflight`。
+`config validate` 检查完整 workflow 配置；如果你要确认 API key、base url、CLI 登录态和模型名真的能用，使用 `profile preflight`。
 
 常用命令：
 
@@ -608,8 +608,13 @@ til-consensus profile preflight --config docs/examples/deepseek.config.yaml --pr
 - `--provider` 按 provider id 过滤，可重复传入，也可以逗号分隔。
 - `--agent` 按 agent id 检查，会使用该 agent 的 provider、model、temperature、reasoning 覆写。
 - `--output` 只覆盖本次 preflight 的 `output.directory`，不会写回配置文件。
+- 相对 `output.directory` 按当前执行目录解析，而不是按配置文件所在目录解析。
+- `profile preflight` 默认只校验 provider / agent profile，不要求 `roles.proposers / roles.challengers / participants` 等 workflow 角色完整。
+- 如果传了 `--agent`，该 agent 仍必须正确引用已存在的 provider 和 model。
 - API provider 会先检查 `api_key_env` 对应环境变量是否存在；不会把 key 写进 artifact。
 - 每个 provider 会执行带 schema 的最小非交互 JSON 探测：要求返回 `{"ok": true}`。
+- 多个 provider 会逐个探测并分块输出：每个 provider 完成后立即打印该 provider 的 readiness，最后再打印 `profile preflight completed ready=x/y` 和 artifact 路径。
+- stdout 是真实终端时，最终 summary 全部 ready 会显示为绿色，否则显示为红色。
 - preflight 默认探测预算是 `max_output_tokens=2048`；如果该 model 显式配置了更小的 `max_output_tokens`，则使用配置值。这个预算只影响 preflight，不会改正常 `run`。
 - 结果会写到标准输出目录，并生成 `artifacts/provider-readiness.json`，可被 `view` 和 `telemetry daily` 读取。
 
