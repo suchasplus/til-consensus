@@ -6,6 +6,8 @@
 
 如果你只想先跑通一次，先看下面的 quickstart 即可。更完整的 provider 配置和 `run.yaml` 样例在 [docs/examples.md](docs/examples.md)。
 
+如果你的目标是少记命令、少写 YAML，优先看 [Fast Path](fastpath.md)。
+
 当前支持 3 种 workflow：
 
 - `adjudication`
