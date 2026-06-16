@@ -19,6 +19,8 @@
 
 如果你在调试 provider 配置，优先看：
 
+- [README：CLI 诊断与审计](../README.md#cli-诊断与审计)
+- [配置说明：render / explain](config.md#render--explain)
 - [配置说明：profile preflight](config.md#profile-preflight)
 - [输出产物说明：provider readiness](output.md#provider-readiness-telemetry)
 - [终端 view：查看 readiness](view.md)

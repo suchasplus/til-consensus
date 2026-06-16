@@ -49,8 +49,17 @@ func ResolveConfigPath(explicitPath string) (string, error) {
 }
 
 func Load(path string) (LoadedConfig, error) {
+	return LoadWithProfile(path, "")
+}
+
+func LoadWithProfile(path string, profile string) (LoadedConfig, error) {
 	path = toAbs(path, mustGetwd())
-	cfg, err := loadConfigWithIncludes(path, nil)
+	cfg, trace, err := loadConfigWithIncludesTrace(path, nil, nil, "")
+	if err != nil {
+		return LoadedConfig{}, err
+	}
+	activeProfile := pickProfile(profile, cfg.Profile)
+	cfg, activeProfile, err = applySelectedProfile(cfg, activeProfile)
 	if err != nil {
 		return LoadedConfig{}, err
 	}
@@ -59,15 +68,26 @@ func Load(path string) (LoadedConfig, error) {
 		return LoadedConfig{}, err
 	}
 	return LoadedConfig{
-		Path:      path,
-		ConfigDir: filepath.Dir(path),
-		Config:    cfg,
+		Path:         path,
+		ConfigDir:    filepath.Dir(path),
+		Profile:      activeProfile,
+		Config:       cfg,
+		IncludeTrace: trace,
 	}, nil
 }
 
 func LoadProfiles(path string) (LoadedConfig, error) {
+	return LoadProfilesWithProfile(path, "")
+}
+
+func LoadProfilesWithProfile(path string, profile string) (LoadedConfig, error) {
 	path = toAbs(path, mustGetwd())
-	cfg, err := loadConfigWithIncludes(path, nil)
+	cfg, trace, err := loadConfigWithIncludesTrace(path, nil, nil, "")
+	if err != nil {
+		return LoadedConfig{}, err
+	}
+	activeProfile := pickProfile(profile, cfg.Profile)
+	cfg, activeProfile, err = applySelectedProfile(cfg, activeProfile)
 	if err != nil {
 		return LoadedConfig{}, err
 	}
@@ -76,43 +96,85 @@ func LoadProfiles(path string) (LoadedConfig, error) {
 		return LoadedConfig{}, err
 	}
 	return LoadedConfig{
-		Path:      path,
-		ConfigDir: filepath.Dir(path),
-		Config:    cfg,
+		Path:         path,
+		ConfigDir:    filepath.Dir(path),
+		Profile:      activeProfile,
+		Config:       cfg,
+		IncludeTrace: trace,
 	}, nil
 }
 
-func loadConfigWithIncludes(path string, stack []string) (Config, error) {
+func LoadWithTrace(path string, profilesOnly bool) (LoadedConfig, error) {
+	return LoadWithTraceAndProfile(path, profilesOnly, "")
+}
+
+func LoadWithTraceAndProfile(path string, profilesOnly bool, profile string) (LoadedConfig, error) {
+	if profilesOnly {
+		return LoadProfilesWithProfile(path, profile)
+	}
+	return LoadWithProfile(path, profile)
+}
+
+func pickProfile(explicitProfile string, configProfile string) string {
+	if strings.TrimSpace(explicitProfile) != "" {
+		return strings.TrimSpace(explicitProfile)
+	}
+	return strings.TrimSpace(configProfile)
+}
+
+func applySelectedProfile(cfg Config, profile string) (Config, string, error) {
+	if strings.TrimSpace(profile) == "" {
+		return cfg, "", nil
+	}
+	selected, ok := cfg.Profiles[profile]
+	if !ok {
+		return Config{}, profile, fmt.Errorf("config profile not found: %s", profile)
+	}
+	overlay := Config{
+		Defaults:  selected.Defaults,
+		Output:    selected.Output,
+		Providers: selected.Providers,
+		Agents:    selected.Agents,
+		Roles:     selected.Roles,
+	}
+	cfg = mergeConfig(cfg, overlay)
+	cfg.Profile = profile
+	return cfg, profile, nil
+}
+
+func loadConfigWithIncludesTrace(path string, stack []string, trace []IncludeTraceEntry, includedBy string) (Config, []IncludeTraceEntry, error) {
 	path = toAbs(path, mustGetwd())
 	key, err := canonicalConfigPath(path)
 	if err != nil {
-		return Config{}, err
+		return Config{}, trace, err
 	}
 	for _, active := range stack {
 		if active == key {
-			return Config{}, fmt.Errorf("config include cycle detected: %s", strings.Join(append(stack, key), " -> "))
+			return Config{}, trace, fmt.Errorf("config include cycle detected: %s", strings.Join(append(stack, key), " -> "))
 		}
 	}
+	trace = append(trace, IncludeTraceEntry{Path: key, IncludedBy: includedBy})
 	cfg, err := decodeConfigFile(path)
 	if err != nil {
-		return Config{}, err
+		return Config{}, trace, err
 	}
 	var merged Config
 	nextStack := append(stack, key)
 	for _, includePath := range cfg.Include {
 		includePath = strings.TrimSpace(includePath)
 		if includePath == "" {
-			return Config{}, fmt.Errorf("empty config include in %s", path)
+			return Config{}, trace, fmt.Errorf("empty config include in %s", path)
 		}
 		resolvedInclude := toAbs(includePath, filepath.Dir(path))
-		included, err := loadConfigWithIncludes(resolvedInclude, nextStack)
+		included, nextTrace, err := loadConfigWithIncludesTrace(resolvedInclude, nextStack, trace, key)
+		trace = nextTrace
 		if err != nil {
-			return Config{}, fmt.Errorf("load include %s from %s: %w", includePath, path, err)
+			return Config{}, trace, fmt.Errorf("load include %s from %s: %w", includePath, path, err)
 		}
 		merged = mergeConfig(merged, included)
 	}
 	cfg.Include = nil
-	return mergeConfig(merged, cfg), nil
+	return mergeConfig(merged, cfg), trace, nil
 }
 
 func decodeConfigFile(path string) (Config, error) {

@@ -19,6 +19,9 @@ func newConfigCommand() *cli.Command {
 		Commands: []*cli.Command{
 			newConfigInitCommand(),
 			newConfigValidateCommand(),
+			newConfigWizardCommand(),
+			newConfigRenderCommand(),
+			newConfigExplainCommand(),
 			newConfigAddProviderCommand(),
 			newConfigAddAgentCommand(),
 		},
@@ -59,13 +62,14 @@ func newConfigValidateCommand() *cli.Command {
 		Usage: "校验配置",
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "config", Usage: "配置文件路径"},
+			&cli.StringFlag{Name: "profile", Usage: "选择 config.profiles 中的配置 overlay"},
 		},
 		Action: func(ctx context.Context, cmd *cli.Command) error {
 			path, err := config.ResolveConfigPath(cmd.String("config"))
 			if err != nil {
 				return err
 			}
-			if _, err := config.Load(path); err != nil {
+			if _, err := config.LoadWithProfile(path, cmd.String("profile")); err != nil {
 				return err
 			}
 			_, _ = fmt.Fprintf(cmd.Writer, "config is valid: %s\n", path)

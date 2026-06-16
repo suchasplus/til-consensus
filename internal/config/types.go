@@ -44,11 +44,21 @@ func (d Duration) MarshalYAML() (any, error) {
 type Config struct {
 	SchemaVersion int                       `yaml:"schema_version"`
 	Include       []string                  `yaml:"include,omitempty"`
+	Profile       string                    `yaml:"profile,omitempty"`
+	Profiles      map[string]ProfileConfig  `yaml:"profiles,omitempty"`
 	Defaults      DefaultsConfig            `yaml:"defaults"`
 	Output        OutputConfig              `yaml:"output"`
 	Providers     map[string]ProviderConfig `yaml:"providers"`
 	Agents        []AgentConfig             `yaml:"agents"`
 	Roles         RolesConfig               `yaml:"roles"`
+}
+
+type ProfileConfig struct {
+	Defaults  DefaultsConfig            `yaml:"defaults,omitempty"`
+	Output    OutputConfig              `yaml:"output,omitempty"`
+	Providers map[string]ProviderConfig `yaml:"providers,omitempty"`
+	Agents    []AgentConfig             `yaml:"agents,omitempty"`
+	Roles     RolesConfig               `yaml:"roles,omitempty"`
 }
 
 type DefaultsConfig struct {
@@ -183,9 +193,16 @@ type AgentConfig struct {
 }
 
 type LoadedConfig struct {
-	Path      string
-	ConfigDir string
-	Config    Config
+	Path         string
+	ConfigDir    string
+	Profile      string
+	Config       Config
+	IncludeTrace []IncludeTraceEntry
+}
+
+type IncludeTraceEntry struct {
+	Path       string `json:"path" yaml:"path"`
+	IncludedBy string `json:"includedBy,omitempty" yaml:"included_by,omitempty"`
 }
 
 type RunInput struct {

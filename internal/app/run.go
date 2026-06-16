@@ -23,6 +23,7 @@ func newRunCommand() *cli.Command {
 		Usage: "运行一次 til-consensus 裁决流程",
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "config", Usage: "配置文件路径"},
+			&cli.StringFlag{Name: "profile", Usage: "选择 config.profiles 中的配置 overlay"},
 			&cli.StringFlag{Name: "input", Usage: "输入文件路径"},
 			&cli.StringFlag{Name: "task-file", Usage: "任务文本文件路径，读取整个文件内容作为 task"},
 			&cli.StringFlag{Name: "followup", Usage: "直接执行 follow-up case artifact"},
@@ -47,6 +48,8 @@ func newRunCommand() *cli.Command {
 			&cli.DurationFlag{Name: "timeout", Usage: "单任务超时"},
 			&cli.DurationFlag{Name: "global-deadline", Usage: "全局截止时间"},
 			&cli.StringFlag{Name: "action", Usage: "裁决后执行的 action"},
+			&cli.BoolFlag{Name: "dry-run", Usage: "只解析并展示最终 run plan，不调用 provider，不写运行产物"},
+			&cli.StringFlag{Name: "format", Usage: "dry-run 输出格式(text|json)", Value: "text"},
 			&cli.BoolFlag{Name: "verbose", Usage: "输出详细事件"},
 			&cli.BoolFlag{Name: "debug", Usage: "输出完整事件 payload 以及 provider 输入/输出 artifact 路径"},
 		},
@@ -61,7 +64,7 @@ func runCommand(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
-	loaded, err := config.Load(configPath)
+	loaded, err := config.LoadWithProfile(configPath, cmd.String("profile"))
 	if err != nil {
 		return err
 	}
@@ -77,6 +80,9 @@ func runCommand(ctx context.Context, cmd *cli.Command) error {
 		plan, err := config.ResolveRunPlanForRequest(loaded, artifact.Request, cmd.Bool("verbose"), cmd.Bool("debug"))
 		if err != nil {
 			return err
+		}
+		if cmd.Bool("dry-run") {
+			return writeDryRunPlan(cmd.Writer, loaded, plan, "followup", cmd.String("format"))
 		}
 		return executeResolvedPlan(ctx, loaded, plan, cmd.Writer)
 	}
@@ -94,6 +100,9 @@ func runCommand(ctx context.Context, cmd *cli.Command) error {
 		plan, err := config.ResolveRunPlanForRequest(loaded, *snapshot.Request, cmd.Bool("verbose"), cmd.Bool("debug"))
 		if err != nil {
 			return err
+		}
+		if cmd.Bool("dry-run") {
+			return writeDryRunPlan(cmd.Writer, loaded, plan, "resume-session", cmd.String("format"))
 		}
 		return executeResumedSession(ctx, loaded, plan, snapshot, cmd.Writer)
 	}
@@ -121,6 +130,9 @@ func runCommand(ctx context.Context, cmd *cli.Command) error {
 		plan, err := config.ResolveRunPlanForRequest(loaded, replayRequest, cmd.Bool("verbose"), cmd.Bool("debug"))
 		if err != nil {
 			return err
+		}
+		if cmd.Bool("dry-run") {
+			return writeDryRunPlan(cmd.Writer, loaded, plan, "replay-session", cmd.String("format"))
 		}
 		return executeResolvedPlan(ctx, loaded, plan, cmd.Writer)
 	}
@@ -160,6 +172,9 @@ func runCommand(ctx context.Context, cmd *cli.Command) error {
 	plan, err := config.ResolveRunPlan(loaded, input, overrides, time.Now().UTC())
 	if err != nil {
 		return err
+	}
+	if cmd.Bool("dry-run") {
+		return writeDryRunPlan(cmd.Writer, loaded, plan, "run", cmd.String("format"))
 	}
 	return executeResolvedPlan(ctx, loaded, plan, cmd.Writer)
 }

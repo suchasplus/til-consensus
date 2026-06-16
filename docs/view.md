@@ -19,12 +19,14 @@ til-consensus view --config ./til-consensus.yaml --web
 查看最新一次：
 
 ```bash
+til-consensus last --config ./til-consensus.yaml
 til-consensus view --config ./til-consensus.yaml
 ```
 
 查看指定 request：
 
 ```bash
+til-consensus inspect tc_1710000000000_abcd12 --config ./til-consensus.yaml
 til-consensus view \
   --config ./til-consensus.yaml \
   --request-id tc_1710000000000_abcd12
@@ -39,8 +41,19 @@ til-consensus view --result ./out/tc_1710000000000_abcd12/result.json
 启动本地 Web viewer：
 
 ```bash
+til-consensus open ./out/tc_1710000000000_abcd12/result.json
 til-consensus view --result ./out/tc_1710000000000_abcd12/result.json --web
 ```
+
+查看 raw/debug artifact：
+
+```bash
+til-consensus logs tc_1710000000000_abcd12 --config ./til-consensus.yaml --type raw
+til-consensus logs --result ./out/tc_1710000000000_abcd12/result.json --type telemetry
+til-consensus logs --result ./out/tc_1710000000000_abcd12/result.json --latest --type raw
+```
+
+`last`、`inspect`、`logs`、`open` 都是快捷入口；完整参数仍然可以用 `view` 和 `artifact list/show`。
 
 `profile preflight` 也会写出标准 `result.json`，因此可以直接查看 readiness：
 

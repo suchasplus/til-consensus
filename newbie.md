@@ -61,23 +61,25 @@ export PATH="$HOME/.local/bin:$PATH"
 生成配置：
 
 ```bash
-til-consensus config init --mode adjudication --provider-profile mock --config ./til-consensus.yaml
+til-consensus setup --mode adjudication --provider-profile mock --dir .
 ```
 
 直接运行一个任务：
 
 ```bash
-til-consensus run \
-  --config ./til-consensus.yaml \
-  --task "判断这个 patch 是否真正修复了竞态问题"
+til-consensus ask "判断这个 patch 是否真正修复了竞态问题" --config ./til-consensus.yaml
+```
+
+如果你想先确认会用哪些角色、模型和输出路径，但不真正调用 provider：
+
+```bash
+til-consensus ask "判断这个 patch 是否真正修复了竞态问题" --config ./til-consensus.yaml --dry-run
 ```
 
 如果你的任务已经写在文件里，也可以直接读文件全文：
 
 ```bash
-til-consensus run \
-  --config ./til-consensus.yaml \
-  --task-file ./task.md
+til-consensus ask ./task.md --config ./til-consensus.yaml
 ```
 
 `--task-file` 会把文件全部内容当作任务文本。它可以和 `--input ./run.yaml` 一起使用，用来覆盖 `task_spec.goal`；但不能和 `--task` 同时使用。
@@ -85,13 +87,21 @@ til-consensus run \
 查看结果：
 
 ```bash
-til-consensus view --config ./til-consensus.yaml
+til-consensus last --config ./til-consensus.yaml
 ```
 
 如果你想用浏览器看：
 
 ```bash
-til-consensus view --config ./til-consensus.yaml --web
+til-consensus open --config ./til-consensus.yaml
+```
+
+如果想直接看某个原始 artifact：
+
+```bash
+til-consensus artifact list --config ./til-consensus.yaml
+til-consensus artifact show --config ./til-consensus.yaml --id 1
+til-consensus logs --config ./til-consensus.yaml --type raw
 ```
 
 ## 4. 它会生成什么文件
@@ -189,8 +199,8 @@ til-consensus config init --mode adjudication --provider-profile mock
 之后可以直接运行：
 
 ```bash
-til-consensus run --task "Should we use a monorepo or polyrepo for our microservices?"
-til-consensus view
+til-consensus ask "Should we use a monorepo or polyrepo for our microservices?"
+til-consensus last
 ```
 
 ## 7. 换成真实 provider
@@ -225,6 +235,18 @@ til-consensus config init --mode adjudication --provider-profile generic --confi
 
 ```bash
 til-consensus profile preflight --config ./til-consensus.yaml --all --verbose
+```
+
+如果只想先检查本机配置、输出目录、API key 环境变量和 CLI 二进制，不想花 token：
+
+```bash
+til-consensus doctor --config ./til-consensus.yaml
+```
+
+如果要在 doctor 里也真实调用 provider：
+
+```bash
+til-consensus doctor --config ./til-consensus.yaml --providers --verbose
 ```
 
 `profile preflight` 会真实调用 provider 做最小 JSON 探测，默认 `max_output_tokens=2048`。它只聚焦 provider / model / agent profile 是否可用，不要求 `roles.proposers / roles.challengers / participants` 已经完整可运行；如果你加 `--agent`，才会校验这个 agent 的 provider/model 引用。

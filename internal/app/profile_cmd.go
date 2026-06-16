@@ -35,6 +35,7 @@ func newProfilePreflightCommand() *cli.Command {
 		Usage: "真实调用 provider / agent，检查最小 JSON 非交互输出",
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "config", Usage: "配置文件路径"},
+			&cli.StringFlag{Name: "config-profile", Usage: "选择 config.profiles 中的配置 overlay"},
 			&cli.StringFlag{Name: "output", Usage: "覆盖本次 preflight 输出目录模板，例如 ./out/{requestId}"},
 			&cli.BoolFlag{Name: "all", Usage: "检查所有 provider；不传 --provider/--agent 时默认等价于 --all"},
 			&cli.StringSliceFlag{Name: "provider", Usage: "要检查的 provider id，可重复或逗号分隔"},
@@ -57,7 +58,7 @@ func runProfilePreflightCommand(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
-	loaded, err := config.LoadProfiles(configPath)
+	loaded, err := config.LoadProfilesWithProfile(configPath, cmd.String("config-profile"))
 	if err != nil {
 		return err
 	}

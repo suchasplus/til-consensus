@@ -32,20 +32,22 @@ til-consensus config init --mode adjudication --provider-profile mock --config .
 2. 运行一次默认 `adjudication`：
 
 ```bash
-til-consensus run \
-  --config ./til-consensus.yaml \
-  --task "判断这个 patch 是否真正修复了竞态问题"
+til-consensus ask "判断这个 patch 是否真正修复了竞态问题" --config ./til-consensus.yaml
 ```
 
 如果任务文本已经写在文件里，也可以直接读取整份文本内容：
 
 ```bash
-til-consensus run \
-  --config ./til-consensus.yaml \
-  --task-file ./task.md
+til-consensus ask ./task.md --config ./til-consensus.yaml
 ```
 
 `--task-file` 会读取文件全部内容作为任务文本。它可以和 `--input` 一起用，用来覆盖 `run.yaml` 里的 `task_spec.goal`；但不能和 `--task` 同时使用。
+
+底层 `run` 仍然保留，适合 CI 或需要精确覆盖所有角色 / policy 的场景：
+
+```bash
+til-consensus run --config ./til-consensus.yaml --task-file ./task.md
+```
 
 如果你想把最近一天的真实 run 汇总成 markdown：
 
@@ -65,13 +67,13 @@ til-consensus telemetry daily \
 3. 查看最新一次结果：
 
 ```bash
-til-consensus view --config ./til-consensus.yaml
+til-consensus last --config ./til-consensus.yaml
 ```
 
 也可以直接启动本地只读 Web viewer：
 
 ```bash
-til-consensus view --config ./til-consensus.yaml --web
+til-consensus open --config ./til-consensus.yaml
 ```
 
 如果希望启动后自动打开默认浏览器：
@@ -79,6 +81,35 @@ til-consensus view --config ./til-consensus.yaml --web
 ```bash
 til-consensus view --config ./til-consensus.yaml --web --open
 ```
+
+## 高频短命令
+
+为了避免日常命令过长，顶层提供 task-first 快捷入口：
+
+```bash
+til-consensus ask "是否应该合并这个 patch？"
+til-consensus debate "monorepo 和 polyrepo 如何取舍？"
+til-consensus delphi ./docs/decision.md
+```
+
+规则：
+
+- `ask` 固定使用 `adjudication`
+- `debate` 固定使用 `free_debate`
+- `delphi` 固定使用 `delphi`
+- 第一个位置参数如果是存在的文件，会按 `--task-file` 读取全文；否则按一段任务文本处理
+- `debate` / `delphi` 没有显式 `--participants` 时，会优先使用配置里的 `roles.participants`，否则从 proposer/challenger 去重推导
+
+查看相关也有快捷入口：
+
+```bash
+til-consensus last --config ./til-consensus.yaml
+til-consensus inspect tc_xxx --config ./til-consensus.yaml
+til-consensus logs tc_xxx --config ./til-consensus.yaml --type raw
+til-consensus open tc_xxx --config ./til-consensus.yaml
+```
+
+这些命令只是 `run`、`view`、`artifact` 的薄包装；底层正交命令仍然保留给脚本和调试。
 
 如果你已经装了具体 CLI，也可以直接生成对应模板：
 
@@ -177,6 +208,24 @@ defaults:
 - `--task-profile`
   - `general`
   - `coding`
+
+如果你不想维护一份很大的 YAML，可以直接生成 split config：
+
+```bash
+til-consensus setup --mode adjudication --provider-profile mock --dir .
+```
+
+它会写出：
+
+- `til-consensus.yaml`
+- `conf/providers.yaml`
+- `conf/profiles.yaml`
+
+主配置只保留 `include`、`profile` 和 `output`；provider、agent、roles 和 policy 放在片段里。等价入口是：
+
+```bash
+til-consensus config wizard --mode delphi --provider-profile claude --dir .
+```
 
 最常用的组合：
 
@@ -311,14 +360,29 @@ til-consensus config add-provider \
 
 - `til-consensus run`
   - 运行一次 workflow
+  - 加 `--dry-run` 时只解析最终 plan，不调用 provider，不写运行产物
+- `til-consensus ask|debate|delphi`
+  - 面向任务的短命令，分别映射到三种 workflow
 - `til-consensus view`
   - 用终端友好的方式阅读结果
+- `til-consensus last|inspect|logs|open`
+  - 高频查看短命令，分别用于最近结果、指定 run、raw/debug artifact、Web viewer
+- `til-consensus doctor`
+  - 检查配置、输出目录、API key 环境变量和 CLI 二进制；加 `--providers` 才真实调用 provider
+- `til-consensus artifact list/show`
+  - 快速定位和展开某次 run 的 raw/input/error/telemetry artifact
+- `til-consensus setup`
+  - 生成 split config 起步骨架
 - `til-consensus act`
   - 基于现有 `result.json` 继续执行 action
 - `til-consensus config init`
   - 生成带注释的配置模板
 - `til-consensus config validate`
   - 校验配置是否可用
+- `til-consensus config render`
+  - 展开 include/overlay 后输出最终配置
+- `til-consensus config explain`
+  - 解释最终生效的 provider、agent、roles 和输出路径
 - `til-consensus profile preflight`
   - 真实调用配置里的 CLI/API provider，检查最小非交互 JSON 输出，并写出 readiness artifact
 - `til-consensus telemetry daily`
@@ -387,6 +451,77 @@ til-consensus run \
   --config ./til-consensus.yaml \
   --task "判断这个 patch 是否真正修复了竞态问题"
 ```
+
+只检查最终会怎么跑，不调用 provider、不创建 `out/`：
+
+```bash
+til-consensus run \
+  --config ./til-consensus.yaml \
+  --task-file ./task.md \
+  --dry-run
+
+til-consensus run \
+  --config ./til-consensus.yaml \
+  --input ./case.run.yaml \
+  --dry-run \
+  --format json
+```
+
+## CLI 诊断与审计
+
+快速检查本机配置，不花 token：
+
+```bash
+til-consensus doctor --config ./til-consensus.yaml
+```
+
+连真实 provider 一起检查：
+
+```bash
+til-consensus doctor --config ./til-consensus.yaml --providers --verbose
+```
+
+查看 include/overlay 后的最终配置：
+
+```bash
+til-consensus config render --config ./til-consensus.yaml
+til-consensus config render --config ./til-consensus.yaml --format json
+```
+
+解释最终角色和 provider/model 映射：
+
+```bash
+til-consensus config explain --config ./til-consensus.yaml
+til-consensus config explain --config ./til-consensus.yaml --agent arbiter-a
+```
+
+列出并查看 artifact：
+
+```bash
+til-consensus artifact list --config ./til-consensus.yaml --type error
+til-consensus artifact show --result ./out/tc_xxx/result.json --id 1
+til-consensus artifact show --result ./out/tc_xxx/result.json --path artifacts/run-telemetry.json
+```
+
+## Exit code
+
+CLI 会把常见失败映射成稳定 exit code：
+
+- `0` success
+- `1` internal_error
+- `2` usage_error
+- `3` config_not_found
+- `4` config_invalid
+- `5` input_invalid
+- `6` provider_not_ready
+- `7` provider_auth_failed
+- `8` provider_rate_limited
+- `9` provider_timeout
+- `10` provider_schema_failed
+- `11` run_failed
+- `12` run_cancelled
+- `13` artifact_not_found
+- `14` artifact_invalid
 
 运行 `free_debate`：
 

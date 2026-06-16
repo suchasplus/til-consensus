@@ -8,6 +8,38 @@ func mergeConfig(base Config, overlay Config) Config {
 	if overlay.SchemaVersion != 0 {
 		out.SchemaVersion = overlay.SchemaVersion
 	}
+	if overlay.Profile != "" {
+		out.Profile = overlay.Profile
+	}
+	out.Profiles = mergeProfiles(out.Profiles, overlay.Profiles)
+	out.Defaults = mergeDefaults(out.Defaults, overlay.Defaults)
+	out.Output = mergeOutput(out.Output, overlay.Output)
+	out.Providers = mergeProviders(out.Providers, overlay.Providers)
+	out.Agents = mergeAgents(out.Agents, overlay.Agents)
+	out.Roles = mergeRoles(out.Roles, overlay.Roles)
+	return out
+}
+
+func mergeProfiles(base map[string]ProfileConfig, overlay map[string]ProfileConfig) map[string]ProfileConfig {
+	if len(base) == 0 && len(overlay) == 0 {
+		return nil
+	}
+	out := make(map[string]ProfileConfig, len(base)+len(overlay))
+	for key, value := range base {
+		out[key] = cloneProfile(value)
+	}
+	for key, value := range overlay {
+		if existing, ok := out[key]; ok {
+			out[key] = mergeProfile(existing, value)
+			continue
+		}
+		out[key] = cloneProfile(value)
+	}
+	return out
+}
+
+func mergeProfile(base ProfileConfig, overlay ProfileConfig) ProfileConfig {
+	out := base
 	out.Defaults = mergeDefaults(out.Defaults, overlay.Defaults)
 	out.Output = mergeOutput(out.Output, overlay.Output)
 	out.Providers = mergeProviders(out.Providers, overlay.Providers)
@@ -421,6 +453,16 @@ func cloneProvider(provider ProviderConfig) ProviderConfig {
 	out.Options = cloneDeepAnyMap(provider.Options)
 	out.Participants = mergeMockParticipants(nil, provider.Participants)
 	return out
+}
+
+func cloneProfile(profile ProfileConfig) ProfileConfig {
+	return ProfileConfig{
+		Defaults:  mergeDefaults(DefaultsConfig{}, profile.Defaults),
+		Output:    mergeOutput(OutputConfig{}, profile.Output),
+		Providers: mergeProviders(nil, profile.Providers),
+		Agents:    mergeAgents(nil, profile.Agents),
+		Roles:     mergeRoles(RolesConfig{}, profile.Roles),
+	}
 }
 
 func cloneProviderModel(model ProviderModelConfig) ProviderModelConfig {

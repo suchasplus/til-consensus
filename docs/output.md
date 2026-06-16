@@ -145,6 +145,26 @@ Gemini API 的无文本错误会尽量带上 `finishReason`、`promptBlockReason
 
 其中 `artifacts/manifest.jsonl` 会把 artifact 反向索引回 `ledger.jsonl` 的 `entryId`。
 
+终端里可以直接用 artifact 快捷命令查看，不必手动翻目录：
+
+```bash
+til-consensus artifact list --result ./out/tc_xxx/result.json
+til-consensus artifact list --result ./out/tc_xxx/result.json --type error
+til-consensus artifact show --result ./out/tc_xxx/result.json --id 1
+til-consensus artifact show --result ./out/tc_xxx/result.json --path artifacts/run-telemetry.json
+til-consensus artifact show --result ./out/tc_xxx/result.json --type raw --latest
+```
+
+高频调试也可以用更短的 `logs`：
+
+```bash
+til-consensus logs tc_xxx --config ./til-consensus.yaml --type raw
+til-consensus logs --result ./out/tc_xxx/result.json --type error
+til-consensus logs --result ./out/tc_xxx/result.json --latest --type raw
+```
+
+`artifact show` 默认只允许读取当前 run 目录内的路径，避免误读任意本地文件；确实需要读取外部路径时必须显式传 `--allow-outside-run-dir`。
+
 和这次闭环增强最相关的两类记录是：
 
 - `source_material`

@@ -21,14 +21,17 @@ func TestNewBuildsCommandTree(t *testing.T) {
 	if cmd.Name != "til-consensus" {
 		t.Fatalf("unexpected root name: %s", cmd.Name)
 	}
-	if len(cmd.Commands) != 9 {
+	if len(cmd.Commands) != 19 {
 		t.Fatalf("unexpected root command count: %d", len(cmd.Commands))
 	}
 	if cmd.Version == "" {
 		t.Fatal("expected root version to be populated")
 	}
-	names := []string{cmd.Commands[0].Name, cmd.Commands[1].Name, cmd.Commands[2].Name, cmd.Commands[3].Name, cmd.Commands[4].Name, cmd.Commands[5].Name, cmd.Commands[6].Name, cmd.Commands[7].Name, cmd.Commands[8].Name}
-	if strings.Join(names, ",") != "run,followup,config,profile,telemetry,act,session,view,version" {
+	names := make([]string, 0, len(cmd.Commands))
+	for _, child := range cmd.Commands {
+		names = append(names, child.Name)
+	}
+	if strings.Join(names, ",") != "run,ask,debate,delphi,setup,followup,config,profile,doctor,artifact,last,inspect,logs,open,telemetry,act,session,view,version" {
 		t.Fatalf("unexpected command tree: %#v", names)
 	}
 }

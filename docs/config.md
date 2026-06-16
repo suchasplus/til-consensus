@@ -62,12 +62,73 @@ configs/
 
 建议把稳定的 provider、agent、roles 放在 include 片段里，把每次任务不同的内容放在 `run.yaml` 或 `--task-file` 里。
 
+## profile / profiles overlay
+
+如果一份配置里需要保留多套运行方式，可以用 `profile` 选择一个 overlay：
+
+```yaml
+schema_version: 1
+include:
+  - ./conf/providers.yaml
+
+profile: fast
+
+profiles:
+  fast:
+    defaults:
+      mode: adjudication
+      per_task_timeout: 5m
+    roles:
+      proposers: [proposer-fast]
+      challengers: [challenger-fast]
+      arbiter: arbiter-fast
+  delphi-strong:
+    defaults:
+      mode: delphi
+      per_task_timeout: 20m
+    roles:
+      participants: [participant-a, participant-b, participant-c]
+      facilitator: facilitator-a
+      reporter: reporter-a
+
+output:
+  directory: ./out/{requestId}
+```
+
+规则：
+
+- `profile:` 是默认 active profile。
+- 命令行可以用 `--profile <name>` 覆盖，例如 `til-consensus ask "..." --profile fast`。
+- `profile preflight` 为避免命名混淆，使用 `--config-profile <name>`。
+- profile overlay 支持覆盖 `defaults`、`output`、`providers`、`agents`、`roles`。
+- overlay 会在最终 `Normalize` / `Validate` 前合并，所以 `config render --profile fast` 能看到最终生效配置。
+
 ## 推荐起步方式
 
 第一次上手时，直接生成模板：
 
 ```bash
 til-consensus config init --mode adjudication --provider-profile mock --config ./til-consensus.yaml
+```
+
+如果你希望默认就是 include + profile 的拆分结构，用：
+
+```bash
+til-consensus setup --mode adjudication --provider-profile mock --dir .
+```
+
+它会生成：
+
+```text
+til-consensus.yaml
+conf/providers.yaml
+conf/profiles.yaml
+```
+
+等价的子命令是：
+
+```bash
+til-consensus config wizard --mode delphi --provider-profile claude --dir .
 ```
 
 `config init` 现在按 3 个维度生成模板：
@@ -402,6 +463,55 @@ parsing:
 
 `CLI flags > input file > config defaults > built-in defaults`
 
+如果只想确认最终 plan，不调用 provider、不写运行产物，可以用：
+
+```bash
+til-consensus run --config ./til-consensus.yaml --input ./case.run.yaml --dry-run
+til-consensus run --config ./til-consensus.yaml --task-file ./task.md --dry-run --format json
+```
+
+`--dry-run` 会展示：
+
+- 最终 `mode`
+- 角色映射
+- agent -> provider/model 映射
+- 输出路径
+- workflow phase 顺序
+- timeout / retry / verification / debate / delphi policy 摘要
+
+## render / explain
+
+`include` 和 overlay 多了之后，建议用 `config render` 看最终配置：
+
+```bash
+til-consensus config render --config ./til-consensus.yaml
+til-consensus config render --config ./til-consensus.yaml --format json
+til-consensus config render --config ./til-consensus.yaml --profile delphi-strong
+```
+
+如果配置还没填完整 workflow roles，只想渲染 provider/profile 层：
+
+```bash
+til-consensus config render --config ./conf/providers.yaml --profiles-only
+```
+
+`config explain` 输出更适合人读：
+
+```bash
+til-consensus config explain --config ./til-consensus.yaml
+til-consensus config explain --config ./til-consensus.yaml --provider gemini-api
+til-consensus config explain --config ./til-consensus.yaml --agent arbiter-a
+til-consensus config explain --config ./til-consensus.yaml --profile fast
+```
+
+它会展示：
+
+- include trace
+- provider 列表
+- agent -> provider/model 映射
+- roles
+- 按当前执行目录解析后的 output 路径
+
 ## 最小示例
 
 ### 1. `adjudication`
@@ -598,6 +708,7 @@ providers:
 til-consensus profile preflight --config ./til-consensus.yaml --all --verbose
 til-consensus profile preflight --config ./til-consensus.yaml --provider deepseek-api
 til-consensus profile preflight --config ./til-consensus.yaml --agent arbiter-qwen-max
+til-consensus profile preflight --config ./til-consensus.yaml --config-profile fast --all
 til-consensus profile preflight --config ./til-consensus.yaml --all --web --open
 til-consensus profile preflight --config docs/examples/deepseek.config.yaml --provider deepseek-api --output ./out/{requestId} --verbose
 ```
@@ -649,6 +760,18 @@ til-consensus profile preflight --config docs/examples/deepseek.config.yaml --al
 
 export BAILIAN_API_KEY=...
 til-consensus profile preflight --config docs/examples/qwen-max.config.yaml --all --verbose
+```
+
+如果你想先做不消耗 token 的本机检查：
+
+```bash
+til-consensus doctor --config ./til-consensus.yaml
+```
+
+如果要把 provider preflight 也纳入 doctor：
+
+```bash
+til-consensus doctor --config ./til-consensus.yaml --providers --verbose
 ```
 
 ## follow-up 与 session store

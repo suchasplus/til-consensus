@@ -18,6 +18,7 @@ func newViewCommand() *cli.Command {
 		Usage: "以终端友好的方式浏览某次裁决结果",
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "config", Usage: "配置文件路径"},
+			&cli.StringFlag{Name: "profile", Usage: "选择 config.profiles 中的配置 overlay"},
 			&cli.StringFlag{Name: "request-id", Usage: "指定 request id"},
 			&cli.StringFlag{Name: "result", Usage: "直接指定 result.json 路径"},
 			&cli.StringFlag{Name: "format", Usage: "输出格式(text|markdown|json)", Value: viewer.FormatText},
@@ -46,60 +47,9 @@ func runViewCommand(ctx context.Context, cmd *cli.Command) error {
 		}
 	}
 
-	resultPath := cmd.String("result")
-	var related viewer.RunFiles
-	if resultPath == "" {
-		configPath, err := config.ResolveConfigPath(cmd.String("config"))
-		if err != nil {
-			return err
-		}
-		loaded, err := config.Load(configPath)
-		if err != nil {
-			return err
-		}
-		template := config.ResolveResultTemplate(loaded)
-		if requestID := cmd.String("request-id"); requestID != "" {
-			resultPath = strings.ReplaceAll(template, "{requestId}", requestID)
-			artifactPaths := config.ResolveRunArtifacts(loaded, requestID)
-			related = viewer.RunFiles{
-				RunDir:                artifactPaths.RunDir,
-				ArtifactsDir:          artifactPaths.ArtifactsDir,
-				ResultPath:            artifactPaths.ResultPath,
-				LedgerPath:            artifactPaths.LedgerPath,
-				SummaryPath:           artifactPaths.SummaryPath,
-				ManifestPath:          artifactPaths.ManifestPath,
-				EventsPath:            artifactPaths.EventsPath,
-				ComplianceSummaryPath: filepath.Join(artifactPaths.ArtifactsDir, "strict-compliance-summary.json"),
-				ProviderReadinessPath: filepath.Join(artifactPaths.ArtifactsDir, "provider-readiness.json"),
-				RunTelemetryPath:      filepath.Join(artifactPaths.ArtifactsDir, "run-telemetry.json"),
-			}
-		} else {
-			latest, err := viewer.ResolveLatestRun(template)
-			if err != nil {
-				return err
-			}
-			if latest == nil {
-				return fmt.Errorf("no completed runs found")
-			}
-			resultPath = latest.ResultPath
-			artifactPaths := config.ResolveRunArtifacts(loaded, latest.RequestID)
-			related = viewer.RunFiles{
-				RunDir:                artifactPaths.RunDir,
-				ArtifactsDir:          artifactPaths.ArtifactsDir,
-				ResultPath:            artifactPaths.ResultPath,
-				LedgerPath:            artifactPaths.LedgerPath,
-				SummaryPath:           artifactPaths.SummaryPath,
-				ManifestPath:          artifactPaths.ManifestPath,
-				EventsPath:            artifactPaths.EventsPath,
-				ComplianceSummaryPath: filepath.Join(artifactPaths.ArtifactsDir, "strict-compliance-summary.json"),
-				ProviderReadinessPath: filepath.Join(artifactPaths.ArtifactsDir, "provider-readiness.json"),
-				RunTelemetryPath:      filepath.Join(artifactPaths.ArtifactsDir, "run-telemetry.json"),
-			}
-		}
-	}
-
-	if related.ResultPath == "" {
-		related = viewer.InferRunFiles(resultPath)
+	related, err := resolveViewRunFiles(cmd.String("config"), cmd.String("profile"), cmd.String("request-id"), cmd.String("result"))
+	if err != nil {
+		return err
 	}
 	bundle, err := viewer.LoadBundle(related)
 	if err != nil {
@@ -152,6 +102,44 @@ func runViewCommand(ctx context.Context, cmd *cli.Command) error {
 	}
 	_, _ = fmt.Fprint(cmd.Writer, rendered)
 	return nil
+}
+
+func resolveViewRunFiles(configPath string, profile string, requestID string, resultPath string) (viewer.RunFiles, error) {
+	if strings.TrimSpace(resultPath) != "" {
+		return viewer.InferRunFiles(resultPath), nil
+	}
+	resolvedConfig, err := config.ResolveConfigPath(configPath)
+	if err != nil {
+		return viewer.RunFiles{}, err
+	}
+	loaded, err := config.LoadWithProfile(resolvedConfig, profile)
+	if err != nil {
+		return viewer.RunFiles{}, err
+	}
+	template := config.ResolveResultTemplate(loaded)
+	if strings.TrimSpace(requestID) == "" {
+		latest, err := viewer.ResolveLatestRun(template)
+		if err != nil {
+			return viewer.RunFiles{}, err
+		}
+		if latest == nil {
+			return viewer.RunFiles{}, fmt.Errorf("no completed runs found")
+		}
+		requestID = latest.RequestID
+	}
+	artifactPaths := config.ResolveRunArtifacts(loaded, requestID)
+	return viewer.RunFiles{
+		RunDir:                artifactPaths.RunDir,
+		ArtifactsDir:          artifactPaths.ArtifactsDir,
+		ResultPath:            artifactPaths.ResultPath,
+		LedgerPath:            artifactPaths.LedgerPath,
+		SummaryPath:           artifactPaths.SummaryPath,
+		ManifestPath:          artifactPaths.ManifestPath,
+		EventsPath:            artifactPaths.EventsPath,
+		ComplianceSummaryPath: filepath.Join(artifactPaths.ArtifactsDir, "strict-compliance-summary.json"),
+		ProviderReadinessPath: filepath.Join(artifactPaths.ArtifactsDir, "provider-readiness.json"),
+		RunTelemetryPath:      filepath.Join(artifactPaths.ArtifactsDir, "run-telemetry.json"),
+	}, nil
 }
 
 func isSupportedClaimVerdict(value string) bool {
