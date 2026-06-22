@@ -184,6 +184,8 @@ func buildBaseArgs(cliType string, providerModel string, prompt string, reasonin
 		return args, prompt
 	case "gemini":
 		return []string{"--approval-mode", "yolo", "-m", providerModel}, prompt
+	case config.CLITypeAntigravity:
+		return []string{"--model", providerModel, "-p", prompt}, ""
 	case "opencode":
 		return []string{"run", prompt, "--dangerously-skip-permissions", "-m", providerModel}, ""
 	default:
@@ -201,7 +203,7 @@ func hardenPromptForCLI(cliType string, task consensus.Task, prompt string) stri
 
 func buildCLIOutputContract(cliType string, task consensus.Task) string {
 	switch cliType {
-	case "codex", "claude", "gemini":
+	case "codex", "claude", "gemini", config.CLITypeAntigravity:
 	default:
 		return ""
 	}
@@ -227,6 +229,10 @@ func buildCLIOutputContract(cliType string, task consensus.Task) string {
 	case "gemini":
 		lines = append(lines,
 			"- Gemini-specific: do not replace canonical fields with aliases like verificationStatus/claim/text/accepted/verified.",
+		)
+	case config.CLITypeAntigravity:
+		lines = append(lines,
+			"- Antigravity-specific: non-interactive output is parsed from stdout. Do not emit TUI notes, plans, tool logs, or artifact summaries; output JSON only.",
 		)
 	}
 	return strings.Join(lines, "\n")

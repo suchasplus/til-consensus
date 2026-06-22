@@ -8,15 +8,16 @@ import (
 )
 
 const (
-	TemplatePresetQuickstart = "quickstart"
-	TemplatePresetOpenAI     = "openai"
-	TemplatePresetCoding     = "coding"
-	TemplatePresetDebate     = "debate"
-	TemplatePresetDelphi     = "delphi"
-	TemplatePresetGeneric    = "generic"
-	TemplatePresetCodex      = "codex"
-	TemplatePresetClaude     = "claude"
-	TemplatePresetGemini     = "gemini"
+	TemplatePresetQuickstart  = "quickstart"
+	TemplatePresetOpenAI      = "openai"
+	TemplatePresetCoding      = "coding"
+	TemplatePresetDebate      = "debate"
+	TemplatePresetDelphi      = "delphi"
+	TemplatePresetGeneric     = "generic"
+	TemplatePresetCodex       = "codex"
+	TemplatePresetClaude      = "claude"
+	TemplatePresetGemini      = "gemini"
+	TemplatePresetAntigravity = "antigravity"
 )
 
 func InitTemplate() Config {

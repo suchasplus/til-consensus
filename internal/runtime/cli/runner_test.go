@@ -40,6 +40,17 @@ func TestBuildBaseArgsCodexIsOneShot(t *testing.T) {
 	}
 }
 
+func TestBuildBaseArgsAntigravityUsesPrintPrompt(t *testing.T) {
+	args, stdin := buildBaseArgs(config.CLITypeAntigravity, "Gemini 3.5 Flash (High)", "prompt", "medium")
+	if stdin != "" {
+		t.Fatalf("expected antigravity prompt in args, got stdin %q", stdin)
+	}
+	want := []string{"--model", "Gemini 3.5 Flash (High)", "-p", "prompt"}
+	if strings.Join(args, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("unexpected antigravity args: %#v", args)
+	}
+}
+
 func TestBuildStructuredOutputArgsClaudeInlinesSchema(t *testing.T) {
 	args, cleanup, err := buildStructuredOutputArgs("claude", map[string]any{
 		"type": "object",
@@ -171,6 +182,19 @@ func TestHardenPromptForCLILeavesGenericPromptUnchanged(t *testing.T) {
 	base := "hello"
 	if got := hardenPromptForCLI(config.CLITypeGeneric, consensus.ProposalTask{}, base); got != base {
 		t.Fatalf("expected generic prompt to remain unchanged, got %q", got)
+	}
+}
+
+func TestHardenPromptForCLIAddsAntigravityContract(t *testing.T) {
+	prompt := hardenPromptForCLI(config.CLITypeAntigravity, consensus.ProposalTask{}, "base")
+	for _, fragment := range []string{
+		"CLI output contract (strict):",
+		"Proposal fields: summary, claims[].title, claims[].statement, claims[].claimType, claims[].confidence, claims[].applicability, claims[].boundaryConditions.",
+		"Antigravity-specific: non-interactive output is parsed from stdout.",
+	} {
+		if !strings.Contains(prompt, fragment) {
+			t.Fatalf("expected antigravity hardened prompt to contain %q, got:\n%s", fragment, prompt)
+		}
 	}
 }
 

@@ -34,9 +34,9 @@ func newConfigInitCommand() *cli.Command {
 		Usage: "写入首用友好的示例配置",
 		Flags: []cli.Flag{
 			&cli.StringFlag{Name: "config", Usage: "配置文件路径"},
-			&cli.StringFlag{Name: "preset", Usage: "兼容别名(quickstart|openai|coding|debate|delphi|generic|codex|claude|gemini)"},
+			&cli.StringFlag{Name: "preset", Usage: "兼容别名(quickstart|openai|coding|debate|delphi|generic|codex|claude|gemini|antigravity)"},
 			&cli.StringFlag{Name: "mode", Usage: "workflow 模式(adjudication|free-debate|delphi)"},
-			&cli.StringFlag{Name: "provider-profile", Usage: "provider profile(mock|openai|generic|codex|claude|gemini)"},
+			&cli.StringFlag{Name: "provider-profile", Usage: "provider profile(mock|openai|generic|codex|claude|gemini|antigravity)"},
 			&cli.StringFlag{Name: "task-profile", Usage: "task profile(general|coding)", Value: config.TemplateTaskProfileGeneral},
 			&cli.BoolFlag{Name: "stdout", Usage: "只打印模板，不写入文件"},
 			&cli.BoolFlag{Name: "force", Usage: "允许覆盖已存在的配置文件"},

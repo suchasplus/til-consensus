@@ -1,0 +1,39 @@
+# 搭配 antigravity.config.yaml
+request_id: antigravity-transition-001
+
+task_spec:
+  goal: 评估是否应该把团队默认终端 agent 从 Gemini CLI 迁移到 Antigravity CLI
+  task_type: strategy
+  success_criteria:
+    - 必须保留 Gemini CLI 可回退路径
+    - 必须区分个人账号、企业账号和 API key 场景
+    - 必须给出验证迁移风险的最小测试步骤
+    - 证据不足时允许 undetermined
+  materials:
+    - id: current-state
+      title: 当前使用情况
+      kind: text
+      content: |
+        团队当前在 til-consensus 中保留 Gemini CLI profile，并希望新增 Antigravity CLI profile。
+        目标不是立刻替换 Gemini CLI，而是在过渡期并行验证可用性、输出稳定性和任务耗时。
+    - id: migration-constraint
+      title: 迁移约束
+      kind: text
+      content: |
+        配置必须允许 Gemini CLI 和 Antigravity CLI 同时存在。
+        如果 Antigravity CLI 登录态、模型名或非交互输出不稳定，必须能快速回退到 Gemini CLI 或 Gemini API。
+
+roles:
+  proposers: [proposer-antigravity]
+  challengers: [challenger-antigravity]
+  arbiter: arbiter-antigravity
+  semantic_verifier: verifier-antigravity
+  reporter: reporter-antigravity
+
+proposal_policy:
+  max_passes: 1
+  max_claims_per_worker: 4
+
+verification_policy:
+  allow_semantic_verifier: true
+  max_parallel_checks: 2

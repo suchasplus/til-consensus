@@ -144,6 +144,7 @@ til-consensus config wizard --mode delphi --provider-profile claude --dir .
   - `codex`
   - `claude`
   - `gemini`
+  - `antigravity`
 - `--task-profile`
   - `general`
   - `coding`
@@ -161,6 +162,7 @@ til-consensus config init --mode adjudication --provider-profile generic --confi
 til-consensus config init --mode adjudication --provider-profile codex --config ./til-consensus.yaml
 til-consensus config init --mode adjudication --provider-profile claude --config ./til-consensus.yaml
 til-consensus config init --mode adjudication --provider-profile gemini --config ./til-consensus.yaml
+til-consensus config init --mode adjudication --provider-profile antigravity --config ./til-consensus.yaml
 til-consensus config init --mode adjudication --provider-profile mock --task-profile coding --config ./til-consensus.yaml
 ```
 
@@ -231,6 +233,7 @@ til-consensus config init --mode delphi --provider-profile mock --config ./til-c
 - `codex`
 - `claude`
 - `gemini`
+- `antigravity`
 - `openai`
 
 provider profile 的当前默认模型：
@@ -241,6 +244,8 @@ provider profile 的当前默认模型：
   - `claude-opus-4-6`
 - `gemini`
   - `gemini-3.1-pro-preview`
+- `antigravity`
+  - `Gemini 3.5 Flash (High)`
 
 ## 配置结构
 
@@ -693,6 +698,7 @@ providers:
 - [openai-compatible.config.yaml](examples/openai-compatible.config.yaml)
 - [anthropic-compatible.config.yaml](examples/anthropic-compatible.config.yaml)
 - [gemini-api.config.yaml](examples/gemini-api.config.yaml)
+- [antigravity.config.yaml](examples/antigravity.config.yaml)
 - [openrouter.config.yaml](examples/openrouter.config.yaml)
 - [kimi.config.yaml](examples/kimi.config.yaml)
 - [deepseek.config.yaml](examples/deepseek.config.yaml)

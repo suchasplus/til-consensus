@@ -1,0 +1,60 @@
+schema_version: 1
+
+defaults:
+  success_criteria:
+    - 给出 claim 级裁决
+    - 把证据不足的部分明确标成 undetermined
+  per_task_timeout: 20m
+  task_retry_attempts: 1
+  proposal_policy:
+    max_passes: 1
+    max_claims_per_worker: 4
+    dedupe_strategy: normalized-statement
+  verification_policy:
+    allow_semantic_verifier: true
+    max_parallel_checks: 2
+  arbiter_policy:
+    allow_undetermined: true
+    blind_review: true
+
+output:
+  directory: ./out/{requestId}
+
+providers:
+  antigravity-cli:
+    type: cli
+    cli_type: antigravity
+    command: agy
+    models:
+      default:
+        provider_model: Gemini 3.5 Flash (High)
+        reasoning: medium
+
+agents:
+  - id: proposer-antigravity
+    provider: antigravity-cli
+    model: default
+    role: proposer
+  - id: challenger-antigravity
+    provider: antigravity-cli
+    model: default
+    role: challenger
+  - id: verifier-antigravity
+    provider: antigravity-cli
+    model: default
+    role: semantic-verifier
+  - id: arbiter-antigravity
+    provider: antigravity-cli
+    model: default
+    role: arbiter
+  - id: reporter-antigravity
+    provider: antigravity-cli
+    model: default
+    role: reporter
+
+roles:
+  proposers: [proposer-antigravity]
+  challengers: [challenger-antigravity]
+  semantic_verifier: verifier-antigravity
+  arbiter: arbiter-antigravity
+  reporter: reporter-antigravity

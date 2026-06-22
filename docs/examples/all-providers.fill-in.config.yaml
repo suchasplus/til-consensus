@@ -1,7 +1,7 @@
 schema_version: 1
 
-# 这是一个“六路 provider 总模板”：
-# - 3 个 CLI：codex / claude / gemini
+# 这是一个“多 provider 总模板”：
+# - 4 个 CLI：codex / claude / gemini / antigravity
 # - 3 个 API：openai-compatible / anthropic-compatible / gemini-api
 #
 # 设计目标：
@@ -95,6 +95,18 @@ providers:
     models:
       default:
         provider_model: gemini-3.1-pro-preview
+        max_output_tokens: 4096
+        reasoning: medium
+
+  antigravity-cli:
+    type: cli
+    cli_type: antigravity
+    command: agy
+    # Antigravity CLI 当前推荐用 agy -p 做非交互调用，用 --model 临时指定模型。
+    # Gemini CLI 仍保留在上方，方便过渡期并行验证。
+    models:
+      default:
+        provider_model: Gemini 3.5 Flash (High)
         max_output_tokens: 4096
         reasoning: medium
 
@@ -332,6 +344,27 @@ agents:
     model: default
     role: reporter
 
+  - id: proposer-antigravity-cli
+    provider: antigravity-cli
+    model: default
+    role: proposer
+  - id: challenger-antigravity-cli
+    provider: antigravity-cli
+    model: default
+    role: challenger
+  - id: verifier-antigravity-cli
+    provider: antigravity-cli
+    model: default
+    role: semantic-verifier
+  - id: arbiter-antigravity-cli
+    provider: antigravity-cli
+    model: default
+    role: arbiter
+  - id: reporter-antigravity-cli
+    provider: antigravity-cli
+    model: default
+    role: reporter
+
   - id: proposer-openai-api
     provider: openai-api
     model: default
@@ -408,6 +441,10 @@ agents:
     role: participant
   - id: participant-gemini-cli
     provider: gemini-cli
+    model: default
+    role: participant
+  - id: participant-antigravity-cli
+    provider: antigravity-cli
     model: default
     role: participant
   - id: facilitator-claude-cli

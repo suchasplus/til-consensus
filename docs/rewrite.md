@@ -251,6 +251,7 @@
   - `codex`
   - `claude`
   - `gemini`
+  - `antigravity`
 - `--task-profile`
   - `general`
   - `coding`

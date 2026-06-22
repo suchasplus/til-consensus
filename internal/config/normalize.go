@@ -23,7 +23,8 @@ const (
 )
 
 const (
-	CLITypeGeneric = "generic"
+	CLITypeGeneric     = "generic"
+	CLITypeAntigravity = "antigravity"
 )
 
 func Normalize(cfg Config) Config {
@@ -63,6 +64,9 @@ func normalizeProvider(provider ProviderConfig) ProviderConfig {
 	}
 	if out.Type == ProviderTypeCLI && out.CLIType == "" {
 		out.CLIType = CLITypeGeneric
+	}
+	if out.Type == ProviderTypeCLI && out.CLIType == CLITypeAntigravity && out.Command == "" {
+		out.Command = "agy"
 	}
 	if out.Type == ProviderTypeCLI && out.Command == "" && out.CLIType != CLITypeGeneric {
 		out.Command = out.CLIType

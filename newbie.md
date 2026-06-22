@@ -225,6 +225,12 @@ til-consensus config init --mode adjudication --provider-profile claude --config
 til-consensus config init --mode adjudication --provider-profile gemini --config ./til-consensus.yaml
 ```
 
+用 Antigravity：
+
+```bash
+til-consensus config init --mode adjudication --provider-profile antigravity --config ./til-consensus.yaml
+```
+
 如果你有自己的脚本或代理，选 `generic`：
 
 ```bash
@@ -268,6 +274,7 @@ til-consensus profile preflight \
 - [docs/examples/codex.config.yaml](/Users/suchasplus/agentic/til-consensus/docs/examples/codex.config.yaml)
 - [docs/examples/claude.config.yaml](/Users/suchasplus/agentic/til-consensus/docs/examples/claude.config.yaml)
 - [docs/examples/gemini.config.yaml](/Users/suchasplus/agentic/til-consensus/docs/examples/gemini.config.yaml)
+- [docs/examples/antigravity.config.yaml](/Users/suchasplus/agentic/til-consensus/docs/examples/antigravity.config.yaml)
 - [docs/examples/generic.config.yaml](/Users/suchasplus/agentic/til-consensus/docs/examples/generic.config.yaml)
 
 ## 8. 怎么加 provider 和 agent
@@ -386,7 +393,7 @@ til-consensus session list --config ./til-consensus.yaml
 
 - `--mode adjudication --provider-profile mock`
   - 第一次跑通流程
-- `--mode adjudication --provider-profile codex|claude|gemini`
+- `--mode adjudication --provider-profile codex|claude|gemini|antigravity`
   - 你已经装了对应 CLI
 - `--mode adjudication --provider-profile generic`
   - 你有自定义脚本或代理
@@ -407,6 +414,8 @@ provider profile 的当前默认模型：
   - `claude-opus-4-6`
 - `gemini`
   - `gemini-3.1-pro-preview`
+- `antigravity`
+  - `Gemini 3.5 Flash (High)`
 
 ## 14. 出错时先看哪里
 

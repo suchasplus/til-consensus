@@ -87,6 +87,15 @@ func TestRenderTemplatePresetsAreValidYAML(t *testing.T) {
 				"provider_model: gemini-3.1-pro-preview",
 			},
 		},
+		{
+			name:   "antigravity",
+			preset: TemplatePresetAntigravity,
+			needles: []string{
+				"cli_type: antigravity",
+				"command: agy",
+				"provider_model: Gemini 3.5 Flash (High)",
+			},
+		},
 	}
 
 	for _, tc := range tests {

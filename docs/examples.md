@@ -13,15 +13,15 @@
 
 ## Provider 样例
 
-### 六路总模板
+### 多 provider 总模板
 
-如果你想一次把 `3 CLI + 3 API` 都先铺好，再慢慢填空和切角色，直接用：
+如果你想一次把 `4 CLI + 3 API` 都先铺好，再慢慢填空和切角色，直接用：
 
 - [all-providers.fill-in.config.yaml](examples/all-providers.fill-in.config.yaml)
 
 这份模板已经包含：
 
-- `codex / claude / gemini` 三个 CLI
+- `codex / claude / gemini / antigravity` 四个 CLI
 - `openai-compatible / anthropic-compatible / gemini-api` 三个 API
 - `adjudication / free_debate / delphi` 三种 mode 需要的角色位
 - OpenRouter / Kimi / DeepSeek / Qwen 百炼这类兼容网关的填写说明
@@ -64,6 +64,17 @@ til-consensus config init --mode adjudication --provider-profile claude --config
 til-consensus config init --mode adjudication --provider-profile gemini --config ./til-consensus.yaml
 ```
 
+### `antigravity`
+
+Antigravity CLI 使用 `agy -p` 做非交互调用，并用 `--model` 指定本次会话模型。Gemini CLI 样例仍保留，方便过渡期并行验证。
+
+- [完整配置：antigravity.config.yaml](examples/antigravity.config.yaml)
+- 也可以直接生成：
+
+```bash
+til-consensus config init --mode adjudication --provider-profile antigravity --config ./til-consensus.yaml
+```
+
 ### API 协议与兼容网关
 
 下面这些样例都使用真实 API provider，不是 CLI：
@@ -101,6 +112,7 @@ til-consensus config init --mode adjudication --provider-profile gemini --config
 - `codex.config.yaml` 负责 proposer / reporter
 - `claude.config.yaml` 负责 challenger / arbiter
 - `gemini.config.yaml` 负责 semantic verifier
+- 如果你已切到 Antigravity CLI，可以把 `gemini.config.yaml` 替换成 `antigravity.config.yaml` 做同位验证
 
 如果你想把三者合并到一份配置里，可以从这三份文件里直接拷贝 `providers / agents / roles`。
 
@@ -124,7 +136,7 @@ til-consensus config init --mode adjudication --provider-profile gemini --config
 
 ## 一对一组合包
 
-下面这 4 组是“配置 + run 输入”一对一配套的最小可复制组合：
+下面这 5 组是“配置 + run 输入”一对一配套的最小可复制组合：
 
 - `generic`
   - [generic.config.yaml](examples/generic.config.yaml)
@@ -138,6 +150,9 @@ til-consensus config init --mode adjudication --provider-profile gemini --config
 - `gemini`
   - [gemini.config.yaml](examples/gemini.config.yaml)
   - [gemini.run.yaml](examples/gemini.run.yaml)
+- `antigravity`
+  - [antigravity.config.yaml](examples/antigravity.config.yaml)
+  - [antigravity.run.yaml](examples/antigravity.run.yaml)
 
 使用方式统一是：
 
@@ -147,7 +162,7 @@ til-consensus run --config ./til-consensus.yaml --input ./docs/examples/codex.ru
 til-consensus view --config ./til-consensus.yaml
 ```
 
-把 `codex` 替换成 `generic`、`claude` 或 `gemini` 即可。
+把 `codex` 替换成 `generic`、`claude`、`gemini` 或 `antigravity` 即可。
 
 如果你不想写 `run.yaml`，也可以把任务直接写进文件，再用 `--task-file`：
 

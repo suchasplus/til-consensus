@@ -12,12 +12,13 @@ import (
 )
 
 const (
-	TemplateProviderProfileMock    = "mock"
-	TemplateProviderProfileOpenAI  = "openai"
-	TemplateProviderProfileGeneric = "generic"
-	TemplateProviderProfileCodex   = "codex"
-	TemplateProviderProfileClaude  = "claude"
-	TemplateProviderProfileGemini  = "gemini"
+	TemplateProviderProfileMock        = "mock"
+	TemplateProviderProfileOpenAI      = "openai"
+	TemplateProviderProfileGeneric     = "generic"
+	TemplateProviderProfileCodex       = "codex"
+	TemplateProviderProfileClaude      = "claude"
+	TemplateProviderProfileGemini      = "gemini"
+	TemplateProviderProfileAntigravity = "antigravity"
 
 	TemplateTaskProfileGeneral = "general"
 	TemplateTaskProfileCoding  = "coding"
@@ -349,6 +350,18 @@ func buildTemplateProvider(profile string) (string, string, ProviderConfig, erro
 				},
 			},
 		}, nil
+	case TemplateProviderProfileAntigravity:
+		return "antigravity-cli", "default", ProviderConfig{
+			Type:    ProviderTypeCLI,
+			CLIType: CLITypeAntigravity,
+			Command: "agy",
+			Models: map[string]ProviderModelConfig{
+				"default": {
+					ProviderModel: "Gemini 3.5 Flash (High)",
+					Reasoning:     "medium",
+				},
+			},
+		}, nil
 	default:
 		return "", "", ProviderConfig{}, fmt.Errorf("unsupported provider profile: %s", profile)
 	}
@@ -464,6 +477,13 @@ func resolvePresetAlias(preset string) (TemplateSelection, error) {
 			TaskProfile:     TemplateTaskProfileGeneral,
 			Alias:           TemplatePresetGemini,
 		}, nil
+	case TemplatePresetAntigravity:
+		return TemplateSelection{
+			Mode:            consensus.WorkflowModeAdjudication,
+			ProviderProfile: TemplateProviderProfileAntigravity,
+			TaskProfile:     TemplateTaskProfileGeneral,
+			Alias:           TemplatePresetAntigravity,
+		}, nil
 	default:
 		return TemplateSelection{}, fmt.Errorf("unsupported config preset: %s", preset)
 	}
@@ -489,6 +509,8 @@ func canonicalTemplateAlias(selection TemplateSelection) string {
 		return TemplatePresetClaude
 	case selection.Mode == consensus.WorkflowModeAdjudication && selection.ProviderProfile == TemplateProviderProfileGemini && selection.TaskProfile == TemplateTaskProfileGeneral:
 		return TemplatePresetGemini
+	case selection.Mode == consensus.WorkflowModeAdjudication && selection.ProviderProfile == TemplateProviderProfileAntigravity && selection.TaskProfile == TemplateTaskProfileGeneral:
+		return TemplatePresetAntigravity
 	default:
 		return ""
 	}
@@ -521,7 +543,8 @@ func normalizeProviderProfile(profile string) (string, error) {
 		TemplateProviderProfileGeneric,
 		TemplateProviderProfileCodex,
 		TemplateProviderProfileClaude,
-		TemplateProviderProfileGemini:
+		TemplateProviderProfileGemini,
+		TemplateProviderProfileAntigravity:
 		return value, nil
 	default:
 		return "", fmt.Errorf("unsupported provider profile: %s", profile)

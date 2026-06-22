@@ -119,6 +119,7 @@ til-consensus open tc_xxx --config ./til-consensus.yaml
 til-consensus config init --mode adjudication --provider-profile codex --config ./til-consensus.yaml
 til-consensus config init --mode adjudication --provider-profile claude --config ./til-consensus.yaml
 til-consensus config init --mode adjudication --provider-profile gemini --config ./til-consensus.yaml
+til-consensus config init --mode adjudication --provider-profile antigravity --config ./til-consensus.yaml
 til-consensus config init --mode adjudication --provider-profile generic --config ./til-consensus.yaml
 ```
 
@@ -207,6 +208,7 @@ defaults:
   - `codex`
   - `claude`
   - `gemini`
+  - `antigravity`
 - `--task-profile`
   - `general`
   - `coding`
@@ -239,6 +241,8 @@ til-consensus config wizard --mode delphi --provider-profile claude --dir .
   - `--mode adjudication --provider-profile claude`
 - 接 Gemini CLI：
   - `--mode adjudication --provider-profile gemini`
+- 接 Antigravity CLI：
+  - `--mode adjudication --provider-profile antigravity`
 - 做代码裁决：
   - `--mode adjudication --provider-profile mock --task-profile coding`
 - 做自由辩论：
@@ -262,7 +266,7 @@ til-consensus config init --mode delphi --provider-profile mock --config ./til-c
 - `coding` = `--mode adjudication --provider-profile mock --task-profile coding`
 - `debate` = `--mode free-debate --provider-profile mock`
 - `delphi` = `--mode delphi --provider-profile mock`
-- `codex|claude|gemini|generic|openai` = `--mode adjudication --provider-profile <对应值>`
+- `codex|claude|gemini|antigravity|generic|openai` = `--mode adjudication --provider-profile <对应值>`
 
 其中 provider profile 的当前默认模型是：
 
@@ -272,6 +276,8 @@ til-consensus config init --mode delphi --provider-profile mock --config ./til-c
   - `claude-opus-4-6`
 - `gemini`
   - `gemini-3.1-pro-preview`
+- `antigravity`
+  - `Gemini 3.5 Flash (High)`
 
 常见可复制样例：
 
@@ -280,6 +286,7 @@ til-consensus config init --mode delphi --provider-profile mock --config ./til-c
 - [codex 组合包](docs/examples/codex.config.yaml)
 - [claude 组合包](docs/examples/claude.config.yaml)
 - [gemini 组合包](docs/examples/gemini.config.yaml)
+- [antigravity 组合包](docs/examples/antigravity.config.yaml)
 - [openai-compatible API 组合包](docs/examples/openai-compatible.config.yaml)
 - [anthropic-compatible API 组合包](docs/examples/anthropic-compatible.config.yaml)
 - [gemini API 组合包](docs/examples/gemini-api.config.yaml)
