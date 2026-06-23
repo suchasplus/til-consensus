@@ -411,6 +411,7 @@ func TestBuildCLIE2EProviderLayoutDegradesUnavailableProviders(t *testing.T) {
 	layout := buildCLIE2EProviderLayout(consensus.WorkflowModeAdjudication, []cliProviderPreflightResult{
 		{Provider: "claude", Ready: true},
 		{Provider: "gemini", Ready: false},
+		{Provider: "antigravity", Ready: false},
 		{Provider: "codex", Ready: true},
 	})
 	if len(layout.Agents) == 0 {
@@ -424,6 +425,39 @@ func TestBuildCLIE2EProviderLayoutDegradesUnavailableProviders(t *testing.T) {
 	}
 	if !slices.Contains(layout.UnavailableProviders, "gemini-cli") {
 		t.Fatalf("expected unavailable gemini provider, got %#v", layout.UnavailableProviders)
+	}
+	if !slices.Contains(layout.UnavailableProviders, "antigravity-cli") {
+		t.Fatalf("expected unavailable antigravity provider, got %#v", layout.UnavailableProviders)
+	}
+}
+
+func TestBuildCLIE2EProviderLayoutUsesAntigravityWhenReady(t *testing.T) {
+	layout := buildCLIE2EProviderLayout(consensus.WorkflowModeAdjudication, []cliProviderPreflightResult{
+		{Provider: "claude", Ready: true},
+		{Provider: "gemini", Ready: true},
+		{Provider: "antigravity", Ready: true},
+		{Provider: "codex", Ready: true},
+	})
+	if !slices.Contains(layout.ExpectedProviders, "antigravity-cli") {
+		t.Fatalf("expected antigravity in layout, got %#v", layout.ExpectedProviders)
+	}
+}
+
+func TestBuildCLIE2EProviderLayoutCanDegradeToAntigravityOnly(t *testing.T) {
+	layout := buildCLIE2EProviderLayout(consensus.WorkflowModeDelphi, []cliProviderPreflightResult{
+		{Provider: "claude", Ready: false},
+		{Provider: "gemini", Ready: false},
+		{Provider: "antigravity", Ready: true},
+		{Provider: "codex", Ready: false},
+	})
+	if len(layout.Agents) == 0 {
+		t.Fatalf("expected antigravity-only degraded layout agents, got %#v", layout)
+	}
+	if !slices.Contains(layout.ExpectedProviders, "antigravity-cli") {
+		t.Fatalf("expected antigravity in expected providers, got %#v", layout.ExpectedProviders)
+	}
+	if layout.Roles.Facilitator == "" || layout.Roles.Reporter == "" || len(layout.Roles.Participants) == 0 {
+		t.Fatalf("expected delphi roles assigned from antigravity-only layout, got %#v", layout.Roles)
 	}
 }
 
@@ -551,6 +585,14 @@ func writeE2EProviderConfig(t *testing.T, params e2eConfigParams) {
 					"default": {ProviderModel: "gemini-3.1-pro-preview", Reasoning: "medium"},
 				},
 			},
+			"antigravity-cli": {
+				Type:    config.ProviderTypeCLI,
+				CLIType: config.CLITypeAntigravity,
+				Command: "agy",
+				Models: map[string]config.ProviderModelConfig{
+					"default": {ProviderModel: "Gemini 3.5 Flash (High)", Reasoning: "medium"},
+				},
+			},
 			"codex-cli": {
 				Type:    config.ProviderTypeCLI,
 				CLIType: "codex",
@@ -646,21 +688,23 @@ func defaultCLIE2EAgents(mode consensus.WorkflowMode) ([]config.AgentConfig, con
 		return []config.AgentConfig{
 				{ID: "participant-claude", Provider: "claude-cli", Model: "default", Role: "participant"},
 				{ID: "participant-gemini", Provider: "gemini-cli", Model: "default", Role: "participant"},
+				{ID: "participant-antigravity", Provider: "antigravity-cli", Model: "default", Role: "participant"},
 				{ID: "participant-codex", Provider: "codex-cli", Model: "default", Role: "participant"},
 				{ID: "reporter-claude", Provider: "claude-cli", Model: "default", Role: "reporter"},
 			}, config.RolesConfig{
-				Participants: []string{"participant-claude", "participant-gemini", "participant-codex"},
+				Participants: []string{"participant-claude", "participant-gemini", "participant-antigravity", "participant-codex"},
 				Reporter:     "reporter-claude",
 			}
 	case consensus.WorkflowModeDelphi:
 		return []config.AgentConfig{
 				{ID: "participant-claude", Provider: "claude-cli", Model: "default", Role: "participant"},
 				{ID: "participant-gemini", Provider: "gemini-cli", Model: "default", Role: "participant"},
+				{ID: "participant-antigravity", Provider: "antigravity-cli", Model: "default", Role: "participant"},
 				{ID: "participant-codex", Provider: "codex-cli", Model: "default", Role: "participant"},
 				{ID: "facilitator-claude", Provider: "claude-cli", Model: "default", Role: "facilitator"},
 				{ID: "reporter-codex", Provider: "codex-cli", Model: "default", Role: "reporter"},
 			}, config.RolesConfig{
-				Participants: []string{"participant-claude", "participant-gemini", "participant-codex"},
+				Participants: []string{"participant-claude", "participant-gemini", "participant-antigravity", "participant-codex"},
 				Facilitator:  "facilitator-claude",
 				Reporter:     "reporter-codex",
 			}
@@ -668,12 +712,13 @@ func defaultCLIE2EAgents(mode consensus.WorkflowMode) ([]config.AgentConfig, con
 		return []config.AgentConfig{
 				{ID: "proposer-claude", Provider: "claude-cli", Model: "default", Role: "proposer"},
 				{ID: "challenger-gemini", Provider: "gemini-cli", Model: "default", Role: "challenger"},
+				{ID: "challenger-antigravity", Provider: "antigravity-cli", Model: "default", Role: "challenger"},
 				{ID: "verifier-codex", Provider: "codex-cli", Model: "default", Role: "semantic-verifier"},
 				{ID: "arbiter-claude", Provider: "claude-cli", Model: "default", Role: "arbiter"},
 				{ID: "reporter-gemini", Provider: "gemini-cli", Model: "default", Role: "reporter"},
 			}, config.RolesConfig{
 				Proposers:        []string{"proposer-claude"},
-				Challengers:      []string{"challenger-gemini"},
+				Challengers:      []string{"challenger-gemini", "challenger-antigravity"},
 				SemanticVerifier: "verifier-codex",
 				Arbiter:          "arbiter-claude",
 				Reporter:         "reporter-gemini",
@@ -715,16 +760,16 @@ func buildCLIE2EProviderLayout(mode consensus.WorkflowMode, readiness []cliProvi
 	switch mode {
 	case consensus.WorkflowModeFreeDebate:
 		participantProviders := []string{
-			selectProvider("claude-cli", "gemini-cli", "codex-cli"),
-			selectProvider("gemini-cli", "codex-cli", "claude-cli"),
-			selectProvider("codex-cli", "claude-cli", "gemini-cli"),
+			selectProvider("claude-cli", "gemini-cli", "antigravity-cli", "codex-cli"),
+			selectProvider("antigravity-cli", "gemini-cli", "codex-cli", "claude-cli"),
+			selectProvider("codex-cli", "claude-cli", "antigravity-cli", "gemini-cli"),
 		}
 		participantIDs := make([]string, 0, len(participantProviders))
 		for idx, provider := range participantProviders {
 			participantIDs = append(participantIDs, addAgent(fmt.Sprintf("participant-%d-%s", idx+1, shortCLIProviderName(provider)), provider, "participant"))
 			markProvider(provider)
 		}
-		reporterProvider := selectProvider("claude-cli", "codex-cli", "gemini-cli")
+		reporterProvider := selectProvider("gemini-cli", "claude-cli", "codex-cli", "antigravity-cli")
 		reporterID := addAgent("reporter-"+shortCLIProviderName(reporterProvider), reporterProvider, "reporter")
 		markProvider(reporterProvider)
 		layout.Roles = config.RolesConfig{
@@ -733,17 +778,17 @@ func buildCLIE2EProviderLayout(mode consensus.WorkflowMode, readiness []cliProvi
 		}
 	case consensus.WorkflowModeDelphi:
 		participantProviders := []string{
-			selectProvider("claude-cli", "gemini-cli", "codex-cli"),
-			selectProvider("gemini-cli", "codex-cli", "claude-cli"),
-			selectProvider("codex-cli", "claude-cli", "gemini-cli"),
+			selectProvider("claude-cli", "gemini-cli", "antigravity-cli", "codex-cli"),
+			selectProvider("antigravity-cli", "gemini-cli", "codex-cli", "claude-cli"),
+			selectProvider("codex-cli", "claude-cli", "antigravity-cli", "gemini-cli"),
 		}
 		participantIDs := make([]string, 0, len(participantProviders))
 		for idx, provider := range participantProviders {
 			participantIDs = append(participantIDs, addAgent(fmt.Sprintf("participant-%d-%s", idx+1, shortCLIProviderName(provider)), provider, "participant"))
 			markProvider(provider)
 		}
-		facilitatorProvider := selectProvider("claude-cli", "codex-cli", "gemini-cli")
-		reporterProvider := selectProvider("codex-cli", "claude-cli", "gemini-cli")
+		facilitatorProvider := selectProvider("claude-cli", "codex-cli", "gemini-cli", "antigravity-cli")
+		reporterProvider := selectProvider("gemini-cli", "codex-cli", "claude-cli", "antigravity-cli")
 		facilitatorID := addAgent("facilitator-"+shortCLIProviderName(facilitatorProvider), facilitatorProvider, "facilitator")
 		reporterID := addAgent("reporter-"+shortCLIProviderName(reporterProvider), reporterProvider, "reporter")
 		markProvider(facilitatorProvider)
@@ -754,11 +799,11 @@ func buildCLIE2EProviderLayout(mode consensus.WorkflowMode, readiness []cliProvi
 			Reporter:     reporterID,
 		}
 	default:
-		proposerProvider := selectProvider("claude-cli", "codex-cli", "gemini-cli")
-		challengerProvider := selectProvider("gemini-cli", "claude-cli", "codex-cli")
-		verifierProvider := selectProvider("codex-cli", "claude-cli", "gemini-cli")
-		arbiterProvider := selectProvider("claude-cli", "codex-cli", "gemini-cli")
-		reporterProvider := selectProvider("gemini-cli", "claude-cli", "codex-cli")
+		proposerProvider := selectProvider("claude-cli", "codex-cli", "gemini-cli", "antigravity-cli")
+		challengerProvider := selectProvider("antigravity-cli", "gemini-cli", "claude-cli", "codex-cli")
+		verifierProvider := selectProvider("codex-cli", "claude-cli", "gemini-cli", "antigravity-cli")
+		arbiterProvider := selectProvider("claude-cli", "codex-cli", "gemini-cli", "antigravity-cli")
+		reporterProvider := selectProvider("gemini-cli", "antigravity-cli", "claude-cli", "codex-cli")
 		proposerID := addAgent("proposer-"+shortCLIProviderName(proposerProvider), proposerProvider, "proposer")
 		challengerID := addAgent("challenger-"+shortCLIProviderName(challengerProvider), challengerProvider, "challenger")
 		verifierID := addAgent("verifier-"+shortCLIProviderName(verifierProvider), verifierProvider, "semantic-verifier")
@@ -778,7 +823,7 @@ func buildCLIE2EProviderLayout(mode consensus.WorkflowMode, readiness []cliProvi
 		}
 	}
 
-	for _, provider := range []string{"claude-cli", "gemini-cli", "codex-cli"} {
+	for _, provider := range []string{"claude-cli", "gemini-cli", "antigravity-cli", "codex-cli"} {
 		if _, ok := usedProviders[provider]; ok {
 			layout.ExpectedProviders = append(layout.ExpectedProviders, provider)
 		}
@@ -801,7 +846,7 @@ func readyCLIProviderSet(results []cliProviderPreflightResult) map[string]bool {
 
 func orderedReadyCLIProviders(ready map[string]bool) []string {
 	ordered := make([]string, 0, len(ready))
-	for _, provider := range []string{"claude-cli", "gemini-cli", "codex-cli"} {
+	for _, provider := range []string{"claude-cli", "gemini-cli", "antigravity-cli", "codex-cli"} {
 		if ready[provider] {
 			ordered = append(ordered, provider)
 		}
@@ -828,6 +873,8 @@ func shortCLIProviderName(provider string) string {
 		return "claude"
 	case "gemini-cli":
 		return "gemini"
+	case "antigravity-cli":
+		return "antigravity"
 	case "codex-cli":
 		return "codex"
 	default:
@@ -841,6 +888,8 @@ func cliReadinessProviderID(provider string) (string, bool) {
 		return "claude-cli", true
 	case "gemini":
 		return "gemini-cli", true
+	case "antigravity":
+		return "antigravity-cli", true
 	case "codex":
 		return "codex-cli", true
 	default:
@@ -1362,6 +1411,7 @@ func runRealCLIProviderPreflight() []cliProviderPreflightResult {
 	}{
 		{provider: "claude", command: "claude"},
 		{provider: "gemini", command: "gemini"},
+		{provider: "antigravity", command: "agy"},
 		{provider: "codex", command: "codex"},
 	}
 	results := make([]cliProviderPreflightResult, 0, len(specs))
@@ -1585,6 +1635,8 @@ func buildCLIProviderPreflightArgs(provider string, prompt string) ([]string, st
 		}, nil
 	case "gemini":
 		return []string{"--approval-mode", "yolo", "-m", "gemini-3.1-pro-preview"}, prompt, func() {}, nil
+	case "antigravity":
+		return []string{"--model", "Gemini 3.5 Flash (High)", "--print-timeout", realCLIPreflightTimeout().String(), "-p", prompt}, "", func() {}, nil
 	default:
 		return nil, prompt, func() {}, nil
 	}

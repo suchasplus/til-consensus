@@ -307,7 +307,7 @@ artifacts/provider-readiness.json
 
 它主要回答：
 
-- 当前测试 / 运行上下文里，`claude / gemini / codex` 这类 provider 到底是不是 ready
+- 当前测试 / 运行上下文里，`claude / gemini / antigravity / codex` 这类 provider 到底是不是 ready
 - 失败是 provider 自身不可用，还是 workflow 本身出问题
 
 典型字段：
