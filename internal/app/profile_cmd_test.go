@@ -124,15 +124,26 @@ roles:
 	cmd := newProfilePreflightCommand()
 	var stdout bytes.Buffer
 	cmd.Writer = &stdout
-	if err := cmd.Run(context.Background(), []string{"preflight", "--config", configPath, "--provider", "api"}); err != nil {
+	if err := cmd.Run(context.Background(), []string{"preflight", "--config", configPath, "--provider", "api", "--verbose"}); err != nil {
 		t.Fatalf("profile preflight failed: %v", err)
 	}
-	if !strings.Contains(stdout.String(), "env TIL_CONSENSUS_TEST_MISSING_KEY is not set") {
-		t.Fatalf("expected missing env in output:\n%s", stdout.String())
+	output := stdout.String()
+	for _, needle := range []string{
+		"env TIL_CONSENSUS_TEST_MISSING_KEY is not set",
+		"request: POST http://127.0.0.1:1/chat/completions",
+		"transport: raw HTTP openai-compatible chat/completions",
+		"auth: header Authorization: Bearer $TIL_CONSENSUS_TEST_MISSING_KEY",
+		"generation: maxOutputTokens=2048 responseFormat=json_schema responseFormatName=til_consensus_task_output maxOutputTokensField=max_completion_tokens",
+		"schema: type=object required=ok additionalProperties=false enabled=true",
+		"prompt: \"只返回一个 JSON 对象",
+	} {
+		if !strings.Contains(output, needle) {
+			t.Fatalf("expected preflight output to contain %q:\n%s", needle, output)
+		}
 	}
-	resultPath := regexp.MustCompile(`readiness: ([^\n]+)`).FindStringSubmatch(stdout.String())
+	resultPath := regexp.MustCompile(`readiness: ([^\n]+)`).FindStringSubmatch(output)
 	if len(resultPath) != 2 {
-		t.Fatalf("could not find readiness path in output:\n%s", stdout.String())
+		t.Fatalf("could not find readiness path in output:\n%s", output)
 	}
 	readiness, err := telemetry.ReadProviderReadinessFile(strings.TrimSpace(resultPath[1]))
 	if err != nil {
@@ -140,6 +151,9 @@ roles:
 	}
 	if len(readiness.Providers) != 1 || readiness.Providers[0].Ready || readiness.Providers[0].APIKeyEnv != "TIL_CONSENSUS_TEST_MISSING_KEY" {
 		t.Fatalf("unexpected readiness: %#v", readiness)
+	}
+	if got := readiness.Providers[0].RequestContext["endpoint"]; got != "http://127.0.0.1:1/chat/completions" {
+		t.Fatalf("unexpected request context endpoint: %#v", readiness.Providers[0].RequestContext)
 	}
 }
 

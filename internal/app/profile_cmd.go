@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -279,11 +280,71 @@ func (p *preflightPrinter) PrintEntry(entry telemetry.ProviderReadinessEntry) {
 	if len(entry.Command) > 0 {
 		_, _ = fmt.Fprintf(p.writer, "    command: %s\n", formatCommandLine(entry.Command))
 	}
+	p.printRequestContext(entry.RequestContext)
 	if entry.StdoutPreview != "" {
 		_, _ = fmt.Fprintf(p.writer, "    stdout: %s\n", entry.StdoutPreview)
 	}
 	if entry.StderrPreview != "" {
 		_, _ = fmt.Fprintf(p.writer, "    stderr: %s\n", entry.StderrPreview)
+	}
+}
+
+func (p *preflightPrinter) printRequestContext(ctx map[string]any) {
+	if len(ctx) == 0 {
+		return
+	}
+	if errText := stringFromAny(ctx["previewError"]); errText != "" {
+		_, _ = fmt.Fprintf(p.writer, "    request: preview_error=%s\n", errText)
+		return
+	}
+	endpoint := stringFromAny(ctx["endpoint"])
+	method := firstNonEmptyProfile(stringFromAny(ctx["method"]), "POST")
+	if endpoint != "" {
+		_, _ = fmt.Fprintf(p.writer, "    request: %s %s\n", method, endpoint)
+	} else {
+		_, _ = fmt.Fprintln(p.writer, "    request:")
+	}
+	if transport := stringFromAny(ctx["transport"]); transport != "" {
+		_, _ = fmt.Fprintf(p.writer, "      transport: %s\n", transport)
+	}
+	if auth := stringFromAny(ctx["auth"]); auth != "" {
+		_, _ = fmt.Fprintf(p.writer, "      auth: %s\n", auth)
+	}
+	timeout := stringFromAny(ctx["timeout"])
+	if timeout == "" {
+		timeout = stringFromAny(ctx["timeoutMs"]) + "ms"
+	}
+	if timeout != "" && timeout != "ms" {
+		_, _ = fmt.Fprintf(p.writer, "      timeout: %s\n", timeout)
+	}
+	if generation, ok := ctx["generation"].(map[string]any); ok && len(generation) > 0 {
+		_, _ = fmt.Fprintf(p.writer, "      generation: %s\n", formatContextMap(generation, []string{
+			"maxOutputTokens",
+			"configuredMaxOutputTokens",
+			"budgetPolicy",
+			"temperature",
+			"responseMimeType",
+			"responseJsonSchema",
+			"responseFormat",
+			"responseFormatName",
+			"thinkingLevel",
+			"reasoning",
+			"reasoningField",
+			"maxOutputTokensField",
+			"maxTokensField",
+		}))
+	}
+	if schema, ok := ctx["schema"].(map[string]any); ok && len(schema) > 0 {
+		_, _ = fmt.Fprintf(p.writer, "      schema: %s\n", formatContextMap(schema, []string{"type", "required", "additionalProperties", "enabled"}))
+	}
+	if extra := stringSliceFromAny(ctx["extraBody"]); len(extra) > 0 {
+		_, _ = fmt.Fprintf(p.writer, "      extra_body: %s\n", strings.Join(extra, ", "))
+	}
+	if system := stringFromAny(ctx["system"]); system != "" {
+		_, _ = fmt.Fprintf(p.writer, "      system: %q\n", system)
+	}
+	if prompt := stringFromAny(ctx["prompt"]); prompt != "" {
+		_, _ = fmt.Fprintf(p.writer, "      prompt: %q\n", prompt)
 	}
 }
 
@@ -324,6 +385,90 @@ func writeTextFile(path string, value string) error {
 		return err
 	}
 	return os.WriteFile(path, []byte(value), 0o644)
+}
+
+func formatContextMap(values map[string]any, order []string) string {
+	if len(values) == 0 {
+		return "-"
+	}
+	seen := map[string]struct{}{}
+	parts := []string{}
+	appendKey := func(key string) {
+		value, ok := values[key]
+		if !ok {
+			return
+		}
+		text := stringFromAny(value)
+		if text == "" {
+			return
+		}
+		parts = append(parts, key+"="+text)
+		seen[key] = struct{}{}
+	}
+	for _, key := range order {
+		appendKey(key)
+	}
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		if _, ok := seen[key]; !ok {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		appendKey(key)
+	}
+	if len(parts) == 0 {
+		return "-"
+	}
+	return strings.Join(parts, " ")
+}
+
+func stringFromAny(value any) string {
+	switch typed := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return strings.TrimSpace(typed)
+	case bool:
+		return strconv.FormatBool(typed)
+	case int:
+		return strconv.Itoa(typed)
+	case int64:
+		return strconv.FormatInt(typed, 10)
+	case float64:
+		return strconv.FormatFloat(typed, 'f', -1, 64)
+	case []string:
+		return strings.Join(typed, ",")
+	case []any:
+		values := make([]string, 0, len(typed))
+		for _, item := range typed {
+			text := stringFromAny(item)
+			if text != "" {
+				values = append(values, text)
+			}
+		}
+		return strings.Join(values, ",")
+	default:
+		return strings.TrimSpace(fmt.Sprint(typed))
+	}
+}
+
+func stringSliceFromAny(value any) []string {
+	switch typed := value.(type) {
+	case []string:
+		return append([]string(nil), typed...)
+	case []any:
+		out := make([]string, 0, len(typed))
+		for _, item := range typed {
+			if text := stringFromAny(item); text != "" {
+				out = append(out, text)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
 }
 
 func firstNonEmptyProfile(values ...string) string {

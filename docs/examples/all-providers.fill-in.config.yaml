@@ -251,6 +251,8 @@ providers:
       # 如不需要可删掉整个 headers 段
       <FILL_OPTIONAL_HEADER_KEY>: <FILL_OPTIONAL_HEADER_VALUE>
     options:
+      # til-consensus 配置键保持 snake_case；实际请求由 google.golang.org/genai
+      # 发送为 responseMimeType / responseJsonSchema / maxOutputTokens。
       endpoint_path: /models/{model}:generateContent
       structured_output_mode: json_schema
       response_mime_type: application/json
@@ -271,6 +273,7 @@ providers:
         context_window: 0
         max_output_tokens: 4096
         temperature: 0.2
+        # 映射为 generationConfig.thinkingConfig.thinkingLevel。
         reasoning: medium
 
 agents:

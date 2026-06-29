@@ -7,12 +7,15 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/suchasplus/til-consensus/internal/config"
+	genai "google.golang.org/genai"
 )
 
 var newHTTPClient = func(timeout time.Duration) *http.Client {
@@ -26,8 +29,123 @@ type Runner struct {
 	provider config.ProviderConfig
 }
 
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
 func NewRunner(provider config.ProviderConfig) *Runner {
 	return &Runner{provider: provider}
+}
+
+func PreviewRequestContext(
+	provider config.ProviderConfig,
+	prompt string,
+	systemPrompt string,
+	providerModel string,
+	temperature *float64,
+	reasoning string,
+	maxOutputTokens int,
+	schema map[string]any,
+) (map[string]any, error) {
+	r := Runner{provider: provider}
+	timeout := r.optionDuration("timeout_ms", 60*time.Second)
+	out := map[string]any{
+		"method":     http.MethodPost,
+		"model":      providerModel,
+		"timeout":    timeout.String(),
+		"timeoutMs":  timeout.Milliseconds(),
+		"system":     requestPreviewText(systemPrompt, 160),
+		"prompt":     requestPreviewText(prompt, 220),
+		"headers":    sortedHeaderKeys(provider.Headers),
+		"extraBody":  flattenMapKeys(r.optionMap("extra_body")),
+		"schema":     schemaPreview(schema),
+		"generation": map[string]any{},
+		"auth":       "",
+		"transport":  "",
+		"endpoint":   "",
+	}
+	generation := out["generation"].(map[string]any)
+	if temperature != nil {
+		generation["temperature"] = *temperature
+	}
+	if maxOutputTokens > 0 {
+		generation["maxOutputTokens"] = maxOutputTokens
+	}
+	switch provider.Protocol {
+	case config.APIProtocolGemini:
+		endpointPath := r.optionString("endpoint_path", "/models/{model}:generateContent")
+		if err := validateGeminiEndpointPath(endpointPath); err != nil {
+			return nil, err
+		}
+		apiVersionHint := firstNonEmpty(
+			r.optionString("api_version", ""),
+			geminiAPIVersionFromEndpointPath(endpointPath),
+		)
+		baseURL, apiVersion, err := geminiSDKEndpoint(provider.BaseURL, apiVersionHint)
+		if err != nil {
+			return nil, err
+		}
+		out["transport"] = "google.golang.org/genai Models.GenerateContent"
+		out["endpoint"] = strings.TrimRight(baseURL, "/") + "/" + apiVersion + "/models/" + providerModel + ":generateContent"
+		out["auth"] = requestAuthSummary(provider, "x-goog-api-key", "")
+		out["apiVersion"] = apiVersion
+		if len(schema) > 0 && r.optionString("structured_output_mode", "json_schema") != "none" {
+			generation["responseMimeType"] = r.optionString("response_mime_type", "application/json")
+			switch field := r.optionString("response_schema_field", "response_json_schema"); field {
+			case "", "-", "none":
+			case "response_json_schema", "responseJsonSchema":
+				generation["responseJsonSchema"] = "enabled"
+			default:
+				return nil, fmt.Errorf("gemini sdk runner supports response_schema_field=response_json_schema only, got %q", field)
+			}
+		}
+		if strings.TrimSpace(reasoning) != "" {
+			generation["reasoning"] = strings.TrimSpace(reasoning)
+			if geminiExtraBodyHasThinkingConfig(r.optionMap("extra_body")) {
+				generation["thinkingLevel"] = "explicit extra_body.generationConfig.thinkingConfig"
+			} else {
+				level, err := geminiThinkingLevel(reasoning)
+				if err != nil {
+					return nil, err
+				}
+				generation["thinkingLevel"] = string(level)
+			}
+		}
+	case config.APIProtocolAnthropicCompatible:
+		baseURL := strings.TrimRight(firstNonEmpty(provider.BaseURL, "https://api.anthropic.com/v1"), "/")
+		out["transport"] = "raw HTTP anthropic-compatible messages"
+		out["endpoint"] = buildEndpointURL(baseURL, r.optionString("endpoint_path", "/messages"), providerModel)
+		out["auth"] = requestAuthSummary(provider, "x-api-key", "")
+		generation["maxTokensField"] = "max_tokens"
+		if maxOutputTokens <= 0 {
+			generation["maxOutputTokens"] = 1024
+		}
+	default:
+		baseURL := strings.TrimRight(firstNonEmpty(provider.BaseURL, "https://api.openai.com/v1"), "/")
+		out["transport"] = "raw HTTP openai-compatible chat/completions"
+		out["endpoint"] = buildEndpointURL(baseURL, r.optionString("endpoint_path", "/chat/completions"), providerModel)
+		out["auth"] = requestAuthSummary(provider, "Authorization", "Bearer ")
+		if maxOutputTokens > 0 {
+			field := r.optionString("max_output_tokens_field", "max_completion_tokens")
+			if field != "-" && field != "" {
+				generation["maxOutputTokensField"] = field
+			}
+		}
+		if strings.TrimSpace(reasoning) != "" {
+			field := r.optionString("reasoning_field", "reasoning_effort")
+			if field != "-" && field != "" {
+				generation["reasoningField"] = field
+				generation["reasoning"] = strings.TrimSpace(reasoning)
+			}
+		}
+		if len(schema) > 0 && r.optionString("structured_output_mode", "json_schema") != "none" {
+			generation["responseFormat"] = "json_schema"
+			generation["responseFormatName"] = r.optionString("response_format_name", "til_consensus_task_output")
+		}
+	}
+	return out, nil
 }
 
 func (r *Runner) RunTask(
@@ -44,7 +162,7 @@ func (r *Runner) RunTask(
 	case config.APIProtocolAnthropicCompatible:
 		return r.runAnthropic(ctx, prompt, systemPrompt, providerModel, temperature, maxOutputTokens)
 	case config.APIProtocolGemini:
-		return r.runGemini(ctx, prompt, systemPrompt, providerModel, temperature, maxOutputTokens, schema)
+		return r.runGemini(ctx, prompt, systemPrompt, providerModel, temperature, reasoning, maxOutputTokens, schema)
 	default:
 		return r.runOpenAI(ctx, prompt, systemPrompt, providerModel, temperature, reasoning, maxOutputTokens, schema)
 	}
@@ -209,119 +327,286 @@ func (r *Runner) runGemini(
 	systemPrompt string,
 	providerModel string,
 	temperature *float64,
+	reasoning string,
 	maxOutputTokens int,
 	schema map[string]any,
 ) (string, error) {
-	baseURL := strings.TrimRight(firstNonEmpty(r.provider.BaseURL, "https://generativelanguage.googleapis.com/v1beta"), "/")
-	body := map[string]any{
-		"contents": []map[string]any{{
-			"role": "user",
-			"parts": []map[string]any{{
-				"text": prompt,
-			}},
-		}},
+	if err := validateGeminiEndpointPath(r.optionString("endpoint_path", "/models/{model}:generateContent")); err != nil {
+		return "", err
 	}
+	apiVersionHint := firstNonEmpty(
+		r.optionString("api_version", ""),
+		geminiAPIVersionFromEndpointPath(r.optionString("endpoint_path", "")),
+	)
+	baseURL, apiVersion, err := geminiSDKEndpoint(r.provider.BaseURL, apiVersionHint)
+	if err != nil {
+		return "", err
+	}
+	apiKey, _ := resolveAPIKey(r.provider)
+	timeout := r.optionDuration("timeout_ms", 60*time.Second)
+	headers := http.Header{}
+	for key, value := range r.provider.Headers {
+		headers.Set(key, value)
+	}
+	httpClient := newHTTPClient(timeout)
+	httpClient.Transport = geminiAPIKeyTransport(r.provider, http.DefaultTransport)
+	client, err := genai.NewClient(ctx, &genai.ClientConfig{
+		APIKey:     apiKey,
+		Backend:    genai.BackendGeminiAPI,
+		HTTPClient: httpClient,
+		HTTPOptions: genai.HTTPOptions{
+			BaseURL:    baseURL,
+			APIVersion: apiVersion,
+			Headers:    headers,
+			Timeout:    &timeout,
+			ExtraBody:  r.optionMap("extra_body"),
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("create gemini client: %w", err)
+	}
+	generationConfig := &genai.GenerateContentConfig{}
 	if strings.TrimSpace(systemPrompt) != "" {
-		body["system_instruction"] = map[string]any{
-			"parts": []map[string]any{{
-				"text": systemPrompt,
-			}},
+		generationConfig.SystemInstruction = &genai.Content{
+			Parts: []*genai.Part{{Text: systemPrompt}},
 		}
 	}
-	generationConfig := map[string]any{}
 	if temperature != nil {
-		generationConfig["temperature"] = *temperature
+		value := float32(*temperature)
+		generationConfig.Temperature = &value
 	}
 	if maxOutputTokens > 0 {
-		generationConfig["max_output_tokens"] = maxOutputTokens
+		if maxOutputTokens > int(^uint32(0)>>1) {
+			return "", fmt.Errorf("gemini max_output_tokens exceeds int32: %d", maxOutputTokens)
+		}
+		generationConfig.MaxOutputTokens = int32(maxOutputTokens)
 	}
 	if len(schema) > 0 && r.optionString("structured_output_mode", "json_schema") != "none" {
-		generationConfig["response_mime_type"] = r.optionString("response_mime_type", "application/json")
-		if field := r.optionString("response_schema_field", "response_json_schema"); field != "-" && field != "" {
-			generationConfig[field] = schema
+		generationConfig.ResponseMIMEType = r.optionString("response_mime_type", "application/json")
+		switch field := r.optionString("response_schema_field", "response_json_schema"); field {
+		case "", "-", "none":
+		case "response_json_schema", "responseJsonSchema":
+			generationConfig.ResponseJsonSchema = schema
+		default:
+			return "", fmt.Errorf("gemini sdk runner supports response_schema_field=response_json_schema only, got %q", field)
 		}
 	}
-	if len(generationConfig) > 0 {
-		body["generationConfig"] = generationConfig
+	if strings.TrimSpace(reasoning) != "" && !geminiExtraBodyHasThinkingConfig(r.optionMap("extra_body")) {
+		level, err := geminiThinkingLevel(reasoning)
+		if err != nil {
+			return "", err
+		}
+		generationConfig.ThinkingConfig = &genai.ThinkingConfig{ThinkingLevel: level}
 	}
-	body = mergeAnyMap(body, r.optionMap("extra_body"))
-	payload, err := json.Marshal(body)
+	contents := []*genai.Content{{
+		Role: genai.RoleUser,
+		Parts: []*genai.Part{{
+			Text: prompt,
+		}},
+	}}
+	resp, err := client.Models.GenerateContent(ctx, providerModel, contents, generationConfig)
 	if err != nil {
-		return "", fmt.Errorf("marshal gemini request: %w", err)
+		return "", fmt.Errorf("gemini generateContent failed: %w", err)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, buildEndpointURL(baseURL, r.optionString("endpoint_path", "/models/{model}:generateContent"), providerModel), bytes.NewReader(payload))
-	if err != nil {
-		return "", fmt.Errorf("create gemini request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	applyAPIKey(req, r.provider, "x-goog-api-key", "")
-	for key, value := range r.provider.Headers {
-		req.Header.Set(key, value)
-	}
-	resp, err := newHTTPClient(r.optionDuration("timeout_ms", 60*time.Second)).Do(req)
-	if err != nil {
-		return "", fmt.Errorf("gemini request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", buildHTTPError("api", "gemini", resp)
-	}
-	var decoded struct {
-		Candidates []struct {
-			FinishReason string `json:"finishReason"`
-			Content      struct {
-				Parts []struct {
-					Text string `json:"text"`
-				} `json:"parts"`
-			} `json:"content"`
-		} `json:"candidates"`
-		PromptFeedback struct {
-			BlockReason string `json:"blockReason"`
-		} `json:"promptFeedback"`
-		UsageMetadata struct {
-			PromptTokenCount     int `json:"promptTokenCount"`
-			CandidatesTokenCount int `json:"candidatesTokenCount"`
-			ThoughtsTokenCount   int `json:"thoughtsTokenCount"`
-			TotalTokenCount      int `json:"totalTokenCount"`
-		} `json:"usageMetadata"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
-		return "", fmt.Errorf("decode gemini response: %w", err)
-	}
-	if len(decoded.Candidates) == 0 {
+	if len(resp.Candidates) == 0 {
 		return "", fmt.Errorf(
 			"gemini response contains no candidates%s",
-			geminiResponseDiagnostics(
-				"",
-				decoded.PromptFeedback.BlockReason,
-				decoded.UsageMetadata.PromptTokenCount,
-				decoded.UsageMetadata.CandidatesTokenCount,
-				decoded.UsageMetadata.ThoughtsTokenCount,
-				decoded.UsageMetadata.TotalTokenCount,
-			),
+			geminiSDKResponseDiagnostics(resp, ""),
 		)
 	}
-	parts := make([]string, 0, len(decoded.Candidates[0].Content.Parts))
-	for _, part := range decoded.Candidates[0].Content.Parts {
-		if strings.TrimSpace(part.Text) != "" {
-			parts = append(parts, part.Text)
-		}
-	}
-	text := strings.TrimSpace(strings.Join(parts, "\n"))
+	text := geminiSDKResponseText(resp)
 	if text == "" {
 		return "", fmt.Errorf(
 			"gemini response contains no text parts%s",
-			geminiResponseDiagnostics(
-				decoded.Candidates[0].FinishReason,
-				decoded.PromptFeedback.BlockReason,
-				decoded.UsageMetadata.PromptTokenCount,
-				decoded.UsageMetadata.CandidatesTokenCount,
-				decoded.UsageMetadata.ThoughtsTokenCount,
-				decoded.UsageMetadata.TotalTokenCount,
-			),
+			geminiSDKResponseDiagnostics(resp, string(resp.Candidates[0].FinishReason)),
 		)
 	}
 	return text, nil
+}
+
+func geminiSDKResponseText(resp *genai.GenerateContentResponse) string {
+	if resp == nil || len(resp.Candidates) == 0 || resp.Candidates[0].Content == nil {
+		return ""
+	}
+	parts := make([]string, 0, len(resp.Candidates[0].Content.Parts))
+	for _, part := range resp.Candidates[0].Content.Parts {
+		if part != nil && !part.Thought && strings.TrimSpace(part.Text) != "" {
+			parts = append(parts, part.Text)
+		}
+	}
+	return strings.TrimSpace(strings.Join(parts, "\n"))
+}
+
+func geminiSDKResponseDiagnostics(resp *genai.GenerateContentResponse, finishReason string) string {
+	var blockReason string
+	var promptTokenCount int
+	var candidatesTokenCount int
+	var thoughtsTokenCount int
+	var totalTokenCount int
+	if resp != nil {
+		if resp.PromptFeedback != nil {
+			blockReason = string(resp.PromptFeedback.BlockReason)
+		}
+		if resp.UsageMetadata != nil {
+			promptTokenCount = int(resp.UsageMetadata.PromptTokenCount)
+			candidatesTokenCount = int(resp.UsageMetadata.CandidatesTokenCount)
+			thoughtsTokenCount = int(resp.UsageMetadata.ThoughtsTokenCount)
+			totalTokenCount = int(resp.UsageMetadata.TotalTokenCount)
+		}
+	}
+	return geminiResponseDiagnostics(
+		finishReason,
+		blockReason,
+		promptTokenCount,
+		candidatesTokenCount,
+		thoughtsTokenCount,
+		totalTokenCount,
+	)
+}
+
+func geminiThinkingLevel(reasoning string) (genai.ThinkingLevel, error) {
+	switch strings.ToLower(strings.TrimSpace(reasoning)) {
+	case "minimal":
+		return genai.ThinkingLevelMinimal, nil
+	case "low":
+		return genai.ThinkingLevelLow, nil
+	case "medium":
+		return genai.ThinkingLevelMedium, nil
+	case "high":
+		return genai.ThinkingLevelHigh, nil
+	default:
+		return "", fmt.Errorf("unsupported gemini reasoning level %q; allowed: minimal, low, medium, high", reasoning)
+	}
+}
+
+func geminiExtraBodyHasThinkingConfig(extra map[string]any) bool {
+	generationConfig, ok := extra["generationConfig"].(map[string]any)
+	if !ok {
+		return false
+	}
+	if _, ok := generationConfig["thinkingConfig"]; ok {
+		return true
+	}
+	if _, ok := generationConfig["thinking_config"]; ok {
+		return true
+	}
+	return false
+}
+
+func validateGeminiEndpointPath(endpointPath string) error {
+	trimmed := strings.Trim(strings.TrimSpace(endpointPath), "/")
+	if trimmed == "" || trimmed == "models/{model}:generateContent" {
+		return nil
+	}
+	parts := strings.Split(trimmed, "/")
+	if len(parts) == 3 && isGeminiAPIVersion(parts[0]) && parts[1] == "models" && parts[2] == "{model}:generateContent" {
+		return nil
+	}
+	return fmt.Errorf("gemini sdk runner does not support custom endpoint_path %q; use base_url/options.api_version for API version overrides", endpointPath)
+}
+
+func geminiAPIVersionFromEndpointPath(endpointPath string) string {
+	trimmed := strings.Trim(strings.TrimSpace(endpointPath), "/")
+	parts := strings.Split(trimmed, "/")
+	if len(parts) == 3 && isGeminiAPIVersion(parts[0]) && parts[1] == "models" && parts[2] == "{model}:generateContent" {
+		return parts[0]
+	}
+	return ""
+}
+
+func geminiSDKEndpoint(rawBaseURL string, apiVersionHint string) (string, string, error) {
+	baseURL := strings.TrimSpace(rawBaseURL)
+	apiVersion := strings.Trim(strings.TrimSpace(apiVersionHint), "/")
+	if baseURL == "" {
+		return "https://generativelanguage.googleapis.com/", firstNonEmpty(apiVersion, "v1beta"), nil
+	}
+	parsed, err := url.Parse(baseURL)
+	if err != nil {
+		return "", "", fmt.Errorf("parse gemini base_url: %w", err)
+	}
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
+	segments := splitURLPathSegments(parsed.Path)
+	if apiVersion == "" && len(segments) > 0 && isGeminiAPIVersion(segments[len(segments)-1]) {
+		apiVersion = segments[len(segments)-1]
+		segments = segments[:len(segments)-1]
+	}
+	if apiVersion == "" {
+		apiVersion = "v1beta"
+	}
+	if len(segments) == 0 {
+		parsed.Path = ""
+	} else {
+		parsed.Path = "/" + strings.Join(segments, "/")
+	}
+	return strings.TrimRight(parsed.String(), "/") + "/", apiVersion, nil
+}
+
+func splitURLPathSegments(path string) []string {
+	raw := strings.Split(strings.Trim(path, "/"), "/")
+	out := make([]string, 0, len(raw))
+	for _, segment := range raw {
+		if segment != "" {
+			out = append(out, segment)
+		}
+	}
+	return out
+}
+
+func isGeminiAPIVersion(segment string) bool {
+	if len(segment) < 2 || segment[0] != 'v' {
+		return false
+	}
+	for i := 1; i < len(segment); i++ {
+		if segment[i] >= '0' && segment[i] <= '9' {
+			return true
+		}
+	}
+	return false
+}
+
+func geminiAPIKeyTransport(provider config.ProviderConfig, base http.RoundTripper) http.RoundTripper {
+	headerName := "x-goog-api-key"
+	prefix := ""
+	queryParam := ""
+	if provider.Options != nil {
+		if value, ok := provider.Options["api_key_header"].(string); ok {
+			headerName = value
+		}
+		if value, ok := provider.Options["api_key_prefix"].(string); ok {
+			prefix = value
+		}
+		if value, ok := provider.Options["api_key_query_param"].(string); ok {
+			queryParam = value
+		}
+	}
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	if strings.TrimSpace(headerName) == "x-goog-api-key" && prefix == "" && strings.TrimSpace(queryParam) == "" {
+		return base
+	}
+	return roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		next := req.Clone(req.Context())
+		next.Header = req.Header.Clone()
+		key := next.Header.Get("x-goog-api-key")
+		if key != "" {
+			if strings.TrimSpace(queryParam) != "" && strings.TrimSpace(queryParam) != "-" {
+				u := *next.URL
+				query := u.Query()
+				query.Set(queryParam, key)
+				u.RawQuery = query.Encode()
+				next.URL = &u
+			}
+			if strings.TrimSpace(headerName) == "" || strings.TrimSpace(headerName) == "-" {
+				next.Header.Del("x-goog-api-key")
+			} else {
+				next.Header.Del("x-goog-api-key")
+				next.Header.Set(headerName, prefix+key)
+			}
+		}
+		return base.RoundTrip(next)
+	})
 }
 
 func geminiResponseDiagnostics(
@@ -513,6 +798,119 @@ func buildHTTPError(provider string, label string, resp *http.Response) error {
 		return fmt.Errorf("%s:%s request failed: status=%d", provider, label, resp.StatusCode)
 	}
 	return fmt.Errorf("%s:%s request failed: status=%d body=%s", provider, label, resp.StatusCode, text)
+}
+
+func requestAuthSummary(provider config.ProviderConfig, defaultHeader string, defaultPrefix string) string {
+	if strings.TrimSpace(provider.APIKeyEnv) == "" {
+		return "not configured"
+	}
+	headerName := defaultHeader
+	prefix := defaultPrefix
+	queryParam := ""
+	if provider.Options != nil {
+		if value, ok := provider.Options["api_key_header"].(string); ok {
+			headerName = value
+		}
+		if value, ok := provider.Options["api_key_prefix"].(string); ok {
+			prefix = value
+		}
+		if value, ok := provider.Options["api_key_query_param"].(string); ok {
+			queryParam = value
+		}
+	}
+	if strings.TrimSpace(queryParam) != "" && strings.TrimSpace(queryParam) != "-" {
+		return fmt.Sprintf("query %s <- %s", strings.TrimSpace(queryParam), provider.APIKeyEnv)
+	}
+	if strings.TrimSpace(headerName) == "" || strings.TrimSpace(headerName) == "-" {
+		return "disabled"
+	}
+	if prefix != "" {
+		return fmt.Sprintf("header %s: %s$%s", strings.TrimSpace(headerName), prefix, provider.APIKeyEnv)
+	}
+	return fmt.Sprintf("header %s <- %s", strings.TrimSpace(headerName), provider.APIKeyEnv)
+}
+
+func requestPreviewText(value string, limit int) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return ""
+	}
+	trimmed = strings.Join(strings.Fields(trimmed), " ")
+	if limit <= 0 || len(trimmed) <= limit {
+		return trimmed
+	}
+	if limit <= 1 {
+		return trimmed[:limit]
+	}
+	return trimmed[:limit-1] + "…"
+}
+
+func schemaPreview(schema map[string]any) map[string]any {
+	if len(schema) == 0 {
+		return nil
+	}
+	out := map[string]any{"enabled": true}
+	if schemaType, ok := schema["type"].(string); ok && strings.TrimSpace(schemaType) != "" {
+		out["type"] = schemaType
+	}
+	if additional, ok := schema["additionalProperties"].(bool); ok {
+		out["additionalProperties"] = additional
+	}
+	switch required := schema["required"].(type) {
+	case []string:
+		out["required"] = append([]string(nil), required...)
+	case []any:
+		values := make([]string, 0, len(required))
+		for _, value := range required {
+			if text, ok := value.(string); ok {
+				values = append(values, text)
+			}
+		}
+		if len(values) > 0 {
+			out["required"] = values
+		}
+	}
+	return out
+}
+
+func sortedHeaderKeys(headers map[string]string) []string {
+	if len(headers) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(headers))
+	for key := range headers {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func flattenMapKeys(values map[string]any) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := []string{}
+	var walk func(prefix string, current map[string]any)
+	walk = func(prefix string, current map[string]any) {
+		keys := make([]string, 0, len(current))
+		for key := range current {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			full := key
+			if prefix != "" {
+				full = prefix + "." + key
+			}
+			if nested, ok := current[key].(map[string]any); ok {
+				walk(full, nested)
+				continue
+			}
+			out = append(out, full)
+		}
+	}
+	walk("", values)
+	return out
 }
 
 func firstNonEmpty(values ...string) string {

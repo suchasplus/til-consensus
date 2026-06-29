@@ -254,21 +254,22 @@ type TelemetryView struct {
 }
 
 type ProviderReadinessEntryView struct {
-	Provider        string   `json:"provider"`
-	ProviderType    string   `json:"providerType,omitempty"`
-	Protocol        string   `json:"protocol,omitempty"`
-	Model           string   `json:"model,omitempty"`
-	BaseURL         string   `json:"baseUrl,omitempty"`
-	APIKeyEnv       string   `json:"apiKeyEnv,omitempty"`
-	Agent           string   `json:"agent,omitempty"`
-	Command         []string `json:"command,omitempty"`
-	Ready           bool     `json:"ready"`
-	StrictJSON      bool     `json:"strictJSON"`
-	RecoverableJSON bool     `json:"recoverableJSON"`
-	DurationMs      int64    `json:"durationMs"`
-	StdoutPreview   string   `json:"stdoutPreview,omitempty"`
-	StderrPreview   string   `json:"stderrPreview,omitempty"`
-	Error           string   `json:"error,omitempty"`
+	Provider        string         `json:"provider"`
+	ProviderType    string         `json:"providerType,omitempty"`
+	Protocol        string         `json:"protocol,omitempty"`
+	Model           string         `json:"model,omitempty"`
+	BaseURL         string         `json:"baseUrl,omitempty"`
+	APIKeyEnv       string         `json:"apiKeyEnv,omitempty"`
+	Agent           string         `json:"agent,omitempty"`
+	Command         []string       `json:"command,omitempty"`
+	RequestContext  map[string]any `json:"requestContext,omitempty"`
+	Ready           bool           `json:"ready"`
+	StrictJSON      bool           `json:"strictJSON"`
+	RecoverableJSON bool           `json:"recoverableJSON"`
+	DurationMs      int64          `json:"durationMs"`
+	StdoutPreview   string         `json:"stdoutPreview,omitempty"`
+	StderrPreview   string         `json:"stderrPreview,omitempty"`
+	Error           string         `json:"error,omitempty"`
 }
 
 type ProviderReadinessView struct {
@@ -854,6 +855,11 @@ func renderText(doc Document, verbose bool) string {
 							if len(item.Command) > 0 {
 								fmt.Fprintf(&b, "  command: %s\n", strings.Join(item.Command, " "))
 							}
+							if len(item.RequestContext) > 0 {
+								if body, err := prettyJSON(item.RequestContext, "  ", "  "); err == nil {
+									fmt.Fprintf(&b, "  request_context:\n%s\n", body)
+								}
+							}
 							if item.StdoutPreview != "" {
 								fmt.Fprintf(&b, "  stdout: %s\n", item.StdoutPreview)
 							}
@@ -1373,11 +1379,22 @@ func prettyPayload(payload map[string]any) string {
 	if len(payload) == 0 {
 		return ""
 	}
-	body, err := json.MarshalIndent(payload, "", "  ")
+	body, err := prettyJSON(payload, "", "  ")
 	if err != nil {
 		return ""
 	}
-	return string(body)
+	return body
+}
+
+func prettyJSON(value any, prefix string, indent string) (string, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent(prefix, indent)
+	if err := enc.Encode(value); err != nil {
+		return "", err
+	}
+	return strings.TrimRight(buf.String(), "\n"), nil
 }
 
 func formatDebugValue(value any) string {
@@ -1419,6 +1436,7 @@ func buildTelemetry(bundle Bundle, limit int) *TelemetryView {
 				APIKeyEnv:       item.APIKeyEnv,
 				Agent:           item.Agent,
 				Command:         append([]string(nil), item.Command...),
+				RequestContext:  cloneMap(item.RequestContext),
 				Ready:           item.Ready,
 				StrictJSON:      item.StrictJSON,
 				RecoverableJSON: item.RecoverableJSON,

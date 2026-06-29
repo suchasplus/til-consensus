@@ -26,3 +26,19 @@ func TestEffectiveMaxOutputTokensUsesConfiguredLowerBudget(t *testing.T) {
 		t.Fatalf("expected configured lower Gemini API budget 512, got %d", got)
 	}
 }
+
+func TestAnnotatePreflightBudgetShowsConfiguredCap(t *testing.T) {
+	ctx := map[string]any{
+		"generation": map[string]any{
+			"maxOutputTokens": 2048,
+		},
+	}
+	annotatePreflightBudget(ctx, 65535, 2048)
+	generation := ctx["generation"].(map[string]any)
+	if generation["configuredMaxOutputTokens"] != 65535 {
+		t.Fatalf("expected configured budget annotation, got %#v", generation)
+	}
+	if generation["budgetPolicy"] != "preflight_cap" {
+		t.Fatalf("expected preflight cap annotation, got %#v", generation)
+	}
+}

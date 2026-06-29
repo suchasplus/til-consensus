@@ -590,6 +590,7 @@
               <div class="card-body">
                 <div><strong>duration:</strong> <span class="mono">${escapeHtml(String(item.durationMs || 0))}ms</span></div>
                 ${item.command && item.command.length ? `<div><strong>command:</strong> <span class="mono">${item.command.map(escapeHtml).join(" ")}</span></div>` : ""}
+                ${item.requestContext ? `<div><strong>request:</strong> <pre class="payload">${escapeHtml(JSON.stringify(item.requestContext, null, 2))}</pre></div>` : ""}
                 ${item.error ? `<div><strong>error:</strong> ${escapeHtml(item.error)}</div>` : ""}
                 ${item.stdoutPreview ? `<div><strong>stdout:</strong> <pre class="payload">${escapeHtml(item.stdoutPreview)}</pre></div>` : ""}
                 ${item.stderrPreview ? `<div><strong>stderr:</strong> <pre class="payload">${escapeHtml(item.stderrPreview)}</pre></div>` : ""}

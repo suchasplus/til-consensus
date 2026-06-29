@@ -17,21 +17,22 @@ type ProviderReadinessFile struct {
 }
 
 type ProviderReadinessEntry struct {
-	Provider        string   `json:"provider"`
-	ProviderType    string   `json:"providerType,omitempty"`
-	Protocol        string   `json:"protocol,omitempty"`
-	Model           string   `json:"model,omitempty"`
-	BaseURL         string   `json:"baseUrl,omitempty"`
-	APIKeyEnv       string   `json:"apiKeyEnv,omitempty"`
-	Agent           string   `json:"agent,omitempty"`
-	Command         []string `json:"command,omitempty"`
-	Ready           bool     `json:"ready"`
-	StrictJSON      bool     `json:"strictJSON"`
-	RecoverableJSON bool     `json:"recoverableJSON"`
-	DurationMs      int64    `json:"durationMs"`
-	StdoutPreview   string   `json:"stdoutPreview,omitempty"`
-	StderrPreview   string   `json:"stderrPreview,omitempty"`
-	Error           string   `json:"error,omitempty"`
+	Provider        string         `json:"provider"`
+	ProviderType    string         `json:"providerType,omitempty"`
+	Protocol        string         `json:"protocol,omitempty"`
+	Model           string         `json:"model,omitempty"`
+	BaseURL         string         `json:"baseUrl,omitempty"`
+	APIKeyEnv       string         `json:"apiKeyEnv,omitempty"`
+	Agent           string         `json:"agent,omitempty"`
+	Command         []string       `json:"command,omitempty"`
+	RequestContext  map[string]any `json:"requestContext,omitempty"`
+	Ready           bool           `json:"ready"`
+	StrictJSON      bool           `json:"strictJSON"`
+	RecoverableJSON bool           `json:"recoverableJSON"`
+	DurationMs      int64          `json:"durationMs"`
+	StdoutPreview   string         `json:"stdoutPreview,omitempty"`
+	StderrPreview   string         `json:"stderrPreview,omitempty"`
+	Error           string         `json:"error,omitempty"`
 }
 
 type ComplianceSummaryFile struct {

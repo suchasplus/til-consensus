@@ -27,6 +27,8 @@ providers:
     base_url: https://generativelanguage.googleapis.com/v1beta
     api_key_env: GEMINI_API_KEY
     options:
+      # til-consensus 配置键保持 snake_case；实际请求由 google.golang.org/genai
+      # 发送为 responseMimeType / responseJsonSchema / maxOutputTokens。
       endpoint_path: /models/{model}:generateContent
       response_mime_type: application/json
       response_schema_field: response_json_schema
@@ -36,6 +38,7 @@ providers:
         provider_model: gemini-3.5-flash
         max_output_tokens: 4096
         temperature: 0.2
+        # 映射为 generationConfig.thinkingConfig.thinkingLevel。
         reasoning: medium
 
 agents:

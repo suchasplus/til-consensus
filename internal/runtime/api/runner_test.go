@@ -206,7 +206,7 @@ func TestGeminiRunnerUsesGenerateContentAndResponseJSONSchema(t *testing.T) {
 	}()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/models/gemini-test:generateContent" {
+		if r.URL.Path != "/v1beta/models/gemini-test:generateContent" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		if got := r.Header.Get("x-goog-api-key"); got != apiKey {
@@ -220,11 +220,27 @@ func TestGeminiRunnerUsesGenerateContentAndResponseJSONSchema(t *testing.T) {
 		if !ok {
 			t.Fatalf("expected generationConfig in request, got %#v", body)
 		}
-		if got := generationConfig["response_mime_type"]; got != "application/json" {
-			t.Fatalf("unexpected response_mime_type: %#v", got)
+		if got := generationConfig["responseMimeType"]; got != "application/json" {
+			t.Fatalf("unexpected responseMimeType: %#v", got)
 		}
-		if _, ok := generationConfig["response_json_schema"].(map[string]any); !ok {
-			t.Fatalf("expected response_json_schema in request, got %#v", generationConfig)
+		if _, ok := generationConfig["responseJsonSchema"].(map[string]any); !ok {
+			t.Fatalf("expected responseJsonSchema in request, got %#v", generationConfig)
+		}
+		if got := generationConfig["maxOutputTokens"]; got != float64(4096) {
+			t.Fatalf("unexpected maxOutputTokens: %#v", generationConfig)
+		}
+		if _, ok := generationConfig["max_output_tokens"]; ok {
+			t.Fatalf("gemini generationConfig must use maxOutputTokens, got snake_case payload: %#v", generationConfig)
+		}
+		if _, ok := generationConfig["response_mime_type"]; ok {
+			t.Fatalf("gemini generationConfig must use responseMimeType, got snake_case payload: %#v", generationConfig)
+		}
+		thinkingConfig, ok := generationConfig["thinkingConfig"].(map[string]any)
+		if !ok || thinkingConfig["thinkingLevel"] != "HIGH" {
+			t.Fatalf("expected thinkingConfig.thinkingLevel=HIGH, got %#v", generationConfig)
+		}
+		if _, ok := body["systemInstruction"].(map[string]any); !ok {
+			t.Fatalf("expected systemInstruction in request, got %#v", body)
 		}
 		contents, ok := body["contents"].([]any)
 		if !ok || len(contents) != 1 {
@@ -248,12 +264,63 @@ func TestGeminiRunnerUsesGenerateContentAndResponseJSONSchema(t *testing.T) {
 		BaseURL:   server.URL,
 		APIKeyEnv: "GEMINI_API_KEY",
 	})
-	text, err := runner.RunTask(context.Background(), "prompt", "system", "gemini-test", nil, "", 0, map[string]any{"type": "object"})
+	text, err := runner.RunTask(context.Background(), "prompt", "system", "gemini-test", nil, "high", 4096, map[string]any{"type": "object"})
 	if err != nil {
 		t.Fatalf("RunTask failed: %v", err)
 	}
 	if text != `{"summary":"ok"}` {
 		t.Fatalf("unexpected response: %s", text)
+	}
+}
+
+func TestPreviewRequestContextGeminiUsesSDKNames(t *testing.T) {
+	temperature := 0.2
+	ctx, err := PreviewRequestContext(
+		config.ProviderConfig{
+			Type:      config.ProviderTypeAPI,
+			Protocol:  config.APIProtocolGemini,
+			BaseURL:   "https://generativelanguage.googleapis.com/v1beta",
+			APIKeyEnv: "GEMINI_API_KEY",
+		},
+		"只返回一个 JSON 对象：{\"ok\":true}",
+		"你是 provider readiness preflight。",
+		"gemini-3.1-pro-preview",
+		&temperature,
+		"high",
+		2048,
+		map[string]any{
+			"type":                 "object",
+			"required":             []any{"ok"},
+			"additionalProperties": false,
+		},
+	)
+	if err != nil {
+		t.Fatalf("PreviewRequestContext failed: %v", err)
+	}
+	if got := ctx["transport"]; got != "google.golang.org/genai Models.GenerateContent" {
+		t.Fatalf("unexpected transport: %#v", got)
+	}
+	if got := ctx["endpoint"]; got != "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:generateContent" {
+		t.Fatalf("unexpected endpoint: %#v", got)
+	}
+	generation, ok := ctx["generation"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing generation context: %#v", ctx)
+	}
+	for key, want := range map[string]any{
+		"maxOutputTokens":    2048,
+		"temperature":        0.2,
+		"responseMimeType":   "application/json",
+		"responseJsonSchema": "enabled",
+		"thinkingLevel":      "HIGH",
+		"reasoning":          "high",
+	} {
+		if got := generation[key]; got != want {
+			t.Fatalf("generation[%s] = %#v, want %#v; all=%#v", key, got, want, generation)
+		}
+	}
+	if _, ok := generation["max_output_tokens"]; ok {
+		t.Fatalf("preview must use Gemini SDK camelCase names, got %#v", generation)
 	}
 }
 
@@ -316,6 +383,12 @@ func TestGeminiRunnerSupportsCustomEndpointAndQueryAuth(t *testing.T) {
 }
 
 func TestGeminiRunnerReportsNoTextDiagnostics(t *testing.T) {
+	const apiKey = "gemini-diagnostic-key"
+	if err := os.Setenv("GEMINI_DIAGNOSTIC_KEY", apiKey); err != nil {
+		t.Fatalf("Setenv failed: %v", err)
+	}
+	defer func() { _ = os.Unsetenv("GEMINI_DIAGNOSTIC_KEY") }()
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"candidates": []map[string]any{{
@@ -335,9 +408,10 @@ func TestGeminiRunnerReportsNoTextDiagnostics(t *testing.T) {
 	defer server.Close()
 
 	runner := NewRunner(config.ProviderConfig{
-		Type:     config.ProviderTypeAPI,
-		Protocol: config.APIProtocolGemini,
-		BaseURL:  server.URL,
+		Type:      config.ProviderTypeAPI,
+		Protocol:  config.APIProtocolGemini,
+		BaseURL:   server.URL,
+		APIKeyEnv: "GEMINI_DIAGNOSTIC_KEY",
 	})
 	_, err := runner.RunTask(context.Background(), "prompt", "system", "gemini-test", nil, "", 0, map[string]any{"type": "object"})
 	if err == nil {
@@ -357,6 +431,12 @@ func TestGeminiRunnerReportsNoTextDiagnostics(t *testing.T) {
 }
 
 func TestGeminiRunnerReportsPromptBlockDiagnostics(t *testing.T) {
+	const apiKey = "gemini-block-key"
+	if err := os.Setenv("GEMINI_BLOCK_KEY", apiKey); err != nil {
+		t.Fatalf("Setenv failed: %v", err)
+	}
+	defer func() { _ = os.Unsetenv("GEMINI_BLOCK_KEY") }()
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"promptFeedback": map[string]any{
@@ -367,9 +447,10 @@ func TestGeminiRunnerReportsPromptBlockDiagnostics(t *testing.T) {
 	defer server.Close()
 
 	runner := NewRunner(config.ProviderConfig{
-		Type:     config.ProviderTypeAPI,
-		Protocol: config.APIProtocolGemini,
-		BaseURL:  server.URL,
+		Type:      config.ProviderTypeAPI,
+		Protocol:  config.APIProtocolGemini,
+		BaseURL:   server.URL,
+		APIKeyEnv: "GEMINI_BLOCK_KEY",
 	})
 	_, err := runner.RunTask(context.Background(), "prompt", "system", "gemini-test", nil, "", 0, map[string]any{"type": "object"})
 	if err == nil {

@@ -349,6 +349,8 @@ til-consensus config add-provider \
 
 CLI provider 的 `models.<id>.reasoning` 是 provider-specific 映射：`claude` 会生成 `--effort <value>`，`codex` 会生成 `-c model_reasoning_effort=<value>`。`gemini` / `antigravity` 当前本机 CLI 未暴露稳定 thinking-level 参数，因此不会声明 `reasoning` 已生效。
 
+API provider 中，`gemini-api` 使用官方 `google.golang.org/genai` 的 `Models.GenerateContent`。`models.<id>.reasoning` 会映射到 Gemini `generationConfig.thinkingConfig.thinkingLevel`，支持 `minimal / low / medium / high`；如果你在 `options.extra_body.generationConfig.thinkingConfig` 中显式配置 thinking，则显式配置优先。
+
 `options` 里当前最有用的键：
 
 - 通用
@@ -368,6 +370,9 @@ CLI provider 的 `models.<id>.reasoning` 是 provider-specific 映射：`claude`
 - `gemini-api`
   - `response_mime_type`
   - `response_schema_field`
+  - `api_version`
+
+`gemini-api` 的 `endpoint_path` 只支持默认 `models/{model}:generateContent`，或带 API version 前缀的 `v1beta/models/{model}:generateContent` 形式。自定义代理路径请优先放在 `base_url` 中；SDK 会负责发送 camelCase payload，例如 `maxOutputTokens / responseMimeType / responseJsonSchema / thinkingConfig`。
 
 ## 常用命令
 

@@ -1862,7 +1862,7 @@ func startE2EAPIServers(t *testing.T, mode consensus.WorkflowMode, openAIHits *i
 	}))
 
 	geminiServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.HasPrefix(r.URL.Path, "/models/") || !strings.HasSuffix(r.URL.Path, ":generateContent") {
+		if !strings.Contains(r.URL.Path, "/models/") || !strings.HasSuffix(r.URL.Path, ":generateContent") {
 			t.Fatalf("unexpected gemini path: %s", r.URL.Path)
 		}
 		(*geminiHits)++
@@ -1874,11 +1874,17 @@ func startE2EAPIServers(t *testing.T, mode consensus.WorkflowMode, openAIHits *i
 		if !ok {
 			t.Fatalf("expected generationConfig in gemini request, got %#v", body)
 		}
-		if got := generationConfig["response_mime_type"]; got != "application/json" {
-			t.Fatalf("expected response_mime_type in gemini request, got %#v", generationConfig)
+		if got := generationConfig["responseMimeType"]; got != "application/json" {
+			t.Fatalf("expected responseMimeType in gemini request, got %#v", generationConfig)
 		}
-		if _, ok := generationConfig["response_json_schema"].(map[string]any); !ok {
-			t.Fatalf("expected response_json_schema in gemini request, got %#v", generationConfig)
+		if _, ok := generationConfig["responseJsonSchema"].(map[string]any); !ok {
+			t.Fatalf("expected responseJsonSchema in gemini request, got %#v", generationConfig)
+		}
+		if _, ok := generationConfig["max_output_tokens"]; ok {
+			t.Fatalf("gemini generationConfig must use maxOutputTokens, got snake_case payload: %#v", generationConfig)
+		}
+		if _, ok := generationConfig["response_mime_type"]; ok {
+			t.Fatalf("gemini generationConfig must use responseMimeType, got snake_case payload: %#v", generationConfig)
 		}
 		prompt := extractGeminiPrompt(t, body["contents"])
 		response := e2eAPIResponse(mode, prompt)

@@ -225,19 +225,38 @@ func probeCandidate(ctx context.Context, item candidate, opts Options, sink Arti
 		prompt = defaultPrompt
 	}
 	schema := readinessSchema()
+	maxOutputTokens := effectiveMaxOutputTokens(item)
+	if item.ProviderType == config.ProviderTypeAPI {
+		requestContext, err := apirunner.PreviewRequestContext(
+			item.Provider,
+			prompt,
+			defaultSystemPrompt,
+			item.ProviderModel,
+			effectiveTemperature(item),
+			effectiveReasoning(item),
+			maxOutputTokens,
+			schema,
+		)
+		if err != nil {
+			requestContext = map[string]any{"previewError": err.Error()}
+		}
+		annotatePreflightBudget(requestContext, item.ModelConfig.MaxOutputTokens, maxOutputTokens)
+		entry.RequestContext = requestContext
+	}
 	if sink != nil {
 		sink.WriteInput(item.ID, map[string]any{
-			"provider":      item.ProviderID,
-			"providerType":  item.ProviderType,
-			"protocol":      item.Protocol,
-			"cliType":       item.CLIType,
-			"baseUrl":       item.Provider.BaseURL,
-			"apiKeyEnv":     item.Provider.APIKeyEnv,
-			"agent":         item.AgentID,
-			"modelId":       item.ModelID,
-			"providerModel": item.ProviderModel,
-			"prompt":        prompt,
-			"schema":        schema,
+			"provider":       item.ProviderID,
+			"providerType":   item.ProviderType,
+			"protocol":       item.Protocol,
+			"cliType":        item.CLIType,
+			"baseUrl":        item.Provider.BaseURL,
+			"apiKeyEnv":      item.Provider.APIKeyEnv,
+			"agent":          item.AgentID,
+			"modelId":        item.ModelID,
+			"providerModel":  item.ProviderModel,
+			"prompt":         prompt,
+			"schema":         schema,
+			"requestContext": entry.RequestContext,
 		})
 	}
 	if item.ProviderType == config.ProviderTypeCLI {
@@ -347,6 +366,18 @@ func runCandidate(ctx context.Context, item candidate, prompt string, schema map
 	default:
 		return candidateRunResult{}, fmt.Errorf("provider type %s is not supported by preflight", item.ProviderType)
 	}
+}
+
+func annotatePreflightBudget(ctx map[string]any, configured int, effective int) {
+	if len(ctx) == 0 || configured <= 0 || configured == effective {
+		return
+	}
+	generation, ok := ctx["generation"].(map[string]any)
+	if !ok {
+		return
+	}
+	generation["configuredMaxOutputTokens"] = configured
+	generation["budgetPolicy"] = "preflight_cap"
 }
 
 func readinessSchema() map[string]any {
