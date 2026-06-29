@@ -82,7 +82,7 @@
 
 `profile preflight` 和真实 E2E 会写出这个文件，用来记录 provider 是否能在当前环境完成最小非交互 JSON 调用。
 
-`profile preflight` 的探测默认使用 `max_output_tokens=2048`；如果 model 配置了更小的 `max_output_tokens`，则使用配置值。这个预算只影响 readiness 探测，不代表正式 workflow 的输出预算。
+`profile preflight` 的 API 探测默认使用 `max_output_tokens=2048`；如果 API model 配置了更小的 `max_output_tokens`，则使用配置值。CLI provider 当前不支持在配置里声明 output-token budget，写入这类字段会被 provider profile 校验拒绝。
 
 运行时的完整字段说明见本文后面的 [provider readiness telemetry](#provider-readiness-telemetry)。终端执行 `profile preflight` 时会逐个 provider 分块输出；`artifacts/provider-readiness.json` 仍然会在全部探测结束后写出，供 `view` 和 `telemetry daily` 读取。
 

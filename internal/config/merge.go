@@ -167,8 +167,9 @@ func mergeProviderModel(base ProviderModelConfig, overlay ProviderModelConfig) P
 	if overlay.ContextWindow != 0 {
 		out.ContextWindow = overlay.ContextWindow
 	}
-	if overlay.MaxOutputTokens != 0 {
+	if overlay.MaxOutputTokensSet || overlay.MaxOutputTokens != 0 {
 		out.MaxOutputTokens = overlay.MaxOutputTokens
+		out.MaxOutputTokensSet = overlay.MaxOutputTokensSet || overlay.MaxOutputTokens != 0
 	}
 	if overlay.Temperature != nil {
 		value := *overlay.Temperature

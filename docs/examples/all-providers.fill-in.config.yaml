@@ -73,7 +73,6 @@ providers:
       default:
         # 可替换成你实际想用的 Codex 模型
         provider_model: gpt-5.4
-        max_output_tokens: 4096
         reasoning: medium
 
   claude-cli:
@@ -84,7 +83,6 @@ providers:
     models:
       default:
         provider_model: claude-opus-4-6
-        max_output_tokens: 4096
         reasoning: medium
 
   gemini-cli:
@@ -95,7 +93,6 @@ providers:
     models:
       default:
         provider_model: gemini-3.1-pro-preview
-        max_output_tokens: 4096
         reasoning: medium
 
   antigravity-cli:
@@ -107,7 +104,6 @@ providers:
     models:
       default:
         provider_model: Gemini 3.5 Flash (High)
-        max_output_tokens: 4096
         reasoning: medium
 
   # ------------------------------

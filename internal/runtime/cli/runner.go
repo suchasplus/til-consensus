@@ -270,7 +270,11 @@ func normalizeStructuredCLIOutput(cliType string, outputSchema map[string]any, r
 func buildBaseArgs(cliType string, providerModel string, prompt string, reasoning string) ([]string, string) {
 	switch cliType {
 	case "claude":
-		return []string{"--print", "--model", providerModel}, prompt
+		args := []string{"--print", "--model", providerModel}
+		if reasoning != "" {
+			args = append(args, "--effort", reasoning)
+		}
+		return args, prompt
 	case "codex":
 		args := []string{"exec", "-m", providerModel, "--full-auto", "--color", "never", "--skip-git-repo-check"}
 		if reasoning != "" {

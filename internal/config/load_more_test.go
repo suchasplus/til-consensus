@@ -323,6 +323,105 @@ agents:
 	}
 }
 
+func TestLoadProfilesRejectsCLIMaxOutputTokens(t *testing.T) {
+	tmp := t.TempDir()
+	configPath := filepath.Join(tmp, "bad-cli-token-budget.yaml")
+	writeConfigTestFile(t, configPath, `
+schema_version: 1
+providers:
+  codex-cli:
+    type: cli
+    cli_type: codex
+    command: codex
+    models:
+      default:
+        provider_model: gpt-5.5
+        max_output_tokens: 0
+`)
+	_, err := LoadProfiles(configPath)
+	if err == nil {
+		t.Fatalf("expected LoadProfiles to reject cli max_output_tokens")
+	}
+	if !strings.Contains(err.Error(), "max_output_tokens is API-only") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLoadProfilesRejectsCLIMaxTokenOptionsAndArgs(t *testing.T) {
+	tmp := t.TempDir()
+	configPath := filepath.Join(tmp, "bad-cli-options.yaml")
+	writeConfigTestFile(t, configPath, `
+schema_version: 1
+providers:
+  gemini-cli:
+    type: cli
+    cli_type: gemini
+    command: gemini
+    args:
+      - --max-output-tokens=4096
+    options:
+      extra_body:
+        generationConfig:
+          maxOutputTokens: 4096
+    models:
+      default:
+        provider_model: gemini-3.1-pro-preview
+`)
+	_, err := LoadProfiles(configPath)
+	if err == nil {
+		t.Fatalf("expected LoadProfiles to reject cli max token options")
+	}
+	if !strings.Contains(err.Error(), "options.extra_body.generationConfig.maxOutputTokens") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	configPath = filepath.Join(tmp, "bad-cli-args.yaml")
+	writeConfigTestFile(t, configPath, `
+schema_version: 1
+providers:
+  gemini-cli:
+    type: cli
+    cli_type: gemini
+    command: gemini
+    args:
+      - --max-output-tokens=4096
+    models:
+      default:
+        provider_model: gemini-3.1-pro-preview
+`)
+	_, err = LoadProfiles(configPath)
+	if err == nil {
+		t.Fatalf("expected LoadProfiles to reject cli max token args")
+	}
+	if !strings.Contains(err.Error(), "args[0]") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLoadProfilesRejectsUnknownProviderModelFields(t *testing.T) {
+	tmp := t.TempDir()
+	configPath := filepath.Join(tmp, "bad-model-field.yaml")
+	writeConfigTestFile(t, configPath, `
+schema_version: 1
+providers:
+  api:
+    type: api
+    protocol: openai-compatible
+    base_url: http://127.0.0.1:1
+    models:
+      default:
+        provider_model: test-model
+        max_tokens: 4096
+`)
+	_, err := LoadProfiles(configPath)
+	if err == nil {
+		t.Fatalf("expected LoadProfiles to reject unknown provider model field")
+	}
+	if !strings.Contains(err.Error(), `unknown provider model field "max_tokens"`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestModelIDsAndSingleModelID(t *testing.T) {
 	provider := ProviderConfig{
 		Models: map[string]ProviderModelConfig{

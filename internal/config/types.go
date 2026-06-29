@@ -139,11 +139,12 @@ type OutputConfig struct {
 }
 
 type ProviderModelConfig struct {
-	ProviderModel   string   `yaml:"provider_model,omitempty"`
-	ContextWindow   int      `yaml:"context_window,omitempty"`
-	MaxOutputTokens int      `yaml:"max_output_tokens,omitempty"`
-	Temperature     *float64 `yaml:"temperature,omitempty"`
-	Reasoning       string   `yaml:"reasoning,omitempty"`
+	ProviderModel      string   `yaml:"provider_model,omitempty"`
+	ContextWindow      int      `yaml:"context_window,omitempty"`
+	MaxOutputTokens    int      `yaml:"max_output_tokens,omitempty"`
+	MaxOutputTokensSet bool     `yaml:"-" json:"-"`
+	Temperature        *float64 `yaml:"temperature,omitempty"`
+	Reasoning          string   `yaml:"reasoning,omitempty"`
 }
 
 type ProviderConfig struct {

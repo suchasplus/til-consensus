@@ -63,7 +63,7 @@ til-consensus view --result ./out/tc_xxx/result.json --section debug --verbose
 til-consensus view --result ./out/tc_xxx/result.json --web --open
 ```
 
-preflight 的 Debug / Telemetry 区块会展示 provider readiness，包括 `ready / strictJSON / recoverableJSON / durationMs / error`。探测默认使用 `max_output_tokens=2048`；如果 Gemini 等 thinking 模型耗尽预算，错误里会带 `finishReason` 和 token usage，便于判断是模型名、结构化输出参数还是输出预算问题。
+preflight 的 Debug / Telemetry 区块会展示 provider readiness，包括 `ready / strictJSON / recoverableJSON / durationMs / error`。API 探测默认使用 `max_output_tokens=2048`；如果 Gemini API 等 thinking 模型耗尽预算，错误里会带 `finishReason` 和 token usage，便于判断是模型名、结构化输出参数还是输出预算问题。CLI provider 当前不支持在配置里声明 output-token budget。
 
 `profile preflight` 运行时会逐 provider 分块输出；`view` 负责事后读取同一 run 目录里的 `artifacts/provider-readiness.json`，因此适合把一次预检结果分享给别人或在 Web Debug 区块里展开查看。
 

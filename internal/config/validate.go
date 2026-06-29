@@ -57,6 +57,9 @@ func validateProviderProfiles(cfg Config) error {
 			if provider.CLIType == CLITypeGeneric && strings.TrimSpace(provider.Command) == "" {
 				return fmt.Errorf("provider %s: command is required for generic cli provider", name)
 			}
+			if err := validateCLIProviderDoesNotDeclareTokenBudget(name, provider); err != nil {
+				return err
+			}
 		case ProviderTypeSDK:
 			if strings.TrimSpace(provider.Adapter) == "" {
 				return fmt.Errorf("provider %s: adapter is required", name)
@@ -80,6 +83,83 @@ func validateProviderProfiles(cfg Config) error {
 		}
 	}
 	return nil
+}
+
+func validateCLIProviderDoesNotDeclareTokenBudget(name string, provider ProviderConfig) error {
+	for modelID, model := range provider.Models {
+		if model.MaxOutputTokensSet || model.MaxOutputTokens != 0 {
+			return fmt.Errorf("provider %s model %s: max_output_tokens is API-only and is not applied to cli providers; remove it or use an api provider", name, modelID)
+		}
+	}
+	if path, ok := findMaxTokenOptionPath(provider.Options, "options"); ok {
+		return fmt.Errorf("provider %s %s is API-only and is not applied to cli providers; remove it or use an api provider", name, path)
+	}
+	for i, arg := range provider.Args {
+		if isMaxTokenConfigKey(arg) {
+			return fmt.Errorf("provider %s args[%d]=%q declares an output-token budget, but cli providers do not expose a supported token-budget contract", name, i, arg)
+		}
+	}
+	for key := range provider.Env {
+		if isMaxTokenConfigKey(key) {
+			return fmt.Errorf("provider %s env.%s declares an output-token budget, but cli providers do not expose a supported token-budget contract", name, key)
+		}
+	}
+	return nil
+}
+
+func findMaxTokenOptionPath(value any, path string) (string, bool) {
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, child := range typed {
+			nextPath := path + "." + key
+			if isMaxTokenConfigKey(key) {
+				return nextPath, true
+			}
+			if found, ok := findMaxTokenOptionPath(child, nextPath); ok {
+				return found, true
+			}
+		}
+	case []any:
+		for i, child := range typed {
+			if found, ok := findMaxTokenOptionPath(child, fmt.Sprintf("%s[%d]", path, i)); ok {
+				return found, true
+			}
+		}
+	}
+	return "", false
+}
+
+func isMaxTokenConfigKey(value string) bool {
+	normalized := normalizeConfigKey(value)
+	switch normalized {
+	case "maxtokens",
+		"maxtokensfield",
+		"maxoutputtokens",
+		"maxoutputtokensfield",
+		"maxcompletiontokens",
+		"maxcompletiontokensfield":
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeConfigKey(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.TrimLeft(value, "-")
+	if before, _, ok := strings.Cut(value, "="); ok {
+		value = before
+	}
+	var b strings.Builder
+	for _, r := range value {
+		if r >= 'A' && r <= 'Z' {
+			r += 'a' - 'A'
+		}
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 func validateAgentProfiles(cfg Config, requireAgents bool) (map[string]struct{}, error) {

@@ -320,6 +320,43 @@ providers:
 	}
 }
 
+func TestProfilePreflightVerbosePrintsClaudeEffort(t *testing.T) {
+	tmp := t.TempDir()
+	configPath := filepath.Join(tmp, "providers-only.yaml")
+	if err := os.WriteFile(configPath, []byte(fmt.Sprintf(`schema_version: 1
+output:
+  directory: %s
+providers:
+  claude-cli:
+    type: cli
+    cli_type: claude
+    command: til-consensus-missing-claude-for-test
+    models:
+      default:
+        provider_model: claude-opus-4-6
+        reasoning: max
+`, filepath.ToSlash(filepath.Join(tmp, "out", "{requestId}")))), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cmd := newProfilePreflightCommand()
+	var stdout bytes.Buffer
+	cmd.Writer = &stdout
+	if err := cmd.Run(context.Background(), []string{"preflight", "--config", configPath, "--provider", "claude-cli", "--verbose"}); err != nil {
+		t.Fatalf("profile preflight command should complete with readiness failure: %v", err)
+	}
+	output := stdout.String()
+	for _, needle := range []string{
+		"command: til-consensus-missing-claude-for-test --print --model claude-opus-4-6 --effort max",
+		"--json-schema ",
+		"--output-format json",
+	} {
+		if !strings.Contains(output, needle) {
+			t.Fatalf("preflight verbose output missing %q:\n%s", needle, output)
+		}
+	}
+}
+
 func TestProfilePreflightVerbosePrintsRealCodexTempPaths(t *testing.T) {
 	tmp := t.TempDir()
 	configPath := filepath.Join(tmp, "providers-only.yaml")

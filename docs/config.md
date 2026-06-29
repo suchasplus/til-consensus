@@ -666,6 +666,10 @@ providers:
 - `models.<id>.reasoning`
 - `options`
 
+`max_output_tokens` 只适用于 API provider。CLI provider 当前没有稳定的一等 output-token 参数；如果在 CLI provider 的 `models.*.max_output_tokens`、`options.max_output_tokens_field`、`args: --max-output-tokens` 等位置声明 token budget，`profile preflight` / `config validate` 会直接报错，避免误以为该限制已经传给 CLI。
+
+CLI provider 的 `models.<id>.reasoning` 是 provider-specific 映射：`claude` 会生成 `--effort <value>`，`codex` 会生成 `-c model_reasoning_effort=<value>`。`gemini` / `antigravity` 当前本机 CLI 未暴露稳定 thinking-level 参数，因此不会声明 `reasoning` 已生效。
+
 `config add-provider` 里也可以直接写：
 
 - `--context-window`
@@ -732,7 +736,7 @@ til-consensus profile preflight --config docs/examples/deepseek.config.yaml --pr
 - 每个 provider 会执行带 schema 的最小非交互 JSON 探测：要求返回 `{"ok": true}`。
 - 多个 provider 会逐个探测并分块输出：每个 provider 完成后立即打印该 provider 的 readiness，最后再打印 `profile preflight completed ready=x/y` 和 artifact 路径。
 - stdout 是真实终端时，最终 summary 全部 ready 会显示为绿色，否则显示为红色。
-- preflight 默认探测预算是 `max_output_tokens=2048`；如果该 model 显式配置了更小的 `max_output_tokens`，则使用配置值。这个预算只影响 preflight，不会改正常 `run`。
+- API provider 的 preflight 默认探测预算是 `max_output_tokens=2048`；如果该 API model 显式配置了更小的 `max_output_tokens`，则使用配置值。CLI provider 不支持在配置里声明 output-token budget。
 - 结果会写到标准输出目录，并生成 `artifacts/provider-readiness.json`，可被 `view` 和 `telemetry daily` 读取。
 
 推荐验证顺序：
@@ -756,7 +760,7 @@ til-consensus view --result ./out/tc_xxx/result.json --section debug --verbose
 - `did not return a recoverable JSON object`
   - provider 可调用，但当前 CLI/API 输出不满足最小 JSON 契约，需要检查模型名、structured output 能力或 provider-specific 参数
 - `gemini response contains no text parts ... finishReason=MAX_TOKENS`
-  - Gemini thinking 模型可能把输出预算消耗在思考阶段；提高该模型的 `max_output_tokens`，或在 provider `options.extra_body.generationConfig` 中按目标网关支持情况降低/关闭 thinking
+  - Gemini API thinking 模型可能把输出预算消耗在思考阶段；提高该 API model 的 `max_output_tokens`，或在 provider `options.extra_body.generationConfig` 中按目标网关支持情况降低/关闭 thinking
 
 如果只想验证新增 API profile，可以先导出对应 key：
 

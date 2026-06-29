@@ -28,10 +28,25 @@ func TestGenericCLIRunnerPassesPromptViaStdin(t *testing.T) {
 	}
 }
 
-func TestBuildBaseArgsCodexIsOneShot(t *testing.T) {
-	args, stdin := buildBaseArgs("codex", "gpt-5", "prompt", "high")
+func TestBuildBaseArgsClaudeMapsReasoningToEffort(t *testing.T) {
+	args, stdin := buildBaseArgs("claude", "claude-opus-4-6", "prompt", "max")
+	if stdin != "prompt" {
+		t.Fatalf("unexpected claude stdin: %q", stdin)
+	}
+	want := []string{"--print", "--model", "claude-opus-4-6", "--effort", "max"}
+	if strings.Join(args, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("unexpected claude args: %#v", args)
+	}
+}
+
+func TestBuildBaseArgsCodexMapsReasoningToConfigOverride(t *testing.T) {
+	args, stdin := buildBaseArgs("codex", "gpt-5", "prompt", "xhigh")
 	if len(args) == 0 || stdin != "prompt" {
 		t.Fatalf("unexpected codex args/stdin: %#v %q", args, stdin)
+	}
+	want := []string{"exec", "-m", "gpt-5", "-c", "model_reasoning_effort=xhigh", "--full-auto", "--color", "never", "--skip-git-repo-check"}
+	if strings.Join(args, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("unexpected codex args: %#v", args)
 	}
 	for _, arg := range args {
 		if strings.Contains(arg, "resume") || strings.Contains(arg, "session") {

@@ -345,6 +345,10 @@ til-consensus config add-provider \
 - `headers`
 - `options`
 
+`max_output_tokens` 只适用于 API provider。CLI provider 当前没有稳定的一等 output-token 参数；如果在 CLI provider 的 `models.*.max_output_tokens`、`options.max_output_tokens_field`、`args: --max-output-tokens` 等位置声明 token budget，`profile preflight` / `config validate` 会直接报错，避免误以为该限制已经传给 CLI。
+
+CLI provider 的 `models.<id>.reasoning` 是 provider-specific 映射：`claude` 会生成 `--effort <value>`，`codex` 会生成 `-c model_reasoning_effort=<value>`。`gemini` / `antigravity` 当前本机 CLI 未暴露稳定 thinking-level 参数，因此不会声明 `reasoning` 已生效。
+
 `options` 里当前最有用的键：
 
 - 通用
@@ -405,7 +409,7 @@ til-consensus config add-provider \
 
 `config validate` 检查完整 workflow 配置；`profile preflight` 只聚焦 provider / agent profile，会真实调用 provider，适合手动确认 CLI 登录态、API key、base url 和模型名是否可用。
 
-preflight 会发起一次最小非交互 JSON 探测，要求 provider 返回 `{"ok": true}`。探测默认使用 `max_output_tokens=2048`；如果对应 model 配置了更小的 `max_output_tokens`，则尊重配置值。这个预算只影响 preflight，不会改正常 `run` 的输出预算。
+preflight 会发起一次最小非交互 JSON 探测，要求 provider 返回 `{"ok": true}`。API provider 探测默认使用 `max_output_tokens=2048`；如果对应 API model 配置了更小的 `max_output_tokens`，则尊重配置值。CLI provider 当前不支持在配置里声明 output-token budget。
 
 因此，`profile preflight` 默认不要求 `roles.proposers / roles.challengers / participants` 等 workflow 角色完整；只要 `providers` 层级合法，且被指定的 `agents` 能正确引用 provider/model，就可以执行探测。要检查完整运行配置，仍然使用 `til-consensus config validate`。
 
@@ -449,7 +453,7 @@ preflight 会写出标准运行目录，最关键的是：
 - `summary.md`
   - 人可读的 readiness 摘要
 
-如果 Gemini 等 thinking 模型返回 `gemini response contains no text parts ... finishReason=MAX_TOKENS`，通常是思考阶段消耗了输出预算；提高该模型的 `max_output_tokens`，或按目标网关支持情况降低/关闭 thinking。
+如果 Gemini API 等 thinking 模型返回 `gemini response contains no text parts ... finishReason=MAX_TOKENS`，通常是思考阶段消耗了输出预算；提高该 API model 的 `max_output_tokens`，或按目标网关支持情况降低/关闭 thinking。
 
 ## `run` 示例
 
