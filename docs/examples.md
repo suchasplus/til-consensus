@@ -22,7 +22,7 @@
 这份模板已经包含：
 
 - `codex / claude / gemini / antigravity` 四个 CLI
-- `openai-compatible / anthropic-compatible / gemini-api` 三个 API
+- `openai-compatible / openai-responses / anthropic-compatible / gemini-api` 四类 API
 - `adjudication / free_debate / delphi` 三种 mode 需要的角色位
 - OpenRouter / Kimi / DeepSeek / Qwen 百炼这类兼容网关的填写说明
 
@@ -92,7 +92,8 @@ til-consensus config init --mode adjudication --provider-profile antigravity --c
 
 说明：
 
-- `OpenRouter`、`Kimi`、`DeepSeek` 和 `Qwen 百炼兼容模式` 这类多数走 `openai-compatible`
+- `OpenRouter`、`Kimi`、`DeepSeek` 这类 Chat Completions 兼容网关多数走 `openai-compatible`
+- `Qwen 百炼 Responses 兼容模式` 样例走 `openai-responses`
 - 真正需要改的核心字段通常只有：
   - `base_url`
   - `api_key_env`

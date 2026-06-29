@@ -40,6 +40,43 @@ func TestE2EFreeDebateAPIProvidersSmoke(t *testing.T) {
 	}))
 	defer openAIServer.Close()
 
+	openAIResponsesHits := 0
+	openAIResponsesServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/responses" {
+			t.Fatalf("unexpected openai-responses path: %s", r.URL.Path)
+		}
+		openAIResponsesHits++
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode openai-responses request: %v", err)
+		}
+		if _, ok := body["text"].(map[string]any); !ok {
+			t.Fatalf("expected text.format json_schema in openai-responses request, got %#v", body)
+		}
+		prompt := extractResponsesPrompt(t, body["input"])
+		response := freeDebateTestResponse(prompt)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id":         "resp_test",
+			"object":     "response",
+			"created_at": 0,
+			"model":      "responses-test",
+			"status":     "completed",
+			"output": []map[string]any{{
+				"type":   "message",
+				"id":     "msg_test",
+				"status": "completed",
+				"role":   "assistant",
+				"content": []map[string]any{{
+					"type":        "output_text",
+					"text":        response,
+					"annotations": []any{},
+				}},
+			}},
+		})
+	}))
+	defer openAIResponsesServer.Close()
+
 	anthropicHits := 0
 	anthropicServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/messages" {
@@ -64,7 +101,7 @@ func TestE2EFreeDebateAPIProvidersSmoke(t *testing.T) {
 	tmp := t.TempDir()
 	configPath := filepath.Join(tmp, "til-consensus.yaml")
 	inputPath := filepath.Join(tmp, "free-debate.run.yaml")
-	writeE2EAPIConfig(t, configPath, filepath.Join(tmp, "out", "{requestId}"), openAIServer.URL, anthropicServer.URL)
+	writeE2EAPIConfig(t, configPath, filepath.Join(tmp, "out", "{requestId}"), openAIServer.URL, openAIResponsesServer.URL, anthropicServer.URL)
 	writeFile(t, inputPath, `request_id: debate-api-smoke-001
 mode: free_debate
 task_spec:
@@ -100,8 +137,8 @@ debate_policy:
 	if len(result.FreeDebate.Votes) == 0 {
 		t.Fatalf("expected final votes, got %#v", result.FreeDebate)
 	}
-	if openAIHits == 0 || anthropicHits == 0 {
-		t.Fatalf("expected both api providers to be exercised, openai=%d anthropic=%d", openAIHits, anthropicHits)
+	if openAIHits == 0 || openAIResponsesHits == 0 || anthropicHits == 0 {
+		t.Fatalf("expected all api providers to be exercised, openai=%d openai-responses=%d anthropic=%d", openAIHits, openAIResponsesHits, anthropicHits)
 	}
 
 	viewCmd := newViewCommand()
@@ -116,7 +153,7 @@ debate_policy:
 	}
 }
 
-func writeE2EAPIConfig(t *testing.T, path string, outputDir string, openAIBaseURL string, anthropicBaseURL string) {
+func writeE2EAPIConfig(t *testing.T, path string, outputDir string, openAIBaseURL string, openAIResponsesBaseURL string, anthropicBaseURL string) {
 	t.Helper()
 	cfg := config.Normalize(config.Config{
 		SchemaVersion: 1,
@@ -156,11 +193,19 @@ func writeE2EAPIConfig(t *testing.T, path string, outputDir string, openAIBaseUR
 					"default": {ProviderModel: "claude-test"},
 				},
 			},
+			"openai-responses-test": {
+				Type:     config.ProviderTypeAPI,
+				Protocol: config.APIProtocolOpenAIResponses,
+				BaseURL:  openAIResponsesBaseURL,
+				Models: map[string]config.ProviderModelConfig{
+					"default": {ProviderModel: "responses-test"},
+				},
+			},
 		},
 		Agents: []config.AgentConfig{
 			{ID: "participant-openai-a", Provider: "openai-test", Model: "default", Role: "participant"},
 			{ID: "participant-anthropic", Provider: "anthropic-test", Model: "default", Role: "participant"},
-			{ID: "participant-openai-b", Provider: "openai-test", Model: "default", Role: "participant"},
+			{ID: "participant-openai-b", Provider: "openai-responses-test", Model: "default", Role: "participant"},
 			{ID: "reporter-openai", Provider: "openai-test", Model: "default", Role: "reporter"},
 		},
 		Roles: config.RolesConfig{
@@ -203,6 +248,15 @@ func extractAnthropicPrompt(t *testing.T, raw any) string {
 	content, ok := first["content"].(string)
 	if !ok {
 		t.Fatalf("unexpected anthropic-compatible content: %#v", first)
+	}
+	return content
+}
+
+func extractResponsesPrompt(t *testing.T, raw any) string {
+	t.Helper()
+	content, ok := raw.(string)
+	if !ok {
+		t.Fatalf("unexpected openai-responses input payload: %#v", raw)
 	}
 	return content
 }

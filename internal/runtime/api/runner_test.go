@@ -115,6 +115,124 @@ func TestOpenAICompatibleRunnerSupportsGatewayOptions(t *testing.T) {
 	}
 }
 
+func TestOpenAIResponsesRunnerUsesSDKResponsesPayload(t *testing.T) {
+	const apiKey = "bailian-test-key"
+	if err := os.Setenv("BAILIAN_TEST_KEY", apiKey); err != nil {
+		t.Fatalf("Setenv failed: %v", err)
+	}
+	defer func() { _ = os.Unsetenv("BAILIAN_TEST_KEY") }()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/responses" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer "+apiKey {
+			t.Fatalf("unexpected auth header: %q", got)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if got := body["model"]; got != "qwen3.7-max" {
+			t.Fatalf("unexpected model: %#v", got)
+		}
+		if got := body["input"]; got != "prompt" {
+			t.Fatalf("unexpected input: %#v", got)
+		}
+		if got := body["instructions"]; got != "system" {
+			t.Fatalf("unexpected instructions: %#v", got)
+		}
+		if got := body["max_output_tokens"]; got != float64(4096) {
+			t.Fatalf("unexpected max_output_tokens: %#v in %#v", got, body)
+		}
+		if _, ok := body["max_tokens"]; ok {
+			t.Fatalf("responses payload must not use chat max_tokens: %#v", body)
+		}
+		if got := body["enable_thinking"]; got != true {
+			t.Fatalf("expected enable_thinking extra body, got %#v", body)
+		}
+		textConfig, ok := body["text"].(map[string]any)
+		if !ok {
+			t.Fatalf("expected text config: %#v", body)
+		}
+		format, ok := textConfig["format"].(map[string]any)
+		if !ok || format["type"] != "json_schema" || format["name"] != "til_consensus_task_output" || format["strict"] != true {
+			t.Fatalf("unexpected text.format: %#v", textConfig)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id":         "resp_test",
+			"object":     "response",
+			"created_at": 0,
+			"model":      "qwen3.7-max",
+			"status":     "completed",
+			"output": []map[string]any{{
+				"type":   "message",
+				"id":     "msg_test",
+				"status": "completed",
+				"role":   "assistant",
+				"content": []map[string]any{{
+					"type":        "output_text",
+					"text":        `{"summary":"ok"}`,
+					"annotations": []any{},
+				}},
+			}},
+		})
+	}))
+	defer server.Close()
+
+	runner := NewRunner(config.ProviderConfig{
+		Type:      config.ProviderTypeAPI,
+		Protocol:  config.APIProtocolOpenAIResponses,
+		BaseURL:   server.URL,
+		APIKeyEnv: "BAILIAN_TEST_KEY",
+		Options: map[string]any{
+			"extra_body": map[string]any{"enable_thinking": true},
+		},
+	})
+	text, err := runner.RunTask(context.Background(), "prompt", "system", "qwen3.7-max", nil, "", 4096, map[string]any{"type": "object"})
+	if err != nil {
+		t.Fatalf("RunTask failed: %v", err)
+	}
+	if text != `{"summary":"ok"}` {
+		t.Fatalf("unexpected response: %s", text)
+	}
+}
+
+func TestPreviewRequestContextOpenAIResponses(t *testing.T) {
+	ctx, err := PreviewRequestContext(
+		config.ProviderConfig{
+			Type:      config.ProviderTypeAPI,
+			Protocol:  config.APIProtocolOpenAIResponses,
+			BaseURL:   "https://dashscope.aliyuncs.com/compatible-mode/v1",
+			APIKeyEnv: "BAILIAN_API_KEY",
+			Options: map[string]any{
+				"extra_body": map[string]any{"enable_thinking": true},
+			},
+		},
+		"prompt",
+		"system",
+		"qwen3.7-max",
+		nil,
+		"",
+		2048,
+		map[string]any{"type": "object"},
+	)
+	if err != nil {
+		t.Fatalf("PreviewRequestContext failed: %v", err)
+	}
+	if got := ctx["transport"]; got != "github.com/openai/openai-go/v3 Responses.New" {
+		t.Fatalf("unexpected transport: %#v", got)
+	}
+	if got := ctx["endpoint"]; got != "https://dashscope.aliyuncs.com/compatible-mode/v1/responses" {
+		t.Fatalf("unexpected endpoint: %#v", got)
+	}
+	generation := ctx["generation"].(map[string]any)
+	if generation["maxOutputTokensField"] != "max_output_tokens" || generation["responseFormat"] != "text.format=json_schema" {
+		t.Fatalf("unexpected generation preview: %#v", generation)
+	}
+}
+
 func TestAnthropicCompatibleRunnerCollectsTextBlocks(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/messages" {

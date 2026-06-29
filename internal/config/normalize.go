@@ -18,6 +18,7 @@ const (
 
 const (
 	APIProtocolOpenAICompatible    = "openai-compatible"
+	APIProtocolOpenAIResponses     = "openai-responses"
 	APIProtocolAnthropicCompatible = "anthropic-compatible"
 	APIProtocolGemini              = "gemini-api"
 )

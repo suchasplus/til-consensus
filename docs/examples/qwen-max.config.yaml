@@ -23,19 +23,15 @@ output:
 providers:
   qwen-max-api:
     type: api
-    protocol: openai-compatible
+    protocol: openai-responses
     base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
     api_key_env: BAILIAN_API_KEY
     options:
-      endpoint_path: /chat/completions
-      structured_output_mode: none
-      max_output_tokens_field: max_tokens
-      reasoning_field: "-"
+      endpoint_path: /responses
+      structured_output_mode: json_schema
       timeout_ms: 120000
       extra_body:
-        response_format:
-          type: json_object
-        # 可改为 false 关闭百炼兼容模式的思考输出。
+        # 可改为 false 关闭百炼 Responses 兼容模式的思考输出。
         enable_thinking: true
     models:
       default:

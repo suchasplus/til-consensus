@@ -2,7 +2,7 @@ schema_version: 1
 
 # 这是一个“多 provider 总模板”：
 # - 4 个 CLI：codex / claude / gemini / antigravity
-# - 3 个 API：openai-compatible / anthropic-compatible / gemini-api
+# - 4 类 API：openai-compatible / openai-responses / anthropic-compatible / gemini-api
 #
 # 设计目标：
 # 1. 先把所有 provider 都写全
@@ -13,7 +13,8 @@ schema_version: 1
 # - 如果你只跑 adjudication：重点改 providers + roles.proposers/challengers/semantic_verifier/arbiter/reporter
 # - 如果你只跑 free_debate：重点改 roles.participants + roles.reporter
 # - 如果你只跑 delphi：重点改 roles.participants + roles.facilitator + roles.reporter
-# - OpenRouter / Kimi / DeepSeek / Qwen 百炼 / 其他兼容网关：通常走 openai-compatible，把 base_url / api_key_env / provider_model 改掉即可
+# - OpenRouter / Kimi / DeepSeek / 其他 Chat Completions 兼容网关：通常走 openai-compatible
+# - Qwen 百炼若使用 Responses 兼容模式，走 openai-responses
 
 defaults:
   mode: adjudication
@@ -124,7 +125,8 @@ providers:
     # DeepSeek：
     # base_url: https://api.deepseek.com
     #
-    # Qwen 百炼兼容模式：
+    # Qwen 百炼 Responses 兼容模式：
+    # protocol: openai-responses
     # base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
     #
     # 其他 OpenAI 兼容网关：
@@ -158,10 +160,10 @@ providers:
       # max_output_tokens_field: max_tokens
       # reasoning_field: reasoning_effort
       #
-      # Qwen 百炼兼容模式常见：
-      # structured_output_mode: none
-      # max_output_tokens_field: max_tokens
-      # reasoning_field: "-"
+      # Qwen 百炼 Responses 兼容模式常见：
+      # endpoint_path: /responses
+      # structured_output_mode: json_schema
+      # 删除 max_output_tokens_field / reasoning_field，Responses 固定使用 max_output_tokens
 
       # query 参数认证的网关可这样改：
       # api_key_header: "-"
@@ -182,10 +184,8 @@ providers:
       #   thinking:
       #     type: enabled
       #
-      # Qwen 百炼兼容模式思考模式：
+      # Qwen 百炼 Responses 兼容模式思考模式：
       # extra_body:
-      #   response_format:
-      #     type: json_object
       #   enable_thinking: true
     models:
       default:

@@ -14,6 +14,10 @@ import (
 	"strings"
 	"time"
 
+	openai "github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
+	"github.com/openai/openai-go/v3/responses"
+	"github.com/openai/openai-go/v3/shared"
 	"github.com/suchasplus/til-consensus/internal/config"
 	genai "google.golang.org/genai"
 )
@@ -122,6 +126,29 @@ func PreviewRequestContext(
 		if maxOutputTokens <= 0 {
 			generation["maxOutputTokens"] = 1024
 		}
+	case config.APIProtocolOpenAIResponses:
+		endpointPath := r.optionString("endpoint_path", "/responses")
+		if err := validateOpenAIResponsesEndpointPath(endpointPath); err != nil {
+			return nil, err
+		}
+		baseURL := strings.TrimRight(firstNonEmpty(provider.BaseURL, "https://api.openai.com/v1"), "/")
+		out["transport"] = "github.com/openai/openai-go/v3 Responses.New"
+		out["endpoint"] = strings.TrimRight(baseURL, "/") + "/responses"
+		out["auth"] = requestAuthSummary(provider, "Authorization", "Bearer ")
+		generation["maxOutputTokensField"] = "max_output_tokens"
+		if strings.TrimSpace(reasoning) != "" {
+			generation["reasoningField"] = "reasoning.effort"
+			generation["reasoning"] = strings.TrimSpace(reasoning)
+		}
+		if len(schema) > 0 && r.optionString("structured_output_mode", "json_schema") != "none" {
+			mode := r.optionString("structured_output_mode", "json_schema")
+			if mode == "json_object" {
+				generation["responseFormat"] = "text.format=json_object"
+			} else {
+				generation["responseFormat"] = "text.format=json_schema"
+				generation["responseFormatName"] = r.optionString("response_format_name", "til_consensus_task_output")
+			}
+		}
 	default:
 		baseURL := strings.TrimRight(firstNonEmpty(provider.BaseURL, "https://api.openai.com/v1"), "/")
 		out["transport"] = "raw HTTP openai-compatible chat/completions"
@@ -163,6 +190,8 @@ func (r *Runner) RunTask(
 		return r.runAnthropic(ctx, prompt, systemPrompt, providerModel, temperature, maxOutputTokens)
 	case config.APIProtocolGemini:
 		return r.runGemini(ctx, prompt, systemPrompt, providerModel, temperature, reasoning, maxOutputTokens, schema)
+	case config.APIProtocolOpenAIResponses:
+		return r.runOpenAIResponses(ctx, prompt, systemPrompt, providerModel, temperature, reasoning, maxOutputTokens, schema)
 	default:
 		return r.runOpenAI(ctx, prompt, systemPrompt, providerModel, temperature, reasoning, maxOutputTokens, schema)
 	}
@@ -247,6 +276,123 @@ func (r *Runner) runOpenAI(
 		return "", fmt.Errorf("openai-compatible response contains no choices")
 	}
 	return decoded.Choices[0].Message.Content, nil
+}
+
+func (r *Runner) runOpenAIResponses(
+	ctx context.Context,
+	prompt string,
+	systemPrompt string,
+	providerModel string,
+	temperature *float64,
+	reasoning string,
+	maxOutputTokens int,
+	schema map[string]any,
+) (string, error) {
+	if err := validateOpenAIResponsesEndpointPath(r.optionString("endpoint_path", "/responses")); err != nil {
+		return "", err
+	}
+	timeout := r.optionDuration("timeout_ms", 60*time.Second)
+	opts := []option.RequestOption{
+		option.WithBaseURL(strings.TrimRight(firstNonEmpty(r.provider.BaseURL, "https://api.openai.com/v1"), "/")),
+		option.WithHTTPClient(newHTTPClient(timeout)),
+		option.WithRequestTimeout(timeout),
+	}
+	if apiKey, ok := resolveAPIKey(r.provider); ok {
+		opts = append(opts, option.WithAPIKey(apiKey))
+	}
+	for key, value := range r.provider.Headers {
+		opts = append(opts, option.WithHeader(key, value))
+	}
+	opts = append(opts, openAIResponsesExtraBodyOptions(r.optionMap("extra_body"))...)
+
+	params := responses.ResponseNewParams{
+		Model: shared.ResponsesModel(providerModel),
+		Input: responses.ResponseNewParamsInputUnion{OfString: openai.String(prompt)},
+	}
+	if strings.TrimSpace(systemPrompt) != "" {
+		params.Instructions = openai.String(systemPrompt)
+	}
+	if temperature != nil {
+		params.Temperature = openai.Float(*temperature)
+	}
+	if maxOutputTokens > 0 {
+		params.MaxOutputTokens = openai.Int(int64(maxOutputTokens))
+	}
+	if strings.TrimSpace(reasoning) != "" {
+		params.Reasoning = shared.ReasoningParam{Effort: shared.ReasoningEffort(strings.TrimSpace(reasoning))}
+	}
+	if len(schema) > 0 && r.optionString("structured_output_mode", "json_schema") != "none" {
+		params.Text = responses.ResponseTextConfigParam{
+			Format: openAIResponsesTextFormat(r.optionString("structured_output_mode", "json_schema"), r.optionString("response_format_name", "til_consensus_task_output"), schema),
+		}
+	}
+
+	client := openai.NewClient(opts...)
+	resp, err := client.Responses.New(ctx, params)
+	if err != nil {
+		return "", fmt.Errorf("openai-responses request failed: %w", err)
+	}
+	text := strings.TrimSpace(resp.OutputText())
+	if text == "" {
+		text = strings.TrimSpace(openAIResponsesOutputTextFallback(resp.RawJSON()))
+	}
+	if text == "" {
+		return "", fmt.Errorf("openai-responses response contains no output text")
+	}
+	return text, nil
+}
+
+func openAIResponsesTextFormat(mode string, name string, schema map[string]any) responses.ResponseFormatTextConfigUnionParam {
+	if mode == "json_object" {
+		format := shared.NewResponseFormatJSONObjectParam()
+		return responses.ResponseFormatTextConfigUnionParam{OfJSONObject: &format}
+	}
+	return responses.ResponseFormatTextConfigUnionParam{OfJSONSchema: &responses.ResponseFormatTextJSONSchemaConfigParam{
+		Name:   name,
+		Schema: schema,
+		Strict: openai.Bool(true),
+	}}
+}
+
+func openAIResponsesExtraBodyOptions(extra map[string]any) []option.RequestOption {
+	if len(extra) == 0 {
+		return nil
+	}
+	opts := []option.RequestOption{}
+	var walk func(string, map[string]any)
+	walk = func(prefix string, values map[string]any) {
+		keys := make([]string, 0, len(values))
+		for key := range values {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			path := key
+			if prefix != "" {
+				path = prefix + "." + key
+			}
+			if nested, ok := values[key].(map[string]any); ok {
+				walk(path, nested)
+				continue
+			}
+			opts = append(opts, option.WithJSONSet(path, values[key]))
+		}
+	}
+	walk("", extra)
+	return opts
+}
+
+func openAIResponsesOutputTextFallback(raw string) string {
+	if strings.TrimSpace(raw) == "" {
+		return ""
+	}
+	var decoded struct {
+		OutputText string `json:"output_text"`
+	}
+	if err := json.Unmarshal([]byte(raw), &decoded); err == nil && strings.TrimSpace(decoded.OutputText) != "" {
+		return decoded.OutputText
+	}
+	return ""
 }
 
 func (r *Runner) runAnthropic(
@@ -491,6 +637,14 @@ func geminiExtraBodyHasThinkingConfig(extra map[string]any) bool {
 		return true
 	}
 	return false
+}
+
+func validateOpenAIResponsesEndpointPath(endpointPath string) error {
+	trimmed := strings.Trim(strings.TrimSpace(endpointPath), "/")
+	if trimmed == "" || trimmed == "responses" {
+		return nil
+	}
+	return fmt.Errorf("openai-responses sdk runner does not support custom endpoint_path %q; put proxy prefixes in base_url instead", endpointPath)
 }
 
 func validateGeminiEndpointPath(endpointPath string) error {

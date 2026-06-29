@@ -306,9 +306,10 @@ til-consensus config init --mode delphi --provider-profile mock --config ./til-c
 
 它们的定位是“在模板基础上补 provider / agent”，不是第一次上手的首选入口。
 
-`config add-provider --protocol` 现在支持三种 API 协议：
+`config add-provider --protocol` 现在支持四种 API 协议：
 
 - `openai-compatible`
+- `openai-responses`
 - `anthropic-compatible`
 - `gemini-api`
 
@@ -328,14 +329,16 @@ til-consensus config add-provider \
 
 如果你要接兼容网关，当前推荐这样理解：
 
-- `OpenAI 官方 / OpenRouter / Kimi / DeepSeek / Qwen 百炼兼容模式 / 其他 OpenAI 风格网关`
+- `OpenAI Chat Completions 官方 / OpenRouter / Kimi / DeepSeek / 其他 Chat Completions 风格网关`
   - 用 `openai-compatible`
+- `OpenAI Responses API / Qwen 百炼 Responses 兼容模式`
+  - 用 `openai-responses`
 - `Anthropic 官方 / 其他 Anthropic 风格网关`
   - 用 `anthropic-compatible`
 - `Gemini 官方 generateContent`
   - 用 `gemini-api`
 
-这三种 API provider 现在都支持细配：
+这些 API provider 现在都支持细配：
 
 - `base_url`
 - `api_key_env`
@@ -365,12 +368,16 @@ API provider 中，`gemini-api` 使用官方 `google.golang.org/genai` 的 `Mode
   - `max_output_tokens_field`
   - `reasoning_field`
   - `response_format_name`
+- `openai-responses`
+  - `response_format_name`
 - `anthropic-compatible`
   - `anthropic_version`
 - `gemini-api`
   - `response_mime_type`
   - `response_schema_field`
   - `api_version`
+
+`openai-responses` 使用官方 `github.com/openai/openai-go/v3` 的 `Responses.New`。`endpoint_path` 只支持 `/responses`，代理路径前缀请放到 `base_url`；`max_output_tokens` 会固定映射为 Responses API 的 `max_output_tokens`，结构化输出会写入 `text.format`。
 
 `gemini-api` 的 `endpoint_path` 只支持默认 `models/{model}:generateContent`，或带 API version 前缀的 `v1beta/models/{model}:generateContent` 形式。自定义代理路径请优先放在 `base_url` 中；SDK 会负责发送 camelCase payload，例如 `maxOutputTokens / responseMimeType / responseJsonSchema / thinkingConfig`。
 

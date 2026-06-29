@@ -40,6 +40,7 @@ func validateProviderProfiles(cfg Config) error {
 		case ProviderTypeMock:
 		case ProviderTypeAPI:
 			if provider.Protocol != APIProtocolOpenAICompatible &&
+				provider.Protocol != APIProtocolOpenAIResponses &&
 				provider.Protocol != APIProtocolAnthropicCompatible &&
 				provider.Protocol != APIProtocolGemini {
 				return fmt.Errorf("provider %s: unsupported protocol %q", name, provider.Protocol)

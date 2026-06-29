@@ -90,7 +90,7 @@ func newConfigAddProviderCommand() *cli.Command {
 			&cli.StringFlag{Name: "provider-model", Usage: "provider 实际模型名"},
 			&cli.IntFlag{Name: "context-window", Usage: "provider model 上下文窗口"},
 			&cli.IntFlag{Name: "max-output-tokens", Usage: "provider model 默认最大输出 token"},
-			&cli.StringFlag{Name: "protocol", Usage: "api 协议(openai-compatible|anthropic-compatible|gemini-api)"},
+			&cli.StringFlag{Name: "protocol", Usage: "api 协议(openai-compatible|openai-responses|anthropic-compatible|gemini-api)"},
 			&cli.StringFlag{Name: "base-url", Usage: "api base url"},
 			&cli.StringFlag{Name: "api-key-env", Usage: "api key 环境变量名"},
 			&cli.StringSliceFlag{Name: "header", Usage: "重复传入 KEY=VALUE"},
