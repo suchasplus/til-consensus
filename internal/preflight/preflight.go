@@ -240,6 +240,17 @@ func probeCandidate(ctx context.Context, item candidate, opts Options, sink Arti
 			"schema":        schema,
 		})
 	}
+	if item.ProviderType == config.ProviderTypeCLI {
+		preview, err := previewCLICommand(item, prompt, schema)
+		if err != nil {
+			entry.Error = err.Error()
+			if sink != nil {
+				sink.WriteError(item.ID, entry.Error)
+			}
+			return entry
+		}
+		entry.Command = preview
+	}
 
 	timeout := opts.Timeout
 	if timeout <= 0 {
@@ -248,8 +259,11 @@ func probeCandidate(ctx context.Context, item candidate, opts Options, sink Arti
 	probeCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	raw, err := runCandidate(probeCtx, item, prompt, schema)
+	result, err := runCandidate(probeCtx, item, prompt, schema)
 	entry.DurationMs = time.Since(startedAt).Milliseconds()
+	if len(result.command) > 0 {
+		entry.Command = result.command
+	}
 	if err != nil {
 		if probeCtx.Err() == context.DeadlineExceeded {
 			entry.Error = fmt.Sprintf("timed out after %s", timeout)
@@ -261,6 +275,7 @@ func probeCandidate(ctx context.Context, item candidate, opts Options, sink Arti
 		}
 		return entry
 	}
+	raw := result.raw
 	entry.StdoutPreview = previewText(raw, 220)
 	if sink != nil {
 		sink.WriteRaw(item.ID, raw)
@@ -282,14 +297,35 @@ func probeCandidate(ctx context.Context, item candidate, opts Options, sink Arti
 	return entry
 }
 
-func runCandidate(ctx context.Context, item candidate, prompt string, schema map[string]any) (string, error) {
+type candidateRunResult struct {
+	raw     string
+	command []string
+}
+
+func previewCLICommand(item candidate, prompt string, schema map[string]any) ([]string, error) {
+	agentID := firstNonEmpty(item.AgentID, "preflight-"+sanitizeID(item.ProviderID))
+	role := "preflight"
+	if item.Agent != nil && strings.TrimSpace(item.Agent.Role) != "" {
+		role = item.Agent.Role
+	}
+	task := preflightTask{TaskMeta: consensus.TaskMeta{
+		RequestID: "preflight",
+		SessionID: "preflight",
+		AgentID:   agentID,
+		Role:      role,
+	}}
+	return clirunner.PreviewCommand(item.Provider, task, prompt, agentID, role, item.ProviderModel, effectiveReasoning(item), effectiveTemperature(item), schema)
+}
+
+func runCandidate(ctx context.Context, item candidate, prompt string, schema map[string]any) (candidateRunResult, error) {
 	switch item.ProviderType {
 	case config.ProviderTypeAPI:
 		if strings.TrimSpace(item.Provider.APIKeyEnv) != "" && strings.TrimSpace(os.Getenv(item.Provider.APIKeyEnv)) == "" {
-			return "", fmt.Errorf("env %s is not set", item.Provider.APIKeyEnv)
+			return candidateRunResult{}, fmt.Errorf("env %s is not set", item.Provider.APIKeyEnv)
 		}
 		runner := apirunner.NewRunner(item.Provider)
-		return runner.RunTask(ctx, prompt, defaultSystemPrompt, item.ProviderModel, effectiveTemperature(item), effectiveReasoning(item), effectiveMaxOutputTokens(item), schema)
+		raw, err := runner.RunTask(ctx, prompt, defaultSystemPrompt, item.ProviderModel, effectiveTemperature(item), effectiveReasoning(item), effectiveMaxOutputTokens(item), schema)
+		return candidateRunResult{raw: raw}, err
 	case config.ProviderTypeCLI:
 		runner := clirunner.NewRunner(item.Provider)
 		agentID := firstNonEmpty(item.AgentID, "preflight-"+sanitizeID(item.ProviderID))
@@ -303,12 +339,13 @@ func runCandidate(ctx context.Context, item candidate, prompt string, schema map
 			AgentID:   agentID,
 			Role:      role,
 		}}
-		return runner.RunTask(ctx, task, prompt, agentID, role, item.ProviderModel, effectiveReasoning(item), effectiveTemperature(item), schema)
+		result, err := runner.RunTaskDetailed(ctx, task, prompt, agentID, role, item.ProviderModel, effectiveReasoning(item), effectiveTemperature(item), schema)
+		return candidateRunResult{raw: result.Output, command: result.Command}, err
 	case config.ProviderTypeMock:
 		body, _ := json.Marshal(map[string]bool{"ok": true})
-		return string(body), nil
+		return candidateRunResult{raw: string(body)}, nil
 	default:
-		return "", fmt.Errorf("provider type %s is not supported by preflight", item.ProviderType)
+		return candidateRunResult{}, fmt.Errorf("provider type %s is not supported by preflight", item.ProviderType)
 	}
 }
 

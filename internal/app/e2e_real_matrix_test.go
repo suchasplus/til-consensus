@@ -1634,7 +1634,7 @@ func buildCLIProviderPreflightArgs(provider string, prompt string) ([]string, st
 			_ = os.Remove(outputPath)
 		}, nil
 	case "gemini":
-		return []string{"--approval-mode", "yolo", "-m", "gemini-3.1-pro-preview"}, prompt, func() {}, nil
+		return []string{"--approval-mode", "yolo", "-m", "gemini-3.1-pro-preview", "-p", prompt}, "", func() {}, nil
 	case "antigravity":
 		return []string{"--model", "Gemini 3.5 Flash (High)", "--print-timeout", realCLIPreflightTimeout().String(), "-p", prompt}, "", func() {}, nil
 	default:

@@ -284,6 +284,86 @@ providers:
 	}
 }
 
+func TestProfilePreflightVerbosePrintsExpandedCLIArgs(t *testing.T) {
+	tmp := t.TempDir()
+	configPath := filepath.Join(tmp, "providers-only.yaml")
+	if err := os.WriteFile(configPath, []byte(fmt.Sprintf(`schema_version: 1
+output:
+  directory: %s
+providers:
+  antigravity-cli:
+    type: cli
+    cli_type: antigravity
+    command: til-consensus-missing-agy-for-test
+    models:
+      default:
+        provider_model: Gemini 3.5 Flash (High)
+`, filepath.ToSlash(filepath.Join(tmp, "out", "{requestId}")))), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cmd := newProfilePreflightCommand()
+	var stdout bytes.Buffer
+	cmd.Writer = &stdout
+	if err := cmd.Run(context.Background(), []string{"preflight", "--config", configPath, "--provider", "antigravity-cli", "--verbose"}); err != nil {
+		t.Fatalf("profile preflight command should complete with readiness failure: %v", err)
+	}
+	output := stdout.String()
+	for _, needle := range []string{
+		`command: til-consensus-missing-agy-for-test --model "Gemini 3.5 Flash (High)" -p`,
+		"只返回一个 JSON 对象",
+		"provider: type=cli protocol=antigravity",
+	} {
+		if !strings.Contains(output, needle) {
+			t.Fatalf("preflight verbose output missing %q:\n%s", needle, output)
+		}
+	}
+}
+
+func TestProfilePreflightVerbosePrintsRealCodexTempPaths(t *testing.T) {
+	tmp := t.TempDir()
+	configPath := filepath.Join(tmp, "providers-only.yaml")
+	if err := os.WriteFile(configPath, []byte(fmt.Sprintf(`schema_version: 1
+output:
+  directory: %s
+providers:
+  codex-cli:
+    type: cli
+    cli_type: codex
+    command: til-consensus-missing-codex-for-test
+    models:
+      default:
+        provider_model: gpt-5.5
+        reasoning: xhigh
+`, filepath.ToSlash(filepath.Join(tmp, "out", "{requestId}")))), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cmd := newProfilePreflightCommand()
+	var stdout bytes.Buffer
+	cmd.Writer = &stdout
+	if err := cmd.Run(context.Background(), []string{"preflight", "--config", configPath, "--provider", "codex-cli", "--verbose"}); err != nil {
+		t.Fatalf("profile preflight command should complete with readiness failure: %v", err)
+	}
+	output := stdout.String()
+	for _, needle := range []string{
+		"command: til-consensus-missing-codex-for-test exec -m gpt-5.5 -c model_reasoning_effort=xhigh",
+		"--output-schema ",
+		"til-consensus-codex-schema-",
+		"--output-last-message ",
+		"til-consensus-codex-last-message-",
+	} {
+		if !strings.Contains(output, needle) {
+			t.Fatalf("preflight verbose output missing %q:\n%s", needle, output)
+		}
+	}
+	for _, forbidden := range []string{"<schema-file>", "<last-message-file>"} {
+		if strings.Contains(output, forbidden) {
+			t.Fatalf("preflight verbose output should not contain %q:\n%s", forbidden, output)
+		}
+	}
+}
+
 func TestProfilePreflightAgentFilterValidatesSelectedAgent(t *testing.T) {
 	tmp := t.TempDir()
 	configPath := filepath.Join(tmp, "bad-agent.yaml")

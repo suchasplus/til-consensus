@@ -17,8 +17,47 @@ type Runner struct {
 	provider config.ProviderConfig
 }
 
+type RunTaskResult struct {
+	Output  string
+	Command []string
+}
+
 func NewRunner(provider config.ProviderConfig) *Runner {
 	return &Runner{provider: provider}
+}
+
+func PreviewCommand(
+	provider config.ProviderConfig,
+	task consensus.Task,
+	prompt string,
+	agentID string,
+	role string,
+	providerModel string,
+	reasoning string,
+	temperature *float64,
+	outputSchema map[string]any,
+) ([]string, error) {
+	cliType := provider.CLIType
+	if cliType == "" {
+		cliType = config.CLITypeGeneric
+	}
+	finalPrompt, err := buildFinalPrompt(cliType, task, prompt, agentID, role, providerModel, reasoning, temperature)
+	if err != nil {
+		return nil, err
+	}
+	commandName := provider.Command
+	if commandName == "" {
+		commandName = cliType
+	}
+	args, _ := buildBaseArgs(cliType, providerModel, finalPrompt, reasoning)
+	schemaArgs, err := buildStructuredOutputArgsPreview(cliType, outputSchema)
+	if err != nil {
+		return nil, err
+	}
+	args = append(args, schemaArgs...)
+	args = append(args, buildFinalOutputCaptureArgsPreview(cliType)...)
+	args = append(args, renderArgs(provider.Args, task, agentID, role, providerModel)...)
+	return append([]string{commandName}, args...), nil
 }
 
 func (r *Runner) RunTask(
@@ -32,28 +71,31 @@ func (r *Runner) RunTask(
 	temperature *float64,
 	outputSchema map[string]any,
 ) (string, error) {
+	result, err := r.RunTaskDetailed(ctx, task, prompt, agentID, role, providerModel, reasoning, temperature, outputSchema)
+	if err != nil {
+		return "", err
+	}
+	return result.Output, nil
+}
+
+func (r *Runner) RunTaskDetailed(
+	ctx context.Context,
+	task consensus.Task,
+	prompt string,
+	agentID string,
+	role string,
+	providerModel string,
+	reasoning string,
+	temperature *float64,
+	outputSchema map[string]any,
+) (RunTaskResult, error) {
 	cliType := r.provider.CLIType
 	if cliType == "" {
 		cliType = config.CLITypeGeneric
 	}
-	finalPrompt := hardenPromptForCLI(cliType, task, prompt)
-	if cliType == config.CLITypeGeneric {
-		envelope, err := json.MarshalIndent(map[string]any{
-			"version": 1,
-			"agent": map[string]any{
-				"id":            agentID,
-				"role":          role,
-				"providerModel": providerModel,
-				"reasoning":     reasoning,
-				"temperature":   temperature,
-			},
-			"task":   task,
-			"prompt": prompt,
-		}, "", "  ")
-		if err != nil {
-			return "", fmt.Errorf("marshal generic cli envelope: %w", err)
-		}
-		finalPrompt = string(envelope)
+	finalPrompt, err := buildFinalPrompt(cliType, task, prompt, agentID, role, providerModel, reasoning, temperature)
+	if err != nil {
+		return RunTaskResult{}, err
 	}
 	commandName := r.provider.Command
 	if commandName == "" {
@@ -62,28 +104,56 @@ func (r *Runner) RunTask(
 	args, stdin := buildBaseArgs(cliType, providerModel, finalPrompt, reasoning)
 	schemaArgs, cleanup, err := buildStructuredOutputArgs(cliType, outputSchema)
 	if err != nil {
-		return "", err
+		return RunTaskResult{}, err
 	}
 	defer cleanup()
 	args = append(args, schemaArgs...)
 	captureArgs, readCapturedOutput, cleanupCapture, err := buildFinalOutputCaptureArgs(cliType)
 	if err != nil {
-		return "", err
+		return RunTaskResult{}, err
 	}
 	defer cleanupCapture()
 	args = append(args, captureArgs...)
 	args = append(args, renderArgs(r.provider.Args, task, agentID, role, providerModel)...)
+	command := append([]string{commandName}, args...)
 	env := append(os.Environ(), renderEnv(r.provider.Env, task, agentID, role, providerModel)...)
 	raw, err := runCommand(ctx, commandName, args, env, stdin)
 	if err != nil {
-		return "", err
+		return RunTaskResult{Command: command}, err
 	}
 	if captured, err := readCapturedOutput(); err != nil {
-		return "", err
+		return RunTaskResult{Command: command}, err
 	} else if strings.TrimSpace(captured) != "" {
 		raw = captured
 	}
-	return normalizeStructuredCLIOutput(cliType, outputSchema, raw)
+	output, err := normalizeStructuredCLIOutput(cliType, outputSchema, raw)
+	if err != nil {
+		return RunTaskResult{Command: command}, err
+	}
+	return RunTaskResult{Output: output, Command: command}, nil
+}
+
+func buildFinalPrompt(cliType string, task consensus.Task, prompt string, agentID string, role string, providerModel string, reasoning string, temperature *float64) (string, error) {
+	finalPrompt := hardenPromptForCLI(cliType, task, prompt)
+	if cliType != config.CLITypeGeneric {
+		return finalPrompt, nil
+	}
+	envelope, err := json.MarshalIndent(map[string]any{
+		"version": 1,
+		"agent": map[string]any{
+			"id":            agentID,
+			"role":          role,
+			"providerModel": providerModel,
+			"reasoning":     reasoning,
+			"temperature":   temperature,
+		},
+		"task":   task,
+		"prompt": prompt,
+	}, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("marshal generic cli envelope: %w", err)
+	}
+	return string(envelope), nil
 }
 
 func buildStructuredOutputArgs(cliType string, outputSchema map[string]any) ([]string, func(), error) {
@@ -121,6 +191,24 @@ func buildStructuredOutputArgs(cliType string, outputSchema map[string]any) ([]s
 	}
 }
 
+func buildStructuredOutputArgsPreview(cliType string, outputSchema map[string]any) ([]string, error) {
+	if len(outputSchema) == 0 {
+		return nil, nil
+	}
+	switch cliType {
+	case "claude":
+		body, err := json.Marshal(outputSchema)
+		if err != nil {
+			return nil, fmt.Errorf("marshal claude json schema preview: %w", err)
+		}
+		return []string{"--json-schema", string(body), "--output-format", "json"}, nil
+	case "codex":
+		return []string{"--output-schema", "<schema-file>"}, nil
+	default:
+		return nil, nil
+	}
+}
+
 func buildFinalOutputCaptureArgs(cliType string) ([]string, func() (string, error), func(), error) {
 	if cliType != "codex" {
 		return nil, func() (string, error) { return "", nil }, func() {}, nil
@@ -145,6 +233,13 @@ func buildFinalOutputCaptureArgs(cliType string) ([]string, func() (string, erro
 		return string(body), nil
 	}
 	return []string{"--output-last-message", path}, read, func() { _ = os.Remove(path) }, nil
+}
+
+func buildFinalOutputCaptureArgsPreview(cliType string) []string {
+	if cliType != "codex" {
+		return nil
+	}
+	return []string{"--output-last-message", "<last-message-file>"}
 }
 
 func normalizeStructuredCLIOutput(cliType string, outputSchema map[string]any, raw string) (string, error) {
@@ -183,7 +278,7 @@ func buildBaseArgs(cliType string, providerModel string, prompt string, reasonin
 		}
 		return args, prompt
 	case "gemini":
-		return []string{"--approval-mode", "yolo", "-m", providerModel}, prompt
+		return []string{"--approval-mode", "yolo", "-m", providerModel, "-p", prompt}, ""
 	case config.CLITypeAntigravity:
 		return []string{"--model", providerModel, "-p", prompt}, ""
 	case "opencode":

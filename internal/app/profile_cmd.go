@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -276,7 +277,7 @@ func (p *preflightPrinter) PrintEntry(entry telemetry.ProviderReadinessEntry) {
 		_, _ = fmt.Fprintf(p.writer, "    api_key_env: %s\n", entry.APIKeyEnv)
 	}
 	if len(entry.Command) > 0 {
-		_, _ = fmt.Fprintf(p.writer, "    command: %s\n", strings.Join(entry.Command, " "))
+		_, _ = fmt.Fprintf(p.writer, "    command: %s\n", formatCommandLine(entry.Command))
 	}
 	if entry.StdoutPreview != "" {
 		_, _ = fmt.Fprintf(p.writer, "    stdout: %s\n", entry.StdoutPreview)
@@ -332,4 +333,22 @@ func firstNonEmptyProfile(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func formatCommandLine(argv []string) string {
+	parts := make([]string, 0, len(argv))
+	for _, arg := range argv {
+		parts = append(parts, quoteCommandArg(arg))
+	}
+	return strings.Join(parts, " ")
+}
+
+func quoteCommandArg(arg string) string {
+	if arg == "" {
+		return `""`
+	}
+	if strings.ContainsAny(arg, " \t\r\n\"'{}[]():;|&<>$`\\") {
+		return strconv.Quote(arg)
+	}
+	return arg
 }

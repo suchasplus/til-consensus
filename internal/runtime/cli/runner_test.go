@@ -51,6 +51,17 @@ func TestBuildBaseArgsAntigravityUsesPrintPrompt(t *testing.T) {
 	}
 }
 
+func TestBuildBaseArgsGeminiUsesPromptFlag(t *testing.T) {
+	args, stdin := buildBaseArgs("gemini", "gemini-3.1-pro-preview", "prompt", "medium")
+	if stdin != "" {
+		t.Fatalf("expected gemini prompt in args, got stdin %q", stdin)
+	}
+	want := []string{"--approval-mode", "yolo", "-m", "gemini-3.1-pro-preview", "-p", "prompt"}
+	if strings.Join(args, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("unexpected gemini args: %#v", args)
+	}
+}
+
 func TestBuildStructuredOutputArgsClaudeInlinesSchema(t *testing.T) {
 	args, cleanup, err := buildStructuredOutputArgs("claude", map[string]any{
 		"type": "object",
