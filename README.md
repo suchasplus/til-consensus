@@ -24,6 +24,14 @@ til-consensus ask "判断这个 patch 是否真正修复了竞态问题" --confi
 til-consensus ask ./task.md --config ./til-consensus.yaml
 ```
 
+不知道该用哪种 mode 时，先分类：
+
+```bash
+til-consensus classify "monorepo 和 polyrepo 如何取舍？" --config ./til-consensus.yaml
+til-consensus classify --file ./task.md --config ./til-consensus.yaml
+cat ./task.md | til-consensus classify --stdin --config ./til-consensus.yaml
+```
+
 查看最新结果：
 
 ```bash
@@ -41,6 +49,8 @@ til-consensus last --config ./til-consensus.yaml
 | `delphi` | `til-consensus delphi ...` | 匿名多轮评分和摘要收敛，降低权威偏见和从众效应 |
 
 选择建议见 [三种讨论模式](docs/modes.md)。
+
+如果问题还不够明确，`classify` 会返回 `needs_clarification` 或 `not_suitable`，并列出需要补充的信息，而不是强行推荐某个 mode。默认分类 provider 是 `gemini-api`，可用 `--provider` / `--model` 覆盖。
 
 ## Provider 预检
 

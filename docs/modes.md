@@ -12,6 +12,15 @@
 
 默认使用 `adjudication`。它最稳，也最适合做代码裁决、事实核查和架构决策复核。
 
+不确定怎么选时，可以先运行分类器：
+
+```bash
+til-consensus classify "monorepo 和 polyrepo 如何取舍？" --config ./til-consensus.yaml
+til-consensus classify --file ./case.md --config ./til-consensus.yaml
+```
+
+`classify` 默认使用 `gemini-api/default` 做一次轻量判断。它不会启动完整 workflow，也不会写 run artifact；输出会说明推荐 mode、置信度、理由、缺失信息和建议改写后的任务。如果问题缺少上下文或评价标准，它会返回 `needs_clarification`；如果任务太简单、不需要多 agent 讨论，它会返回 `not_suitable`。
+
 ## `adjudication`
 
 固定宏观阶段：
@@ -159,6 +168,7 @@ roles:
 ## 命令入口
 
 ```bash
+til-consensus classify "是否应该采用 monorepo？" --config ./til-consensus.yaml
 til-consensus ask "是否应该采用 monorepo？" --config ./til-consensus.yaml
 til-consensus debate "monorepo 和 polyrepo 如何取舍？" --config ./til-consensus.yaml
 til-consensus delphi ./decision.md --config ./til-consensus.yaml

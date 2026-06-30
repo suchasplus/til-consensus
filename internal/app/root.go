@@ -27,6 +27,7 @@ func New() *cli.Command {
 			newAskCommand(),
 			newDebateCommand(),
 			newDelphiCommand(),
+			newClassifyCommand(),
 			newSetupCommand(),
 			newFollowUpCommand(),
 			newConfigCommand(),

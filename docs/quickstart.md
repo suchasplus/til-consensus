@@ -65,6 +65,16 @@ til-consensus debate "monorepo 和 polyrepo 如何取舍？" --config ./til-cons
 til-consensus delphi ./decision.md --config ./til-consensus.yaml
 ```
 
+如果还不确定该选哪种 mode，先让 `classify` 判断：
+
+```bash
+til-consensus classify "monorepo 和 polyrepo 如何取舍？" --config ./til-consensus.yaml
+til-consensus classify --file ./task.md --config ./til-consensus.yaml
+cat ./task.md | til-consensus classify --stdin --config ./til-consensus.yaml
+```
+
+`classify` 默认使用 `gemini-api/default`，只要求 providers 配置可用，不要求 agents/roles 完整。它会返回 `adjudication`、`free_debate`、`delphi`、`needs_clarification` 或 `not_suitable`。
+
 底层 `run` 仍然保留，适合 CI、脚本或需要精确传入 `run.yaml` 的场景：
 
 ```bash

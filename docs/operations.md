@@ -12,6 +12,32 @@ til-consensus debate "monorepo 和 polyrepo 如何取舍？" --config ./til-cons
 til-consensus delphi ./decision.md --config ./til-consensus.yaml
 ```
 
+不确定该选哪种模式时：
+
+```bash
+til-consensus classify "monorepo 和 polyrepo 如何取舍？" --config ./til-consensus.yaml
+til-consensus classify --file ./task.md --config ./til-consensus.yaml
+cat ./task.md | til-consensus classify --stdin --config ./til-consensus.yaml
+```
+
+`classify` 默认使用 `gemini-api/default`，也可以指定 provider/model：
+
+```bash
+til-consensus classify --file ./task.md \
+  --config ./til-consensus.yaml \
+  --provider gemini-api \
+  --model default \
+  --verbose
+```
+
+输出格式：
+
+```bash
+til-consensus classify --file ./task.md --config ./til-consensus.yaml --format json
+```
+
+分类结果可能是 `adjudication`、`free_debate`、`delphi`、`needs_clarification` 或 `not_suitable`。前 3 个会给出建议命令；后 2 个会列出需要补充的信息或说明为什么不需要多 agent workflow。
+
 底层 `run`：
 
 ```bash
