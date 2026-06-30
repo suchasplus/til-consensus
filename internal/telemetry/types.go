@@ -26,11 +26,16 @@ type ProviderReadinessEntry struct {
 	Agent           string         `json:"agent,omitempty"`
 	Command         []string       `json:"command,omitempty"`
 	RequestContext  map[string]any `json:"requestContext,omitempty"`
+	ResponseContext map[string]any `json:"responseContext,omitempty"`
+	InputArtifact   string         `json:"inputArtifact,omitempty"`
+	RawArtifact     string         `json:"rawArtifact,omitempty"`
+	ErrorArtifact   string         `json:"errorArtifact,omitempty"`
 	Ready           bool           `json:"ready"`
 	StrictJSON      bool           `json:"strictJSON"`
 	RecoverableJSON bool           `json:"recoverableJSON"`
 	DurationMs      int64          `json:"durationMs"`
 	StdoutPreview   string         `json:"stdoutPreview,omitempty"`
+	StdoutFull      string         `json:"-"`
 	StderrPreview   string         `json:"stderrPreview,omitempty"`
 	Error           string         `json:"error,omitempty"`
 }

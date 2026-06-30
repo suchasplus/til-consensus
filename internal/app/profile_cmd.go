@@ -281,7 +281,19 @@ func (p *preflightPrinter) PrintEntry(entry telemetry.ProviderReadinessEntry) {
 		_, _ = fmt.Fprintf(p.writer, "    command: %s\n", formatCommandLine(entry.Command))
 	}
 	p.printRequestContext(entry.RequestContext)
-	if entry.StdoutPreview != "" {
+	p.printResponseContext(entry.ResponseContext)
+	if entry.InputArtifact != "" {
+		_, _ = fmt.Fprintf(p.writer, "    input_artifact: %s\n", entry.InputArtifact)
+	}
+	if entry.RawArtifact != "" {
+		_, _ = fmt.Fprintf(p.writer, "    raw_artifact: %s\n", entry.RawArtifact)
+	}
+	if entry.ErrorArtifact != "" {
+		_, _ = fmt.Fprintf(p.writer, "    error_artifact: %s\n", entry.ErrorArtifact)
+	}
+	if entry.StdoutFull != "" {
+		_, _ = fmt.Fprintf(p.writer, "    stdout: %s\n", strings.TrimRight(entry.StdoutFull, "\n"))
+	} else if entry.StdoutPreview != "" {
 		_, _ = fmt.Fprintf(p.writer, "    stdout: %s\n", entry.StdoutPreview)
 	}
 	if entry.StderrPreview != "" {
@@ -345,6 +357,49 @@ func (p *preflightPrinter) printRequestContext(ctx map[string]any) {
 	}
 	if prompt := stringFromAny(ctx["prompt"]); prompt != "" {
 		_, _ = fmt.Fprintf(p.writer, "      prompt: %q\n", prompt)
+	}
+}
+
+func (p *preflightPrinter) printResponseContext(ctx map[string]any) {
+	if len(ctx) == 0 {
+		return
+	}
+	format := firstNonEmptyProfile(stringFromAny(ctx["format"]), "response")
+	parts := []string{format}
+	for _, key := range []string{"provider", "model", "id", "choiceCount"} {
+		if value := stringFromAny(ctx[key]); value != "" {
+			parts = append(parts, key+"="+value)
+		}
+	}
+	_, _ = fmt.Fprintf(p.writer, "    response: %s\n", strings.Join(parts, " "))
+	choice, ok := ctx["choice"].(map[string]any)
+	if !ok || len(choice) == 0 {
+		return
+	}
+	choiceParts := []string{}
+	for _, key := range []string{"index", "finishReason", "nativeFinishReason"} {
+		if value := stringFromAny(choice[key]); value != "" {
+			choiceParts = append(choiceParts, key+"="+value)
+		}
+	}
+	if len(choiceParts) > 0 {
+		_, _ = fmt.Fprintf(p.writer, "      choice: %s\n", strings.Join(choiceParts, " "))
+	}
+	message, ok := choice["message"].(map[string]any)
+	if !ok || len(message) == 0 {
+		return
+	}
+	messageParts := []string{}
+	for _, key := range []string{"role", "contentState", "contentChars", "refusalState", "reasoningState", "reasoningContent"} {
+		if value := stringFromAny(message[key]); value != "" {
+			messageParts = append(messageParts, key+"="+value)
+		}
+	}
+	if len(messageParts) > 0 {
+		_, _ = fmt.Fprintf(p.writer, "      message: %s\n", strings.Join(messageParts, " "))
+	}
+	if preview := stringFromAny(message["contentPreview"]); preview != "" {
+		_, _ = fmt.Fprintf(p.writer, "      content_preview: %q\n", preview)
 	}
 }
 

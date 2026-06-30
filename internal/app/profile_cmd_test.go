@@ -137,7 +137,7 @@ roles:
 		"auth: header Authorization: Bearer $TIL_CONSENSUS_TEST_MISSING_KEY",
 		"generation: maxOutputTokens=2048 responseFormat=json_schema responseFormatName=til_consensus_task_output maxOutputTokensField=max_completion_tokens",
 		"schema: type=object required=ok additionalProperties=false enabled=true",
-		"prompt: \"只返回一个 JSON 对象",
+		"prompt: \"Return exactly this JSON object:",
 	} {
 		if !strings.Contains(output, needle) {
 			t.Fatalf("expected preflight output to contain %q:\n%s", needle, output)
@@ -328,7 +328,7 @@ providers:
 	output := stdout.String()
 	for _, needle := range []string{
 		`command: til-consensus-missing-agy-for-test --model "Gemini 3.5 Flash (High)" -p`,
-		"只返回一个 JSON 对象",
+		"Return exactly this JSON object:",
 		"provider: type=cli protocol=antigravity",
 	} {
 		if !strings.Contains(output, needle) {

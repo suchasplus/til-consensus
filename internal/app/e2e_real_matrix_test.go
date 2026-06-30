@@ -1406,7 +1406,7 @@ func writeAPIProviderReadinessArtifact(t *testing.T, resultPath string, readines
 }
 
 func runRealCLIProviderPreflight() []cliProviderPreflightResult {
-	const prompt = `只返回一个 JSON 对象：{"ok":true}`
+	const prompt = `Return exactly this JSON object: {"ok":true}`
 	specs := []struct {
 		provider string
 		command  string
@@ -1559,7 +1559,7 @@ func probeAPIProviderReadiness(provider string, protocol string, baseURL string,
 	ctx, cancel := context.WithTimeout(context.Background(), realAPIPreflightTimeout())
 	defer cancel()
 	startedAt := time.Now()
-	text, err := runner.RunTask(ctx, `只返回一个 JSON 对象：{"ok":true}`, "你必须只输出一个 JSON 对象，不要输出 markdown。", model, nil, "", 256, schema)
+	text, err := runner.RunTask(ctx, `Return exactly this JSON object: {"ok":true}`, "Output only a JSON object. No markdown.", model, nil, "", 256, schema)
 	result.Duration = time.Since(startedAt)
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {

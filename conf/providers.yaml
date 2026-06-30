@@ -134,7 +134,7 @@ providers:
         enabled: true
         provider_model: x-ai/grok-4.3
         # OpenRouter lists no output-token limit for this model; 0 means til-consensus will not send max_tokens.
-        max_output_tokens: 0
+        max_output_tokens: 32768
         temperature: 0.2
 
   kimi-api:

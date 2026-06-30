@@ -33,6 +33,28 @@ type Runner struct {
 	provider config.ProviderConfig
 }
 
+type ProviderResponseError struct {
+	Message            string
+	RawResponse        string
+	FinishReason       string
+	NativeFinishReason string
+	Refusal            string
+}
+
+func (e *ProviderResponseError) Error() string {
+	parts := []string{e.Message}
+	if e.FinishReason != "" {
+		parts = append(parts, "finish_reason="+e.FinishReason)
+	}
+	if e.NativeFinishReason != "" {
+		parts = append(parts, "native_finish_reason="+e.NativeFinishReason)
+	}
+	if e.Refusal != "" {
+		parts = append(parts, "refusal="+e.Refusal)
+	}
+	return strings.Join(parts, ": ")
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -262,20 +284,40 @@ func (r *Runner) runOpenAI(
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return "", buildHTTPError("api", "openai-compatible", resp)
 	}
+	rawBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("read openai-compatible response: %w", err)
+	}
 	var decoded struct {
 		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
+			FinishReason       string `json:"finish_reason"`
+			NativeFinishReason string `json:"native_finish_reason"`
+			Message            struct {
+				Content *string `json:"content"`
+				Refusal any     `json:"refusal"`
 			} `json:"message"`
 		} `json:"choices"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+	if err := json.Unmarshal(rawBody, &decoded); err != nil {
 		return "", fmt.Errorf("decode openai-compatible response: %w", err)
 	}
 	if len(decoded.Choices) == 0 {
-		return "", fmt.Errorf("openai-compatible response contains no choices")
+		return "", &ProviderResponseError{
+			Message:     "openai-compatible response contains no choices",
+			RawResponse: string(rawBody),
+		}
 	}
-	return decoded.Choices[0].Message.Content, nil
+	choice := decoded.Choices[0]
+	if choice.Message.Content == nil || strings.TrimSpace(*choice.Message.Content) == "" {
+		return "", &ProviderResponseError{
+			Message:            "openai-compatible response contains no message content",
+			RawResponse:        string(rawBody),
+			FinishReason:       choice.FinishReason,
+			NativeFinishReason: choice.NativeFinishReason,
+			Refusal:            stringifyResponseField(choice.Message.Refusal),
+		}
+	}
+	return *choice.Message.Content, nil
 }
 
 func (r *Runner) runOpenAIResponses(
@@ -1065,6 +1107,22 @@ func flattenMapKeys(values map[string]any) []string {
 	}
 	walk("", values)
 	return out
+}
+
+func stringifyResponseField(value any) string {
+	if value == nil {
+		return ""
+	}
+	switch typed := value.(type) {
+	case string:
+		return strings.TrimSpace(typed)
+	default:
+		body, err := json.Marshal(typed)
+		if err != nil {
+			return fmt.Sprint(typed)
+		}
+		return string(body)
+	}
 }
 
 func firstNonEmpty(values ...string) string {

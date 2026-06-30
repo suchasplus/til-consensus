@@ -3,6 +3,7 @@ package preflight
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -18,8 +19,8 @@ import (
 )
 
 const (
-	defaultPrompt       = `只返回一个 JSON 对象：{"ok":true}`
-	defaultSystemPrompt = "你必须只输出一个 JSON 对象，不要输出 markdown。"
+	defaultPrompt       = `Return exactly this JSON object: {"ok":true}`
+	defaultSystemPrompt = "Output only a JSON object. No markdown."
 )
 
 type Options struct {
@@ -261,7 +262,7 @@ func probeCandidate(ctx context.Context, item candidate, opts Options, sink Arti
 		entry.RequestContext = requestContext
 	}
 	if sink != nil {
-		sink.WriteInput(item.ID, map[string]any{
+		entry.InputArtifact = sink.WriteInput(item.ID, map[string]any{
 			"provider":       item.ProviderID,
 			"providerType":   item.ProviderType,
 			"protocol":       item.Protocol,
@@ -281,7 +282,7 @@ func probeCandidate(ctx context.Context, item candidate, opts Options, sink Arti
 		if err != nil {
 			entry.Error = err.Error()
 			if sink != nil {
-				sink.WriteError(item.ID, entry.Error)
+				entry.ErrorArtifact = sink.WriteError(item.ID, entry.Error)
 			}
 			return entry
 		}
@@ -301,20 +302,29 @@ func probeCandidate(ctx context.Context, item candidate, opts Options, sink Arti
 		entry.Command = result.command
 	}
 	if err != nil {
+		if strings.TrimSpace(result.raw) != "" {
+			entry.StdoutPreview = previewText(result.raw, 220)
+			entry.StdoutFull = result.raw
+			entry.ResponseContext = responseContextForCandidate(item, result.raw)
+			if sink != nil {
+				entry.RawArtifact = sink.WriteRaw(item.ID, result.raw)
+			}
+		}
 		if probeCtx.Err() == context.DeadlineExceeded {
 			entry.Error = fmt.Sprintf("timed out after %s", timeout)
 		} else {
 			entry.Error = err.Error()
 		}
 		if sink != nil {
-			sink.WriteError(item.ID, entry.Error)
+			entry.ErrorArtifact = sink.WriteError(item.ID, entry.Error)
 		}
 		return entry
 	}
 	raw := result.raw
 	entry.StdoutPreview = previewText(raw, 220)
+	entry.ResponseContext = responseContextForCandidate(item, raw)
 	if sink != nil {
-		sink.WriteRaw(item.ID, raw)
+		entry.RawArtifact = sink.WriteRaw(item.ID, raw)
 	}
 	if strict, strictErr := tilruntime.StrictJSONObjectBytes(raw); strictErr == nil && len(strict) > 0 {
 		entry.StrictJSON = true
@@ -324,8 +334,9 @@ func probeCandidate(ctx context.Context, item candidate, opts Options, sink Arti
 	}
 	if !entry.RecoverableJSON {
 		entry.Error = "probe succeeded but did not return a recoverable JSON object"
+		entry.StdoutFull = raw
 		if sink != nil {
-			sink.WriteError(item.ID, entry.Error)
+			entry.ErrorArtifact = sink.WriteError(item.ID, entry.Error)
 		}
 		return entry
 	}
@@ -361,6 +372,12 @@ func runCandidate(ctx context.Context, item candidate, prompt string, schema map
 		}
 		runner := apirunner.NewRunner(item.Provider)
 		raw, err := runner.RunTask(ctx, prompt, defaultSystemPrompt, item.ProviderModel, effectiveTemperature(item), effectiveReasoning(item), effectiveMaxOutputTokens(item), schema)
+		if err != nil {
+			var responseErr *apirunner.ProviderResponseError
+			if errors.As(err, &responseErr) {
+				return candidateRunResult{raw: responseErr.RawResponse}, err
+			}
+		}
 		return candidateRunResult{raw: raw}, err
 	case config.ProviderTypeCLI:
 		runner := clirunner.NewRunner(item.Provider)
@@ -383,6 +400,119 @@ func runCandidate(ctx context.Context, item candidate, prompt string, schema map
 	default:
 		return candidateRunResult{}, fmt.Errorf("provider type %s is not supported by preflight", item.ProviderType)
 	}
+}
+
+func responseContextForCandidate(item candidate, raw string) map[string]any {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	if item.ProviderType != config.ProviderTypeAPI || item.Protocol != config.APIProtocolOpenAICompatible {
+		return nil
+	}
+	var decoded struct {
+		ID       string `json:"id"`
+		Object   string `json:"object"`
+		Model    string `json:"model"`
+		Provider string `json:"provider"`
+		Choices  []struct {
+			Index              int    `json:"index"`
+			FinishReason       string `json:"finish_reason"`
+			NativeFinishReason string `json:"native_finish_reason"`
+			Message            struct {
+				Role             string  `json:"role"`
+				Content          *string `json:"content"`
+				Refusal          any     `json:"refusal"`
+				Reasoning        any     `json:"reasoning"`
+				ReasoningContent any     `json:"reasoning_content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
+		return nil
+	}
+	if decoded.ID == "" && decoded.Object == "" && decoded.Model == "" && decoded.Provider == "" && len(decoded.Choices) == 0 {
+		return nil
+	}
+	out := map[string]any{
+		"format":      "openai-compatible.chat.completion",
+		"id":          decoded.ID,
+		"object":      decoded.Object,
+		"model":       decoded.Model,
+		"provider":    decoded.Provider,
+		"choiceCount": len(decoded.Choices),
+	}
+	if len(decoded.Choices) == 0 {
+		return compactAnyMap(out)
+	}
+	choice := decoded.Choices[0]
+	message := map[string]any{
+		"role":             choice.Message.Role,
+		"contentState":     contentState(choice.Message.Content),
+		"refusalState":     valueState(choice.Message.Refusal),
+		"reasoningState":   valueState(choice.Message.Reasoning),
+		"reasoningContent": valueState(choice.Message.ReasoningContent),
+	}
+	if choice.Message.Content != nil && strings.TrimSpace(*choice.Message.Content) != "" {
+		message["contentChars"] = len([]rune(*choice.Message.Content))
+		message["contentPreview"] = previewText(*choice.Message.Content, 180)
+	}
+	out["choice"] = map[string]any{
+		"index":              choice.Index,
+		"finishReason":       choice.FinishReason,
+		"nativeFinishReason": choice.NativeFinishReason,
+		"message":            compactAnyMap(message),
+	}
+	return compactAnyMap(out)
+}
+
+func contentState(value *string) string {
+	if value == nil {
+		return "null"
+	}
+	if strings.TrimSpace(*value) == "" {
+		return "empty"
+	}
+	return "present"
+}
+
+func valueState(value any) string {
+	if value == nil {
+		return "null"
+	}
+	switch typed := value.(type) {
+	case string:
+		if strings.TrimSpace(typed) == "" {
+			return "empty"
+		}
+		return "present"
+	default:
+		return "present"
+	}
+}
+
+func compactAnyMap(values map[string]any) map[string]any {
+	out := map[string]any{}
+	for key, value := range values {
+		switch typed := value.(type) {
+		case string:
+			if strings.TrimSpace(typed) == "" {
+				continue
+			}
+			out[key] = typed
+		case int:
+			out[key] = typed
+		case map[string]any:
+			nested := compactAnyMap(typed)
+			if len(nested) > 0 {
+				out[key] = nested
+			}
+		default:
+			if value != nil {
+				out[key] = value
+			}
+		}
+	}
+	return out
 }
 
 func annotatePreflightBudget(ctx map[string]any, configured int, effective int) {
