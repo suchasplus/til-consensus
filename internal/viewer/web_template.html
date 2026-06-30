@@ -659,7 +659,7 @@
         if (doc.votes && doc.votes.length) {
           chunks.push(`<h3>Votes</h3>` + renderList(doc.votes, "没有 vote 数据。", (item) => `
             <div class="list-item">
-              <strong>${escapeHtml(item.claimId || "-")} · ${escapeHtml(item.agentId || "-")} · ${escapeHtml(item.vote || "-")}</strong>
+              <strong>${escapeHtml(item.claimId || "-")} · ${escapeHtml(item.agentId || "-")} · ${escapeHtml(item.vote || "-")} · confidence=${toFixedSafe(item.confidence)}</strong>
               ${item.rationale ? `<div>${nl2br(item.rationale)}</div>` : ""}
             </div>
           `));

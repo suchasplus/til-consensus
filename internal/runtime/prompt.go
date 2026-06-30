@@ -96,6 +96,8 @@ func taskPromptHints(task consensus.Task) []string {
 		return debateRoundPromptHints(typed)
 	case consensus.SemanticDedupTask:
 		return semanticDedupPromptHints(typed)
+	case consensus.FinalVoteTask:
+		return finalVotePromptHints(typed)
 	default:
 		return nil
 	}
@@ -117,6 +119,8 @@ func taskRepairHints(task consensus.Task) []string {
 		return debateRoundRepairHints(typed)
 	case consensus.SemanticDedupTask:
 		return semanticDedupRepairHints(typed)
+	case consensus.FinalVoteTask:
+		return finalVoteRepairHints()
 	default:
 		return nil
 	}
@@ -159,6 +163,39 @@ func semanticDedupRepairHints(task consensus.SemanticDedupTask) []string {
 		"- Do not invent new claim IDs. Use only claim IDs from the task context.",
 		"- Remove chained or cyclic merges where a claim appears as both sourceClaimId and targetClaimId.",
 		"- Keep merges as sourceClaimId, targetClaimId, similarity, rationale.",
+	}
+}
+
+func finalVotePromptHints(task consensus.FinalVoteTask) []string {
+	ids := make([]string, 0, len(task.Claims))
+	for _, claim := range task.Claims {
+		if strings.TrimSpace(claim.ClaimID) != "" {
+			ids = append(ids, claim.ClaimID)
+		}
+	}
+	lines := []string{
+		"- Final vote must return one votes[] row for each active claim you evaluate.",
+		"- Each vote requires claimId, vote, confidence, and rationale.",
+		"- vote is the coarse label: accept, reject, or abstain.",
+		"- confidence is the continuous support score from 0.0 to 1.0: 0.0 strongly rejects the claim, 0.5 is uncertain/abstain, 1.0 strongly accepts the claim.",
+		"- Use intermediate confidence values to express partial support, caveated support, or live disagreement; do not collapse everything to 0 or 1.",
+		"- confidence must be a JSON number, not a string.",
+	}
+	if len(ids) > 0 {
+		lines = append(lines,
+			"- Valid final-vote claim IDs for this task: "+strings.Join(ids, ", ")+".",
+			`- Valid example: {"summary":"Final vote with continuous confidence scores.","votes":[{"claimId":"`+ids[0]+`","vote":"accept","confidence":0.74,"rationale":"The claim is directionally sound but still depends on execution constraints."}]}`,
+		)
+	}
+	return lines
+}
+
+func finalVoteRepairHints() []string {
+	return []string{
+		"- Add a numeric confidence field to every votes[] row.",
+		"- Repair confidence into the inclusive [0,1] range.",
+		"- Keep vote as accept, reject, or abstain, but use confidence to preserve partial support.",
+		"- Do not quote confidence numbers.",
 	}
 }
 

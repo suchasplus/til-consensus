@@ -319,9 +319,10 @@ func (FinalVoteTask) Kind() TaskKind   { return TaskKindFinalVote }
 func (t FinalVoteTask) Meta() TaskMeta { return t.TaskMeta }
 
 type DebateVoteDraft struct {
-	ClaimID   string           `json:"claimId"`
-	Vote      DebateVoteChoice `json:"vote"`
-	Rationale string           `json:"rationale,omitempty"`
+	ClaimID    string           `json:"claimId"`
+	Vote       DebateVoteChoice `json:"vote"`
+	Confidence *float64         `json:"confidence"`
+	Rationale  string           `json:"rationale,omitempty"`
 }
 
 type FinalVoteOutput struct {

@@ -8,4 +8,5 @@ roles:
       - participant-dashscope-api
       - participant-claude-cli
       - participant-codex-cli
-    reporter: reporter-kimi-api
+    semantic_deduper: deduper-gemini-api
+    reporter: reporter-dashscope-api

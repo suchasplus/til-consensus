@@ -179,10 +179,11 @@ type RoundView struct {
 }
 
 type VoteView struct {
-	ClaimID   string `json:"claimId"`
-	AgentID   string `json:"agentId"`
-	Vote      string `json:"vote"`
-	Rationale string `json:"rationale,omitempty"`
+	ClaimID    string  `json:"claimId"`
+	AgentID    string  `json:"agentId"`
+	Vote       string  `json:"vote"`
+	Confidence float64 `json:"confidence"`
+	Rationale  string  `json:"rationale,omitempty"`
 }
 
 type StatementView struct {
@@ -592,10 +593,11 @@ func fillDebateViews(doc *Document, bundle Bundle, limit int) {
 	}
 	for _, vote := range section.Votes[:min(limit, len(section.Votes))] {
 		doc.Votes = append(doc.Votes, VoteView{
-			ClaimID:   vote.ClaimID,
-			AgentID:   vote.AgentID,
-			Vote:      string(vote.Vote),
-			Rationale: vote.Rationale,
+			ClaimID:    vote.ClaimID,
+			AgentID:    vote.AgentID,
+			Vote:       string(vote.Vote),
+			Confidence: vote.Confidence,
+			Rationale:  vote.Rationale,
 		})
 	}
 }
@@ -950,7 +952,7 @@ func renderText(doc Document, verbose bool) string {
 			b.WriteString("(无 vote 数据)\n")
 		}
 		for _, item := range doc.Votes {
-			fmt.Fprintf(&b, "- %s | %s | %s\n", item.ClaimID, item.AgentID, item.Vote)
+			fmt.Fprintf(&b, "- %s | %s | %s | confidence=%.2f\n", item.ClaimID, item.AgentID, item.Vote, item.Confidence)
 			if verbose && item.Rationale != "" {
 				fmt.Fprintf(&b, "  %s\n", item.Rationale)
 			}

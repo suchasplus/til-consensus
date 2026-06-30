@@ -63,8 +63,10 @@ out/tc_xxx/
 
 - initial claims。
 - debate rounds。
-- final votes。
+- final votes，包括每票的 `confidence` 连续支持分数。
 - consensus / minority positions。
+
+`freeDebate.claimResolutions[]` 中，`confidenceMean` 用于判定是否达到 `vote_threshold`，`confidenceVariance` / `confidenceStdDev` 用于判断分歧强度。`supportRatio` 是粗粒度 accept/reject 标签比例，保留用于兼容旧视图。
 
 `delphi` 常见重点：
 

@@ -405,9 +405,11 @@ func taskSpecificContract(task consensus.Task) []string {
 		}
 	case consensus.FinalVoteTask:
 		return []string{
-			"- Final-vote fields: summary, votes[].claimId, votes[].vote, votes[].rationale.",
+			"- Final-vote fields: summary, votes[].claimId, votes[].vote, votes[].confidence, votes[].rationale.",
 			"- Final-vote claimId must copy an existing claims[].claimId exactly.",
 			"- Final-vote vote allowed: accept, reject, abstain.",
+			"- Final-vote confidence is a continuous support score from 0.0 to 1.0: 0.0 means strongly reject, 0.5 means uncertain/abstain, 1.0 means strongly accept.",
+			"- Final-vote confidence must be a JSON number, not a string.",
 			"- Final-vote aliases forbidden: targetId, verdict, judgement, stance.",
 		}
 	case consensus.ArbiterTask:

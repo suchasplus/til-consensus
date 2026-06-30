@@ -228,6 +228,89 @@ roles:
 	}
 }
 
+func TestLoadConfigIncludesKeepModeScopedRolesSeparate(t *testing.T) {
+	tmp := t.TempDir()
+	writeConfigTestFile(t, filepath.Join(tmp, "providers.yaml"), `
+providers:
+  mock:
+    type: mock
+    models:
+      default:
+        provider_model: mock
+`)
+	writeConfigTestFile(t, filepath.Join(tmp, "agents.yaml"), `
+agents:
+  - id: debate-a
+    provider: mock
+    model: default
+  - id: debate-b
+    provider: mock
+    model: default
+  - id: debate-reporter
+    provider: mock
+    model: default
+  - id: debate-deduper
+    provider: mock
+    model: default
+  - id: delphi-a
+    provider: mock
+    model: default
+  - id: delphi-reporter
+    provider: mock
+    model: default
+`)
+	writeConfigTestFile(t, filepath.Join(tmp, "roles-free-debate.yaml"), `
+roles:
+  free_debate:
+    participants: [debate-a, debate-b]
+    semantic_deduper: debate-deduper
+    reporter: debate-reporter
+`)
+	writeConfigTestFile(t, filepath.Join(tmp, "roles-delphi.yaml"), `
+roles:
+  delphi:
+    participants: [delphi-a]
+    reporter: delphi-reporter
+`)
+	configPath := filepath.Join(tmp, "tc.yaml")
+	writeConfigTestFile(t, configPath, `
+schema_version: 1
+include:
+  - providers.yaml
+  - agents.yaml
+  - roles-free-debate.yaml
+  - roles-delphi.yaml
+profile: free-debate
+defaults:
+  per_task_timeout: 10s
+  debate_policy:
+    semantic_dedup:
+      enabled: true
+profiles:
+  free-debate:
+    defaults:
+      mode: free_debate
+`)
+
+	loaded, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	roles := loaded.Config.Roles.FreeDebate
+	if strings.Join(roles.Participants, ",") != "debate-a,debate-b" {
+		t.Fatalf("expected free_debate participants from free debate include, got %#v", roles.Participants)
+	}
+	if roles.SemanticDeduper != "debate-deduper" {
+		t.Fatalf("expected free_debate semantic deduper, got %q", roles.SemanticDeduper)
+	}
+	if roles.Reporter != "debate-reporter" {
+		t.Fatalf("expected free_debate reporter, got %q", roles.Reporter)
+	}
+	if strings.Join(loaded.Config.Roles.Delphi.Participants, ",") != "delphi-a" {
+		t.Fatalf("expected delphi roles to remain separate, got %#v", loaded.Config.Roles.Delphi.Participants)
+	}
+}
+
 func TestLoadConfigIncludeCycleFails(t *testing.T) {
 	tmp := t.TempDir()
 	first := filepath.Join(tmp, "first.yaml")

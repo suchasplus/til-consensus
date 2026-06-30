@@ -482,6 +482,7 @@ type DebateVoteRecord struct {
 	ClaimID     string           `json:"claimId"`
 	AgentID     string           `json:"agentId"`
 	Vote        DebateVoteChoice `json:"vote"`
+	Confidence  float64          `json:"confidence"`
 	Rationale   string           `json:"rationale,omitempty"`
 	EvidenceRef string           `json:"evidenceRef,omitempty"`
 }
@@ -502,14 +503,18 @@ type DebateRoundRecord struct {
 }
 
 type DebateClaimResolution struct {
-	ClaimID          string   `json:"claimId"`
-	Accepted         bool     `json:"accepted"`
-	SupportRatio     float64  `json:"supportRatio"`
-	SupportingVoters []string `json:"supportingVoters,omitempty"`
-	OpposingVoters   []string `json:"opposingVoters,omitempty"`
-	FinalStatement   string   `json:"finalStatement,omitempty"`
-	MergedInto       string   `json:"mergedInto,omitempty"`
-	ProposedBy       []string `json:"proposedBy,omitempty"`
+	ClaimID            string   `json:"claimId"`
+	Accepted           bool     `json:"accepted"`
+	SupportRatio       float64  `json:"supportRatio"`
+	ConfidenceMean     float64  `json:"confidenceMean"`
+	ConfidenceVariance float64  `json:"confidenceVariance"`
+	ConfidenceStdDev   float64  `json:"confidenceStdDev"`
+	VoteCount          int      `json:"voteCount"`
+	SupportingVoters   []string `json:"supportingVoters,omitempty"`
+	OpposingVoters     []string `json:"opposingVoters,omitempty"`
+	FinalStatement     string   `json:"finalStatement,omitempty"`
+	MergedInto         string   `json:"mergedInto,omitempty"`
+	ProposedBy         []string `json:"proposedBy,omitempty"`
 }
 
 type FreeDebateResultSection struct {

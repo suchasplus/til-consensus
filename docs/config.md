@@ -167,6 +167,8 @@ profiles:
 
 启用 `semantic_dedup` 时，还必须配置 `roles.free_debate.semantic_deduper`。这个 agent 会走正常的 CLI/API provider 调用链路，并输出结构化的 claim merge 建议；系统不会使用本地文本相似度 fallback。如果希望强制外部 API 依赖，把 semantic deduper agent 绑定到 `type: api` provider 即可。
 
+`free_debate` 的 final vote 使用连续 `confidence` 分数聚合：每个 voter 对每个 active claim 输出 `vote` 粗标签和 `confidence` 支持分数。`vote_threshold` 判断的是 `confidenceMean` 是否达标；`supportRatio` 仍保留为 accept/reject 粗标签比例，主要用于兼容旧展示。
+
 `delphi` 常用 policy：
 
 - `delphi_policy.min_rounds`

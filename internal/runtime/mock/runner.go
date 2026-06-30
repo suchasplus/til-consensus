@@ -200,9 +200,10 @@ func buildDeterministic(task consensus.Task, agent config.AgentConfig) any {
 		votes := make([]map[string]any, 0, len(value.Claims))
 		for _, claim := range value.Claims {
 			votes = append(votes, map[string]any{
-				"claimId":   claim.ClaimID,
-				"vote":      "accept",
-				"rationale": agent.ID + " accepts " + claim.ClaimID,
+				"claimId":    claim.ClaimID,
+				"vote":       "accept",
+				"confidence": 1.0,
+				"rationale":  agent.ID + " accepts " + claim.ClaimID,
 			})
 		}
 		return map[string]any{

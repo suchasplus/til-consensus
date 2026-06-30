@@ -278,10 +278,12 @@ func (d *stubDelegate) Await(_ context.Context, taskID string, _ time.Duration) 
 	case FinalVoteTask:
 		votes := make([]DebateVoteDraft, 0, len(value.Claims))
 		for _, claim := range value.Claims {
+			confidence := 1.0
 			votes = append(votes, DebateVoteDraft{
-				ClaimID:   claim.ClaimID,
-				Vote:      DebateVoteAccept,
-				Rationale: "accept",
+				ClaimID:    claim.ClaimID,
+				Vote:       DebateVoteAccept,
+				Confidence: &confidence,
+				Rationale:  "accept",
 			})
 		}
 		return AwaitedTask{OK: true, Output: FinalVoteTaskResult{Output: FinalVoteOutput{
@@ -701,6 +703,42 @@ func TestFreeDebateSemanticDedupMergesClaimsBeforeVote(t *testing.T) {
 	}
 	if len(result.FreeDebate.Votes) != len(request.Roles.Participants) {
 		t.Fatalf("expected votes only on active canonical claim, got %#v", result.FreeDebate.Votes)
+	}
+}
+
+func TestResolveDebateClaimsUsesConfidenceDistribution(t *testing.T) {
+	claims := []DebateClaim{{
+		ClaimID:   "claim-1",
+		Statement: "Use a monorepo when cross-service changes dominate.",
+		Active:    true,
+	}}
+	votes := []DebateVoteRecord{
+		{ClaimID: "claim-1", AgentID: "voter-1", Vote: DebateVoteAccept, Confidence: 1.0},
+		{ClaimID: "claim-1", AgentID: "voter-2", Vote: DebateVoteAccept, Confidence: 0.52},
+		{ClaimID: "claim-1", AgentID: "voter-3", Vote: DebateVoteReject, Confidence: 0.10},
+	}
+	resolutions, outcome := resolveDebateClaims(claims, claims, votes, 0.67)
+	if outcome != FreeDebateOutcomeNoConsensus {
+		t.Fatalf("expected no consensus from low confidence mean, got %s", outcome)
+	}
+	if len(resolutions) != 1 {
+		t.Fatalf("expected one resolution, got %#v", resolutions)
+	}
+	resolution := resolutions[0]
+	if resolution.Accepted {
+		t.Fatalf("expected claim not accepted despite binary support ratio, got %#v", resolution)
+	}
+	if resolution.SupportRatio < 0.66 || resolution.SupportRatio > 0.67 {
+		t.Fatalf("expected binary support ratio around 0.67, got %.4f", resolution.SupportRatio)
+	}
+	if resolution.ConfidenceMean < 0.53 || resolution.ConfidenceMean > 0.55 {
+		t.Fatalf("expected confidence mean around 0.54, got %.4f", resolution.ConfidenceMean)
+	}
+	if resolution.ConfidenceVariance <= 0.1 {
+		t.Fatalf("expected high variance from split confidence scores, got %.4f", resolution.ConfidenceVariance)
+	}
+	if resolution.VoteCount != 3 {
+		t.Fatalf("expected vote count 3, got %d", resolution.VoteCount)
 	}
 }
 

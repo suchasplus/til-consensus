@@ -92,7 +92,7 @@ func BuildSummary(result *consensus.RunResult) string {
 			if len(section.ClaimResolutions) > 0 {
 				lines = append(lines, "", "## Final Vote")
 				for _, item := range section.ClaimResolutions {
-					lines = append(lines, fmt.Sprintf("- %s | accepted=%t | support=%.2f", item.ClaimID, item.Accepted, item.SupportRatio))
+					lines = append(lines, fmt.Sprintf("- %s | accepted=%t | support=%.2f | confidenceMean=%.2f | confidenceVariance=%.4f", item.ClaimID, item.Accepted, item.SupportRatio, item.ConfidenceMean, item.ConfidenceVariance))
 					if item.FinalStatement != "" {
 						lines = append(lines, "  "+item.FinalStatement)
 					}

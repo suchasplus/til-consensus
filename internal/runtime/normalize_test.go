@@ -227,6 +227,35 @@ func TestNormalizeSemanticDedupOutputRequiresThresholdAndKnownClaims(t *testing.
 	}
 }
 
+func TestNormalizeFinalVoteRequiresNumericConfidence(t *testing.T) {
+	task := consensus.FinalVoteTask{
+		TaskMeta: consensus.TaskMeta{AgentID: "voter-1"},
+		Claims: []consensus.DebateClaim{
+			{ClaimID: "claim-1", Active: true},
+		},
+	}
+	result, err := NormalizeTaskOutputFromText(task, `{"summary":"vote","votes":[{"claimId":"claim-1","vote":"accept","confidence":0.67,"rationale":"directionally supported"}]}`)
+	if err != nil {
+		t.Fatalf("NormalizeTaskOutputFromText failed: %v", err)
+	}
+	typed, ok := result.(consensus.FinalVoteTaskResult)
+	if !ok || len(typed.Output.Votes) != 1 || typed.Output.Votes[0].Confidence == nil || *typed.Output.Votes[0].Confidence != 0.67 {
+		t.Fatalf("unexpected final vote output: %#v", result)
+	}
+	_, err = NormalizeTaskOutputFromText(task, `{"summary":"vote","votes":[{"claimId":"claim-1","vote":"accept","rationale":"missing score"}]}`)
+	if err == nil {
+		t.Fatal("expected missing confidence to fail")
+	}
+	_, err = NormalizeTaskOutputFromText(task, `{"summary":"vote","votes":[{"claimId":"claim-1","vote":"accept","confidence":"high","rationale":"label score"}]}`)
+	if err == nil {
+		t.Fatal("expected confidence label to fail")
+	}
+	_, err = NormalizeTaskOutputFromText(task, `{"summary":"vote","votes":[{"claimId":"claim-1","vote":"accept","confidence":1.2,"rationale":"out of range"}]}`)
+	if err == nil {
+		t.Fatal("expected out-of-range confidence to fail")
+	}
+}
+
 func TestNormalizeArbiterOutputRejectsMissingVerdict(t *testing.T) {
 	_, err := NormalizeTaskOutput(consensus.ArbiterTask{
 		TaskMeta: consensus.TaskMeta{AgentID: "arbiter-1"},

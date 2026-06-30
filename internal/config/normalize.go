@@ -126,7 +126,8 @@ func boolPtr(value bool) *bool {
 }
 
 func normalizeRoles(roles RolesConfig) RolesConfig {
-	if roles.Adjudication.IsZero() {
+	legacyOnly := roles.Adjudication.IsZero() && roles.FreeDebate.IsZero() && roles.Delphi.IsZero()
+	if legacyOnly && roles.Adjudication.IsZero() {
 		roles.Adjudication = AdjudicationRolesConfig{
 			Proposers:        roles.Proposers,
 			Challengers:      roles.Challengers,
@@ -136,7 +137,7 @@ func normalizeRoles(roles RolesConfig) RolesConfig {
 			Actor:            roles.Actor,
 		}
 	}
-	if roles.FreeDebate.IsZero() {
+	if legacyOnly && roles.FreeDebate.IsZero() {
 		roles.FreeDebate = DebateRolesConfig{
 			Participants:    roles.Participants,
 			SemanticDeduper: roles.SemanticDeduper,
@@ -144,7 +145,7 @@ func normalizeRoles(roles RolesConfig) RolesConfig {
 			Actor:           roles.Actor,
 		}
 	}
-	if roles.Delphi.IsZero() {
+	if legacyOnly && roles.Delphi.IsZero() {
 		roles.Delphi = DelphiRolesConfig{
 			Participants: roles.Participants,
 			Facilitator:  roles.Facilitator,

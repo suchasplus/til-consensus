@@ -302,7 +302,7 @@ func freeDebateTestResponse(prompt string) string {
 	case strings.Contains(prompt, `"votes"`) && strings.Contains(prompt, `"claimId"`):
 		votes := make([]string, 0)
 		for _, claimID := range extractClaimIDs(prompt) {
-			votes = append(votes, fmt.Sprintf(`{"claimId":"%s","vote":"accept","rationale":"当前主张已覆盖主要约束，可以进入最终汇总。"}`, claimID))
+			votes = append(votes, fmt.Sprintf(`{"claimId":"%s","vote":"accept","confidence":0.82,"rationale":"当前主张已覆盖主要约束，可以进入最终汇总。"}`, claimID))
 		}
 		if len(votes) == 0 {
 			return `{"summary":"当前没有可投票主张。","votes":[]}`

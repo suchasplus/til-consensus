@@ -1659,9 +1659,10 @@ func (e *Engine) startFreeDebate(ctx context.Context, request StartRequest) (_ *
 				Summary:      output.Output.Summary,
 				Artifact:     result.Awaited.Artifact,
 				Metadata: map[string]any{
-					"taskId":    result.Receipt.TaskID,
-					"vote":      draft.Vote,
-					"rationale": draft.Rationale,
+					"taskId":     result.Receipt.TaskID,
+					"vote":       draft.Vote,
+					"confidence": *draft.Confidence,
+					"rationale":  draft.Rationale,
 				},
 			})
 			if err != nil {
@@ -1671,6 +1672,7 @@ func (e *Engine) startFreeDebate(ctx context.Context, request StartRequest) (_ *
 				ClaimID:     draft.ClaimID,
 				AgentID:     participantID,
 				Vote:        draft.Vote,
+				Confidence:  *draft.Confidence,
 				Rationale:   draft.Rationale,
 				EvidenceRef: entry.EntryID,
 			})
@@ -2219,22 +2221,28 @@ func resolveDebateClaims(activeClaims []DebateClaim, allClaims []DebateClaim, vo
 	for _, claim := range allClaims {
 		if !claim.Active {
 			resolutions = append(resolutions, DebateClaimResolution{
-				ClaimID:        claim.ClaimID,
-				Accepted:       false,
-				SupportRatio:   0,
-				FinalStatement: claim.Statement,
-				MergedInto:     claim.MergedInto,
-				ProposedBy:     slices.Clone(claim.ProposedBy),
+				ClaimID:            claim.ClaimID,
+				Accepted:           false,
+				SupportRatio:       0,
+				ConfidenceMean:     0,
+				ConfidenceVariance: 0,
+				ConfidenceStdDev:   0,
+				VoteCount:          0,
+				FinalStatement:     claim.Statement,
+				MergedInto:         claim.MergedInto,
+				ProposedBy:         slices.Clone(claim.ProposedBy),
 			})
 			continue
 		}
 		supporters := make([]string, 0)
 		opposers := make([]string, 0)
+		confidences := make([]float64, 0)
 		validVotes := 0
 		for _, vote := range votes {
 			if vote.ClaimID != claim.ClaimID {
 				continue
 			}
+			confidences = append(confidences, vote.Confidence)
 			switch vote.Vote {
 			case DebateVoteAccept:
 				supporters = append(supporters, vote.AgentID)
@@ -2248,18 +2256,23 @@ func resolveDebateClaims(activeClaims []DebateClaim, allClaims []DebateClaim, vo
 		if validVotes > 0 {
 			ratio = float64(len(supporters)) / float64(validVotes)
 		}
-		acceptedClaim := validVotes > 0 && ratio >= threshold
+		confidenceMean, confidenceVariance := meanAndVariance(confidences)
+		acceptedClaim := len(confidences) > 0 && confidenceMean >= threshold
 		if acceptedClaim {
 			accepted++
 		}
 		resolutions = append(resolutions, DebateClaimResolution{
-			ClaimID:          claim.ClaimID,
-			Accepted:         acceptedClaim,
-			SupportRatio:     ratio,
-			SupportingVoters: supporters,
-			OpposingVoters:   opposers,
-			FinalStatement:   claim.Statement,
-			ProposedBy:       slices.Clone(claim.ProposedBy),
+			ClaimID:            claim.ClaimID,
+			Accepted:           acceptedClaim,
+			SupportRatio:       ratio,
+			ConfidenceMean:     confidenceMean,
+			ConfidenceVariance: confidenceVariance,
+			ConfidenceStdDev:   math.Sqrt(confidenceVariance),
+			VoteCount:          len(confidences),
+			SupportingVoters:   supporters,
+			OpposingVoters:     opposers,
+			FinalStatement:     claim.Statement,
+			ProposedBy:         slices.Clone(claim.ProposedBy),
 		})
 	}
 	switch {
@@ -2270,6 +2283,23 @@ func resolveDebateClaims(activeClaims []DebateClaim, allClaims []DebateClaim, vo
 	default:
 		return resolutions, FreeDebateOutcomeNoConsensus
 	}
+}
+
+func meanAndVariance(values []float64) (float64, float64) {
+	if len(values) == 0 {
+		return 0, 0
+	}
+	sum := 0.0
+	for _, value := range values {
+		sum += value
+	}
+	mean := sum / float64(len(values))
+	varianceSum := 0.0
+	for _, value := range values {
+		delta := value - mean
+		varianceSum += delta * delta
+	}
+	return mean, varianceSum / float64(len(values))
 }
 
 func TaskVerdictFromDebateOutcome(outcome FreeDebateOutcome) TaskVerdict {

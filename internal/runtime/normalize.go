@@ -552,11 +552,12 @@ func debateJudgementSchema() map[string]any {
 
 func debateVoteSchema() map[string]any {
 	return objectSchema(
-		[]string{"claimId", "vote"},
+		[]string{"claimId", "vote", "confidence"},
 		map[string]any{
-			"claimId":   schemaString(),
-			"vote":      enumStringSchema([]string{string(consensus.DebateVoteAccept), string(consensus.DebateVoteReject), string(consensus.DebateVoteAbstain)}),
-			"rationale": schemaString(),
+			"claimId":    schemaString(),
+			"vote":       enumStringSchema([]string{string(consensus.DebateVoteAccept), string(consensus.DebateVoteReject), string(consensus.DebateVoteAbstain)}),
+			"confidence": schemaNumber(),
+			"rationale":  schemaString(),
 		},
 	)
 }
@@ -932,6 +933,12 @@ func validateDebateVotes(votes []consensus.DebateVoteDraft) error {
 		}
 		if !isAllowedDebateVote(vote.Vote) {
 			return fmt.Errorf("votes[%d].vote must be one of accept|reject|abstain", idx)
+		}
+		if vote.Confidence == nil {
+			return fmt.Errorf("votes[%d].confidence is required", idx)
+		}
+		if *vote.Confidence < 0 || *vote.Confidence > 1 {
+			return fmt.Errorf("votes[%d].confidence must be within [0,1]", idx)
 		}
 	}
 	return nil

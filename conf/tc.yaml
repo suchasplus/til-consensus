@@ -30,6 +30,9 @@ defaults:
     vote_threshold: 0.67
     enable_early_stop: true
     peer_context_mode: summary+active_claims
+    semantic_dedup:
+      enabled: true
+      similarity_threshold: 0.85
   delphi_policy:
     min_rounds: 2
     max_rounds: 3

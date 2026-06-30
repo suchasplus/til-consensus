@@ -22,6 +22,10 @@ agents:
     provider: codex-cli
     model: default
     role: participant
+  - id: deduper-gemini-api
+    provider: gemini-api
+    model: default
+    role: semantic-deduper
   - id: reporter-dashscope-api
     provider: dashscope-api
     model: default
