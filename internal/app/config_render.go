@@ -224,20 +224,28 @@ func assignedRolesByAgent(roles config.RolesConfig) map[string][]string {
 		}
 		out[agentID] = append(out[agentID], role)
 	}
-	for _, id := range roles.Proposers {
-		add(id, "proposer")
+	roles = config.Normalize(config.Config{Roles: roles}).Roles
+	for _, id := range roles.Adjudication.Proposers {
+		add(id, "adjudication.proposer")
 	}
-	for _, id := range roles.Challengers {
-		add(id, "challenger")
+	for _, id := range roles.Adjudication.Challengers {
+		add(id, "adjudication.challenger")
 	}
-	for _, id := range roles.Participants {
-		add(id, "participant")
+	add(roles.Adjudication.Arbiter, "adjudication.arbiter")
+	add(roles.Adjudication.SemanticVerifier, "adjudication.semantic_verifier")
+	add(roles.Adjudication.Reporter, "adjudication.reporter")
+	add(roles.Adjudication.Actor, "adjudication.actor")
+	for _, id := range roles.FreeDebate.Participants {
+		add(id, "free_debate.participant")
 	}
-	add(roles.Arbiter, "arbiter")
-	add(roles.SemanticVerifier, "semantic_verifier")
-	add(roles.Facilitator, "facilitator")
-	add(roles.Reporter, "reporter")
-	add(roles.Actor, "actor")
+	add(roles.FreeDebate.Reporter, "free_debate.reporter")
+	add(roles.FreeDebate.Actor, "free_debate.actor")
+	for _, id := range roles.Delphi.Participants {
+		add(id, "delphi.participant")
+	}
+	add(roles.Delphi.Facilitator, "delphi.facilitator")
+	add(roles.Delphi.Reporter, "delphi.reporter")
+	add(roles.Delphi.Actor, "delphi.actor")
 	return out
 }
 
@@ -300,14 +308,22 @@ func renderConfigExplainText(report configExplainReport) string {
 		b.WriteString("  - " + agent.ID + " " + strings.Join(parts, " ") + "\n")
 	}
 	b.WriteString("\nRoles\n")
-	b.WriteString("  proposers: " + strings.Join(report.Roles.Proposers, ",") + "\n")
-	b.WriteString("  challengers: " + strings.Join(report.Roles.Challengers, ",") + "\n")
-	b.WriteString("  participants: " + strings.Join(report.Roles.Participants, ",") + "\n")
-	b.WriteString("  semantic_verifier: " + report.Roles.SemanticVerifier + "\n")
-	b.WriteString("  arbiter: " + report.Roles.Arbiter + "\n")
-	b.WriteString("  facilitator: " + report.Roles.Facilitator + "\n")
-	b.WriteString("  reporter: " + report.Roles.Reporter + "\n")
-	b.WriteString("  actor: " + report.Roles.Actor + "\n")
+	b.WriteString("  adjudication:\n")
+	b.WriteString("    proposers: " + strings.Join(report.Roles.Adjudication.Proposers, ",") + "\n")
+	b.WriteString("    challengers: " + strings.Join(report.Roles.Adjudication.Challengers, ",") + "\n")
+	b.WriteString("    semantic_verifier: " + report.Roles.Adjudication.SemanticVerifier + "\n")
+	b.WriteString("    arbiter: " + report.Roles.Adjudication.Arbiter + "\n")
+	b.WriteString("    reporter: " + report.Roles.Adjudication.Reporter + "\n")
+	b.WriteString("    actor: " + report.Roles.Adjudication.Actor + "\n")
+	b.WriteString("  free_debate:\n")
+	b.WriteString("    participants: " + strings.Join(report.Roles.FreeDebate.Participants, ",") + "\n")
+	b.WriteString("    reporter: " + report.Roles.FreeDebate.Reporter + "\n")
+	b.WriteString("    actor: " + report.Roles.FreeDebate.Actor + "\n")
+	b.WriteString("  delphi:\n")
+	b.WriteString("    participants: " + strings.Join(report.Roles.Delphi.Participants, ",") + "\n")
+	b.WriteString("    facilitator: " + report.Roles.Delphi.Facilitator + "\n")
+	b.WriteString("    reporter: " + report.Roles.Delphi.Reporter + "\n")
+	b.WriteString("    actor: " + report.Roles.Delphi.Actor + "\n")
 	b.WriteString("\nOutput\n")
 	b.WriteString("  runDir: " + report.Output.RunDir + "\n")
 	b.WriteString("  resultTemplate: " + report.Output.ResultTemplate + "\n")

@@ -78,7 +78,7 @@ func runShortcutCommand(ctx context.Context, cmd *cli.Command, mode consensus.Wo
 	}
 	participants := splitComma(cmd.String("participants"))
 	if len(participants) == 0 && (mode == consensus.WorkflowModeFreeDebate || mode == consensus.WorkflowModeDelphi) {
-		participants = inferShortcutParticipants(loaded.Config.Roles)
+		participants = inferShortcutParticipants(loaded.Config.Roles, mode)
 	}
 	overrides := config.RunOverrides{
 		ConfigPath:           cmd.String("config"),
@@ -131,10 +131,12 @@ func resolveShortcutTask(args []string, taskFile string) (string, error) {
 	return strings.Join(args, " "), nil
 }
 
-func inferShortcutParticipants(roles config.RolesConfig) []string {
-	if len(roles.Participants) > 0 {
-		return roles.Participants
+func inferShortcutParticipants(roles config.RolesConfig, mode consensus.WorkflowMode) []string {
+	modeRoles := config.RoleAssignmentsForMode(roles, mode)
+	if len(modeRoles.Participants) > 0 {
+		return modeRoles.Participants
 	}
+	adjudicationRoles := config.RoleAssignmentsForMode(roles, consensus.WorkflowModeAdjudication)
 	out := []string{}
 	seen := map[string]struct{}{}
 	add := func(id string) {
@@ -148,10 +150,10 @@ func inferShortcutParticipants(roles config.RolesConfig) []string {
 		seen[id] = struct{}{}
 		out = append(out, id)
 	}
-	for _, id := range roles.Proposers {
+	for _, id := range adjudicationRoles.Proposers {
 		add(id)
 	}
-	for _, id := range roles.Challengers {
+	for _, id := range adjudicationRoles.Challengers {
 		add(id)
 	}
 	return out

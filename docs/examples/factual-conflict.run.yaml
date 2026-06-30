@@ -10,11 +10,11 @@ task_spec:
     root: .
 
 roles:
-  proposers: [proposer-a]
-  challengers: [challenger-a]
-  arbiter: arbiter-a
-  reporter: reporter-a
-
+  adjudication:
+    proposers: [proposer-a]
+    challengers: [challenger-a]
+    arbiter: arbiter-a
+    reporter: reporter-a
 ingest_policy:
   sources:
     - name: latest-yaml

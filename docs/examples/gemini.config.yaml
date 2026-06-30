@@ -53,8 +53,9 @@ agents:
     role: reporter
 
 roles:
-  proposers: [proposer-gemini]
-  challengers: [challenger-gemini]
-  semantic_verifier: verifier-gemini
-  arbiter: arbiter-gemini
-  reporter: reporter-gemini
+  adjudication:
+    proposers: [proposer-gemini]
+    challengers: [challenger-gemini]
+    semantic_verifier: verifier-gemini
+    arbiter: arbiter-gemini
+    reporter: reporter-gemini

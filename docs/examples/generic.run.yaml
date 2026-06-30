@@ -16,12 +16,12 @@ task_spec:
         当前对外口径声称：供应商已经完成迁移，所有区域都已切换到新系统。
 
 roles:
-  proposers: [proposer-generic]
-  challengers: [challenger-generic]
-  arbiter: arbiter-generic
-  semantic_verifier: verifier-generic
-  reporter: reporter-generic
-
+  adjudication:
+    proposers: [proposer-generic]
+    challengers: [challenger-generic]
+    semantic_verifier: verifier-generic
+    arbiter: arbiter-generic
+    reporter: reporter-generic
 proposal_policy:
   max_passes: 1
   max_claims_per_worker: 4

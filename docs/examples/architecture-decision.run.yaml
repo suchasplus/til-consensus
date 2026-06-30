@@ -8,12 +8,12 @@ task_spec:
     - 必须指出主要风险和前提
 
 roles:
-  proposers: [proposer-codex]
-  challengers: [challenger-claude]
-  arbiter: arbiter-claude
-  semantic_verifier: verifier-gemini
-  reporter: reporter-codex
-
+  adjudication:
+    proposers: [proposer-codex]
+    challengers: [challenger-claude]
+    semantic_verifier: verifier-gemini
+    arbiter: arbiter-claude
+    reporter: reporter-codex
 proposal_policy:
   max_passes: 1
   max_claims_per_worker: 6

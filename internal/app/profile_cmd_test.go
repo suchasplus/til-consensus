@@ -45,9 +45,10 @@ agents:
     model: default
     role: arbiter
 roles:
-  proposers: [proposer-a]
-  challengers: [challenger-a]
-  arbiter: arbiter-a
+  adjudication:
+    proposers: [proposer-a]
+    challengers: [challenger-a]
+    arbiter: arbiter-a
 `, filepath.ToSlash(filepath.Join(tmp, "out", "{requestId}")))), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -113,9 +114,10 @@ agents:
     model: default
     role: arbiter
 roles:
-  proposers: [proposer-a]
-  challengers: [challenger-a]
-  arbiter: arbiter-a
+  adjudication:
+    proposers: [proposer-a]
+    challengers: [challenger-a]
+    arbiter: arbiter-a
 `, filepath.ToSlash(filepath.Join(tmp, "out", "{requestId}")))), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -188,9 +190,10 @@ agents:
     model: default
     role: arbiter
 roles:
-  proposers: [proposer-a]
-  challengers: [challenger-a]
-  arbiter: arbiter-a
+  adjudication:
+    proposers: [proposer-a]
+    challengers: [challenger-a]
+    arbiter: arbiter-a
 `), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}

@@ -53,8 +53,9 @@ agents:
     role: reporter
 
 roles:
-  proposers: [proposer-claude]
-  challengers: [challenger-claude]
-  semantic_verifier: verifier-claude
-  arbiter: arbiter-claude
-  reporter: reporter-claude
+  adjudication:
+    proposers: [proposer-claude]
+    challengers: [challenger-claude]
+    semantic_verifier: verifier-claude
+    arbiter: arbiter-claude
+    reporter: reporter-claude

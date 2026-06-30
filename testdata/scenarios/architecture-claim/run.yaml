@@ -16,12 +16,12 @@ task_spec:
       path: ./metrics.md
 
 roles:
-  proposers: [proposer-a]
-  challengers: [challenger-a]
-  arbiter: arbiter-a
-  semantic_verifier: verifier-a
-  reporter: reporter-a
-
+  adjudication:
+    proposers: [proposer-a]
+    challengers: [challenger-a]
+    semantic_verifier: verifier-a
+    arbiter: arbiter-a
+    reporter: reporter-a
 verification_policy:
   allow_semantic_verifier: true
   required_checks:

@@ -221,7 +221,7 @@ func TestResolveRunPlanRejectsUnknownOverrideParticipant(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected unknown participant override to fail")
 	}
-	if got := err.Error(); got != "roles.participants references unknown agent participant-c" {
+	if got := err.Error(); got != "roles.delphi.participants references unknown agent participant-c" {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

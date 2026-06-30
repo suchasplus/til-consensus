@@ -21,12 +21,12 @@ task_spec:
       - git
 
 roles:
-  proposers: [proposer-a]
-  challengers: [challenger-a]
-  arbiter: arbiter-a
-  semantic_verifier: verifier-a
-  reporter: reporter-a
-
+  adjudication:
+    proposers: [proposer-a]
+    challengers: [challenger-a]
+    semantic_verifier: verifier-a
+    arbiter: arbiter-a
+    reporter: reporter-a
 verification_policy:
   allow_semantic_verifier: true
   max_parallel_checks: 3

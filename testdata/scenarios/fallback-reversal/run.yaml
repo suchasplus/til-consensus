@@ -8,10 +8,10 @@ task_spec:
     - 所有补抓证据必须写入 ledger
 
 roles:
-  proposers: [proposer-a]
-  challengers: [challenger-a]
-  arbiter: arbiter-a
-
+  adjudication:
+    proposers: [proposer-a]
+    challengers: [challenger-a]
+    arbiter: arbiter-a
 ingest_policy:
   sources:
     - name: evidence-refresh

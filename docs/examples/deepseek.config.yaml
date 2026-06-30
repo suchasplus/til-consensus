@@ -70,8 +70,9 @@ agents:
     role: reporter
 
 roles:
-  proposers: [proposer-deepseek]
-  challengers: [challenger-deepseek]
-  semantic_verifier: verifier-deepseek
-  arbiter: arbiter-deepseek
-  reporter: reporter-deepseek
+  adjudication:
+    proposers: [proposer-deepseek]
+    challengers: [challenger-deepseek]
+    semantic_verifier: verifier-deepseek
+    arbiter: arbiter-deepseek
+    reporter: reporter-deepseek

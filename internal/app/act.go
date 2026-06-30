@@ -50,7 +50,11 @@ func runActCommand(ctx context.Context, cmd *cli.Command) error {
 	}
 	actorID := cmd.String("agent")
 	if actorID == "" {
-		actorID = loaded.Config.Roles.Actor
+		mode := loaded.Config.Defaults.Mode
+		if mode == "" {
+			mode = consensus.WorkflowModeAdjudication
+		}
+		actorID = config.RoleAssignmentsForMode(loaded.Config.Roles, mode).Actor
 	}
 	if actorID == "" {
 		return fmt.Errorf("missing actor agent id")

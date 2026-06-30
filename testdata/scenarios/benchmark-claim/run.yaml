@@ -14,10 +14,10 @@ task_spec:
     root: .
 
 roles:
-  proposers: [proposer-a]
-  challengers: [challenger-a]
-  arbiter: arbiter-a
-
+  adjudication:
+    proposers: [proposer-a]
+    challengers: [challenger-a]
+    arbiter: arbiter-a
 verification_policy:
   required_checks:
     - name: p95-latency

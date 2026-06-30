@@ -129,21 +129,30 @@ func ApplyAddAgent(cfg Config, input AddAgentInput) (Config, error) {
 	for _, assign := range input.Assigns {
 		switch strings.TrimSpace(assign) {
 		case "proposer":
-			cfg.Roles.Proposers = append(cfg.Roles.Proposers, input.ID)
+			cfg.Roles.Adjudication.Proposers = append(cfg.Roles.Adjudication.Proposers, input.ID)
 		case "challenger":
-			cfg.Roles.Challengers = append(cfg.Roles.Challengers, input.ID)
+			cfg.Roles.Adjudication.Challengers = append(cfg.Roles.Adjudication.Challengers, input.ID)
 		case "participant":
-			cfg.Roles.Participants = append(cfg.Roles.Participants, input.ID)
+			cfg.Roles.FreeDebate.Participants = append(cfg.Roles.FreeDebate.Participants, input.ID)
+			cfg.Roles.Delphi.Participants = append(cfg.Roles.Delphi.Participants, input.ID)
+		case "free-debate-participant":
+			cfg.Roles.FreeDebate.Participants = append(cfg.Roles.FreeDebate.Participants, input.ID)
+		case "delphi-participant":
+			cfg.Roles.Delphi.Participants = append(cfg.Roles.Delphi.Participants, input.ID)
 		case "arbiter":
-			cfg.Roles.Arbiter = input.ID
+			cfg.Roles.Adjudication.Arbiter = input.ID
 		case "semantic-verifier":
-			cfg.Roles.SemanticVerifier = input.ID
+			cfg.Roles.Adjudication.SemanticVerifier = input.ID
 		case "facilitator":
-			cfg.Roles.Facilitator = input.ID
+			cfg.Roles.Delphi.Facilitator = input.ID
 		case "reporter":
-			cfg.Roles.Reporter = input.ID
+			cfg.Roles.Adjudication.Reporter = input.ID
+			cfg.Roles.FreeDebate.Reporter = input.ID
+			cfg.Roles.Delphi.Reporter = input.ID
 		case "actor":
-			cfg.Roles.Actor = input.ID
+			cfg.Roles.Adjudication.Actor = input.ID
+			cfg.Roles.FreeDebate.Actor = input.ID
+			cfg.Roles.Delphi.Actor = input.ID
 		default:
 			return Config{}, fmt.Errorf("unsupported role assignment: %s", assign)
 		}
@@ -201,8 +210,10 @@ func BuildProvider(input AddProviderInput) (ProviderConfig, error) {
 		Providers:     map[string]ProviderConfig{input.ID: provider},
 		Agents:        []AgentConfig{{ID: "probe", Provider: input.ID, Model: defaultModelIDForAgent(provider, modelID)}},
 		Roles: RolesConfig{
-			Proposers:   []string{"probe"},
-			Challengers: []string{"probe"},
+			Adjudication: AdjudicationRolesConfig{
+				Proposers:   []string{"probe"},
+				Challengers: []string{"probe"},
+			},
 		},
 	}); err != nil {
 		if provider.Type == ProviderTypeMock && strings.Contains(err.Error(), "agent probe") {

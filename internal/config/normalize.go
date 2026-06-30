@@ -98,10 +98,90 @@ func normalizeProvider(provider ProviderConfig) ProviderConfig {
 }
 
 func normalizeRoles(roles RolesConfig) RolesConfig {
-	roles.Proposers = dedupe(roles.Proposers)
-	roles.Challengers = dedupe(roles.Challengers)
-	roles.Participants = dedupe(roles.Participants)
+	if roles.Adjudication.IsZero() {
+		roles.Adjudication = AdjudicationRolesConfig{
+			Proposers:        roles.Proposers,
+			Challengers:      roles.Challengers,
+			Arbiter:          roles.Arbiter,
+			SemanticVerifier: roles.SemanticVerifier,
+			Reporter:         roles.Reporter,
+			Actor:            roles.Actor,
+		}
+	}
+	if roles.FreeDebate.IsZero() {
+		roles.FreeDebate = DebateRolesConfig{
+			Participants: roles.Participants,
+			Reporter:     roles.Reporter,
+			Actor:        roles.Actor,
+		}
+	}
+	if roles.Delphi.IsZero() {
+		roles.Delphi = DelphiRolesConfig{
+			Participants: roles.Participants,
+			Facilitator:  roles.Facilitator,
+			Reporter:     roles.Reporter,
+			Actor:        roles.Actor,
+		}
+	}
+	roles.Adjudication.Proposers = dedupe(roles.Adjudication.Proposers)
+	roles.Adjudication.Challengers = dedupe(roles.Adjudication.Challengers)
+	roles.Adjudication.Arbiter = strings.TrimSpace(roles.Adjudication.Arbiter)
+	roles.Adjudication.SemanticVerifier = strings.TrimSpace(roles.Adjudication.SemanticVerifier)
+	roles.Adjudication.Reporter = strings.TrimSpace(roles.Adjudication.Reporter)
+	roles.Adjudication.Actor = strings.TrimSpace(roles.Adjudication.Actor)
+	roles.FreeDebate.Participants = dedupe(roles.FreeDebate.Participants)
+	roles.FreeDebate.Reporter = strings.TrimSpace(roles.FreeDebate.Reporter)
+	roles.FreeDebate.Actor = strings.TrimSpace(roles.FreeDebate.Actor)
+	roles.Delphi.Participants = dedupe(roles.Delphi.Participants)
+	roles.Delphi.Facilitator = strings.TrimSpace(roles.Delphi.Facilitator)
+	roles.Delphi.Reporter = strings.TrimSpace(roles.Delphi.Reporter)
+	roles.Delphi.Actor = strings.TrimSpace(roles.Delphi.Actor)
+	roles.Proposers = cloneStrings(roles.Adjudication.Proposers)
+	roles.Challengers = cloneStrings(roles.Adjudication.Challengers)
+	roles.Participants = firstNonEmptyStrings(roles.FreeDebate.Participants, roles.Delphi.Participants)
+	roles.Arbiter = roles.Adjudication.Arbiter
+	roles.SemanticVerifier = roles.Adjudication.SemanticVerifier
+	roles.Facilitator = roles.Delphi.Facilitator
+	roles.Reporter = firstNonEmpty(roles.Adjudication.Reporter, roles.FreeDebate.Reporter, roles.Delphi.Reporter)
+	roles.Actor = firstNonEmpty(roles.Adjudication.Actor, roles.FreeDebate.Actor, roles.Delphi.Actor)
 	return roles
+}
+
+func RoleAssignmentsForMode(roles RolesConfig, mode consensus.WorkflowMode) consensus.RoleAssignments {
+	roles = normalizeRoles(roles)
+	switch mode {
+	case consensus.WorkflowModeFreeDebate:
+		return consensus.RoleAssignments{
+			Participants: cloneStrings(roles.FreeDebate.Participants),
+			Reporter:     roles.FreeDebate.Reporter,
+			Actor:        roles.FreeDebate.Actor,
+		}
+	case consensus.WorkflowModeDelphi:
+		return consensus.RoleAssignments{
+			Participants: cloneStrings(roles.Delphi.Participants),
+			Facilitator:  roles.Delphi.Facilitator,
+			Reporter:     roles.Delphi.Reporter,
+			Actor:        roles.Delphi.Actor,
+		}
+	default:
+		return consensus.RoleAssignments{
+			Proposers:        cloneStrings(roles.Adjudication.Proposers),
+			Challengers:      cloneStrings(roles.Adjudication.Challengers),
+			Arbiter:          roles.Adjudication.Arbiter,
+			SemanticVerifier: roles.Adjudication.SemanticVerifier,
+			Reporter:         roles.Adjudication.Reporter,
+			Actor:            roles.Adjudication.Actor,
+		}
+	}
+}
+
+func firstNonEmptyStrings(values ...[]string) []string {
+	for _, value := range values {
+		if len(value) > 0 {
+			return cloneStrings(value)
+		}
+	}
+	return nil
 }
 
 func singleModelID(provider ProviderConfig) (string, bool) {

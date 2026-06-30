@@ -8,11 +8,11 @@ task_spec:
     - 如果外部观测否定原结论，必须 reopen
 
 roles:
-  proposers: [proposer-a]
-  challengers: [challenger-a]
-  arbiter: arbiter-a
-  actor: actor-a
-
+  adjudication:
+    proposers: [proposer-a]
+    challengers: [challenger-a]
+    arbiter: arbiter-a
+    actor: actor-a
 action: 执行低风险发布动作
 
 observe_policy:

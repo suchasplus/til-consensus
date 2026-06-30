@@ -53,8 +53,9 @@ agents:
     role: reporter
 
 roles:
-  proposers: [proposer-antigravity]
-  challengers: [challenger-antigravity]
-  semantic_verifier: verifier-antigravity
-  arbiter: arbiter-antigravity
-  reporter: reporter-antigravity
+  adjudication:
+    proposers: [proposer-antigravity]
+    challengers: [challenger-antigravity]
+    semantic_verifier: verifier-antigravity
+    arbiter: arbiter-antigravity
+    reporter: reporter-antigravity

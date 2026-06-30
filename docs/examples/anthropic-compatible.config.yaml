@@ -60,8 +60,9 @@ agents:
     role: reporter
 
 roles:
-  proposers: [proposer-anthropic]
-  challengers: [challenger-anthropic]
-  semantic_verifier: verifier-anthropic
-  arbiter: arbiter-anthropic
-  reporter: reporter-anthropic
+  adjudication:
+    proposers: [proposer-anthropic]
+    challengers: [challenger-anthropic]
+    semantic_verifier: verifier-anthropic
+    arbiter: arbiter-anthropic
+    reporter: reporter-anthropic

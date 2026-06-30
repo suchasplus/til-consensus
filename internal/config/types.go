@@ -83,14 +83,68 @@ type DefaultsConfig struct {
 }
 
 type RolesConfig struct {
-	Proposers        []string `yaml:"proposers"`
-	Challengers      []string `yaml:"challengers"`
-	Participants     []string `yaml:"participants,omitempty"`
+	Adjudication AdjudicationRolesConfig `yaml:"adjudication,omitempty"`
+	FreeDebate   DebateRolesConfig       `yaml:"free_debate,omitempty"`
+	Delphi       DelphiRolesConfig       `yaml:"delphi,omitempty"`
+
+	// Computed compatibility fields for internal call sites. They are not part
+	// of the YAML schema; new config files must use the mode-scoped fields above.
+	Proposers        []string `yaml:"-" json:"-"`
+	Challengers      []string `yaml:"-" json:"-"`
+	Participants     []string `yaml:"-" json:"-"`
+	Arbiter          string   `yaml:"-" json:"-"`
+	SemanticVerifier string   `yaml:"-" json:"-"`
+	Facilitator      string   `yaml:"-" json:"-"`
+	Reporter         string   `yaml:"-" json:"-"`
+	Actor            string   `yaml:"-" json:"-"`
+}
+
+type AdjudicationRolesConfig struct {
+	Proposers        []string `yaml:"proposers,omitempty"`
+	Challengers      []string `yaml:"challengers,omitempty"`
 	Arbiter          string   `yaml:"arbiter,omitempty"`
 	SemanticVerifier string   `yaml:"semantic_verifier,omitempty"`
-	Facilitator      string   `yaml:"facilitator,omitempty"`
 	Reporter         string   `yaml:"reporter,omitempty"`
 	Actor            string   `yaml:"actor,omitempty"`
+}
+
+type DebateRolesConfig struct {
+	Participants []string `yaml:"participants,omitempty"`
+	Reporter     string   `yaml:"reporter,omitempty"`
+	Actor        string   `yaml:"actor,omitempty"`
+}
+
+type DelphiRolesConfig struct {
+	Participants []string `yaml:"participants,omitempty"`
+	Facilitator  string   `yaml:"facilitator,omitempty"`
+	Reporter     string   `yaml:"reporter,omitempty"`
+	Actor        string   `yaml:"actor,omitempty"`
+}
+
+func (r AdjudicationRolesConfig) IsZero() bool {
+	return len(r.Proposers) == 0 &&
+		len(r.Challengers) == 0 &&
+		strings.TrimSpace(r.Arbiter) == "" &&
+		strings.TrimSpace(r.SemanticVerifier) == "" &&
+		strings.TrimSpace(r.Reporter) == "" &&
+		strings.TrimSpace(r.Actor) == ""
+}
+
+func (r DebateRolesConfig) IsZero() bool {
+	return len(r.Participants) == 0 &&
+		strings.TrimSpace(r.Reporter) == "" &&
+		strings.TrimSpace(r.Actor) == ""
+}
+
+func (r DelphiRolesConfig) IsZero() bool {
+	return len(r.Participants) == 0 &&
+		strings.TrimSpace(r.Facilitator) == "" &&
+		strings.TrimSpace(r.Reporter) == "" &&
+		strings.TrimSpace(r.Actor) == ""
+}
+
+func (r RolesConfig) IsZero() bool {
+	return r.Adjudication.IsZero() && r.FreeDebate.IsZero() && r.Delphi.IsZero()
 }
 
 type ProposalPolicyConfig struct {

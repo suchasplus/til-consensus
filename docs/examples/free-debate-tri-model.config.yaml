@@ -75,8 +75,9 @@ agents:
     role: participant
 
 roles:
-  participants:
-    - participant-claude
-    - participant-gemini
-    - participant-codex
-  reporter: reporter-claude
+  free_debate:
+    participants:
+      - participant-claude
+      - participant-gemini
+      - participant-codex
+    reporter: reporter-claude

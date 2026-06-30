@@ -102,9 +102,10 @@ agents:
     model: default
     role: arbiter
 roles:
-  proposers: [proposer-a]
-  challengers: [challenger-a]
-  arbiter: arbiter-a
+  adjudication:
+    proposers: [proposer-a]
+    challengers: [challenger-a]
+    arbiter: arbiter-a
 `)
 	root, err := resolveTelemetryRoot(configPath, "")
 	if err != nil {

@@ -38,7 +38,7 @@ output:
 - 主配置文件最后覆盖所有 include。
 - map 字段会深合并，例如 `providers`、`providers.<id>.models`、`headers`、`env`、`options`。
 - `agents` 按 `id` 合并，同一个 agent 可以在主文件里只覆盖 `system_prompt`、`role` 或 `model`。
-- slice 字段默认整体替换，例如 `roles.proposers`、`success_criteria`、`required_checks`。
+- slice 字段默认整体替换，例如 `roles.adjudication.proposers`、`roles.free_debate.participants`、`success_criteria`、`required_checks`。
 - 标量字段只有非零值会覆盖；布尔字段目前只支持 `false -> true` 的覆盖，不适合用 include 把某个已启用的布尔值关掉。
 - 最终合并后的配置仍然走同一套 `Normalize` 和 `Validate`。
 - `config add-provider` / `config add-agent` 这类写回命令会写出合并后的完整配置，不会保留原始 include 结构；手工维护 include 配置时，建议直接编辑片段文件。
@@ -79,15 +79,17 @@ profiles:
       mode: adjudication
       per_task_timeout: 5m
     roles:
-      proposers: [proposer-fast]
-      challengers: [challenger-fast]
-      arbiter: arbiter-fast
+      adjudication:
+        proposers: [proposer-fast]
+        challengers: [challenger-fast]
+        arbiter: arbiter-fast
   delphi-strong:
     defaults:
       mode: delphi
       per_task_timeout: 20m
     roles:
-      participants: [participant-a, participant-b, participant-c]
+      delphi:
+        participants: [participant-a, participant-b, participant-c]
       facilitator: facilitator-a
       reporter: reporter-a
 
@@ -539,10 +541,11 @@ defaults:
         success_pattern: HEALTHY
 
 roles:
-  proposers: [proposer-a]
-  challengers: [challenger-a]
-  arbiter: arbiter-a
-  semantic_verifier: verifier-a
+  adjudication:
+    proposers: [proposer-a]
+    challengers: [challenger-a]
+    semantic_verifier: verifier-a
+    arbiter: arbiter-a
 ```
 
 如果希望 `adjudicate` 自动补抓新证据，可以继续加：
@@ -578,8 +581,9 @@ defaults:
     vote_threshold: 0.75
 
 roles:
-  participants: [debater-a, debater-b, debater-c]
-  reporter: reporter-a
+  free_debate:
+    participants: [debater-a, debater-b, debater-c]
+    reporter: reporter-a
 ```
 
 ### 3. `delphi`
@@ -593,9 +597,10 @@ defaults:
     convergence_threshold: 0.8
 
 roles:
-  participants: [participant-a, participant-b, participant-c]
-  facilitator: facilitator-a
-  reporter: reporter-a
+  delphi:
+    participants: [participant-a, participant-b, participant-c]
+    facilitator: facilitator-a
+    reporter: reporter-a
 ```
 
 如果你同时使用 `--input ./run.yaml`：
@@ -742,7 +747,7 @@ til-consensus profile preflight --config docs/examples/deepseek.config.yaml --pr
 - `--agent` 按 agent id 检查，会使用该 agent 的 provider、model、temperature、reasoning 覆写。
 - `--output` 只覆盖本次 preflight 的 `output.directory`，不会写回配置文件。
 - 相对 `output.directory` 按当前执行目录解析，而不是按配置文件所在目录解析。
-- `profile preflight` 默认只校验 provider / agent profile，不要求 `roles.proposers / roles.challengers / participants` 等 workflow 角色完整。
+- `profile preflight` 默认只校验 provider / agent profile，不要求 `roles.adjudication.proposers/challengers`、`roles.free_debate.participants`、`roles.delphi.participants` 等 workflow 角色完整。
 - 如果传了 `--agent`，该 agent 仍必须正确引用已存在的 provider 和 model。
 - API provider 会先检查 `api_key_env` 对应环境变量是否存在；不会把 key 写进 artifact。
 - 每个 provider 会执行带 schema 的最小非交互 JSON 探测：要求返回 `{"ok": true}`。

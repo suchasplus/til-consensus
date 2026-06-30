@@ -252,15 +252,17 @@ func resolveSessionStoreDir(runDir string) string {
 }
 
 func resolveRoles(mode consensus.WorkflowMode, cfg RolesConfig, input RolesConfig, overrides RunOverrides) (consensus.RoleAssignments, error) {
+	cfgRoles := RoleAssignmentsForMode(cfg, mode)
+	inputRoles := RoleAssignmentsForMode(input, mode)
 	roles := consensus.RoleAssignments{
-		Proposers:        pickStrings(overrides.Proposers, input.Proposers, cfg.Proposers),
-		Challengers:      pickStrings(overrides.Challengers, input.Challengers, cfg.Challengers),
-		Participants:     pickStrings(overrides.Participants, input.Participants, cfg.Participants),
-		Arbiter:          firstNonEmpty(overrides.Arbiter, input.Arbiter, cfg.Arbiter),
-		SemanticVerifier: firstNonEmpty(overrides.SemanticVerifier, input.SemanticVerifier, cfg.SemanticVerifier),
-		Facilitator:      firstNonEmpty(overrides.Facilitator, input.Facilitator, cfg.Facilitator),
-		Reporter:         firstNonEmpty(overrides.Reporter, input.Reporter, cfg.Reporter),
-		Actor:            firstNonEmpty(overrides.Actor, input.Actor, cfg.Actor),
+		Proposers:        pickStrings(overrides.Proposers, inputRoles.Proposers, cfgRoles.Proposers),
+		Challengers:      pickStrings(overrides.Challengers, inputRoles.Challengers, cfgRoles.Challengers),
+		Participants:     pickStrings(overrides.Participants, inputRoles.Participants, cfgRoles.Participants),
+		Arbiter:          firstNonEmpty(overrides.Arbiter, inputRoles.Arbiter, cfgRoles.Arbiter),
+		SemanticVerifier: firstNonEmpty(overrides.SemanticVerifier, inputRoles.SemanticVerifier, cfgRoles.SemanticVerifier),
+		Facilitator:      firstNonEmpty(overrides.Facilitator, inputRoles.Facilitator, cfgRoles.Facilitator),
+		Reporter:         firstNonEmpty(overrides.Reporter, inputRoles.Reporter, cfgRoles.Reporter),
+		Actor:            firstNonEmpty(overrides.Actor, inputRoles.Actor, cfgRoles.Actor),
 	}
 	switch mode {
 	case consensus.WorkflowModeFreeDebate, consensus.WorkflowModeDelphi:
@@ -303,32 +305,34 @@ func validateAssignedAgents(cfg Config, roles consensus.RoleAssignments, mode co
 
 	switch mode {
 	case consensus.WorkflowModeAdjudication:
-		if err := validateAgents(roles.Proposers, "roles.proposers"); err != nil {
+		if err := validateAgents(roles.Proposers, "roles.adjudication.proposers"); err != nil {
 			return err
 		}
-		if err := validateAgents(roles.Challengers, "roles.challengers"); err != nil {
+		if err := validateAgents(roles.Challengers, "roles.adjudication.challengers"); err != nil {
 			return err
 		}
-		if err := validateAgent(roles.Arbiter, "roles.arbiter"); err != nil {
+		if err := validateAgent(roles.Arbiter, "roles.adjudication.arbiter"); err != nil {
 			return err
 		}
-		if err := validateAgent(roles.SemanticVerifier, "roles.semantic_verifier"); err != nil {
+		if err := validateAgent(roles.SemanticVerifier, "roles.adjudication.semantic_verifier"); err != nil {
 			return err
 		}
-	case consensus.WorkflowModeFreeDebate, consensus.WorkflowModeDelphi:
-		if err := validateAgents(roles.Participants, "roles.participants"); err != nil {
+	case consensus.WorkflowModeFreeDebate:
+		if err := validateAgents(roles.Participants, "roles.free_debate.participants"); err != nil {
 			return err
 		}
-		if mode == consensus.WorkflowModeDelphi {
-			if err := validateAgent(roles.Facilitator, "roles.facilitator"); err != nil {
-				return err
-			}
+	case consensus.WorkflowModeDelphi:
+		if err := validateAgents(roles.Participants, "roles.delphi.participants"); err != nil {
+			return err
+		}
+		if err := validateAgent(roles.Facilitator, "roles.delphi.facilitator"); err != nil {
+			return err
 		}
 	}
-	if err := validateAgent(roles.Reporter, "roles.reporter"); err != nil {
+	if err := validateAgent(roles.Reporter, "roles."+string(mode)+".reporter"); err != nil {
 		return err
 	}
-	if err := validateAgent(roles.Actor, "roles.actor"); err != nil {
+	if err := validateAgent(roles.Actor, "roles."+string(mode)+".actor"); err != nil {
 		return err
 	}
 	return nil

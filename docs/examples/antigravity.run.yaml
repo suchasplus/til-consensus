@@ -24,12 +24,12 @@ task_spec:
         如果 Antigravity CLI 登录态、模型名或非交互输出不稳定，必须能快速回退到 Gemini CLI 或 Gemini API。
 
 roles:
-  proposers: [proposer-antigravity]
-  challengers: [challenger-antigravity]
-  arbiter: arbiter-antigravity
-  semantic_verifier: verifier-antigravity
-  reporter: reporter-antigravity
-
+  adjudication:
+    proposers: [proposer-antigravity]
+    challengers: [challenger-antigravity]
+    semantic_verifier: verifier-antigravity
+    arbiter: arbiter-antigravity
+    reporter: reporter-antigravity
 proposal_policy:
   max_passes: 1
   max_claims_per_worker: 4

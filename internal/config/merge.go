@@ -217,22 +217,31 @@ func mergeAgent(base AgentConfig, overlay AgentConfig) AgentConfig {
 }
 
 func mergeRoles(base RolesConfig, overlay RolesConfig) RolesConfig {
+	base = normalizeRoles(base)
+	overlay = normalizeRoles(overlay)
 	out := base
-	if len(overlay.Proposers) > 0 {
-		out.Proposers = cloneStrings(overlay.Proposers)
+	if len(overlay.Adjudication.Proposers) > 0 {
+		out.Adjudication.Proposers = cloneStrings(overlay.Adjudication.Proposers)
 	}
-	if len(overlay.Challengers) > 0 {
-		out.Challengers = cloneStrings(overlay.Challengers)
+	if len(overlay.Adjudication.Challengers) > 0 {
+		out.Adjudication.Challengers = cloneStrings(overlay.Adjudication.Challengers)
 	}
-	if len(overlay.Participants) > 0 {
-		out.Participants = cloneStrings(overlay.Participants)
+	out.Adjudication.Arbiter = pickString(out.Adjudication.Arbiter, overlay.Adjudication.Arbiter)
+	out.Adjudication.SemanticVerifier = pickString(out.Adjudication.SemanticVerifier, overlay.Adjudication.SemanticVerifier)
+	out.Adjudication.Reporter = pickString(out.Adjudication.Reporter, overlay.Adjudication.Reporter)
+	out.Adjudication.Actor = pickString(out.Adjudication.Actor, overlay.Adjudication.Actor)
+	if len(overlay.FreeDebate.Participants) > 0 {
+		out.FreeDebate.Participants = cloneStrings(overlay.FreeDebate.Participants)
 	}
-	out.Arbiter = pickString(out.Arbiter, overlay.Arbiter)
-	out.SemanticVerifier = pickString(out.SemanticVerifier, overlay.SemanticVerifier)
-	out.Facilitator = pickString(out.Facilitator, overlay.Facilitator)
-	out.Reporter = pickString(out.Reporter, overlay.Reporter)
-	out.Actor = pickString(out.Actor, overlay.Actor)
-	return out
+	out.FreeDebate.Reporter = pickString(out.FreeDebate.Reporter, overlay.FreeDebate.Reporter)
+	out.FreeDebate.Actor = pickString(out.FreeDebate.Actor, overlay.FreeDebate.Actor)
+	if len(overlay.Delphi.Participants) > 0 {
+		out.Delphi.Participants = cloneStrings(overlay.Delphi.Participants)
+	}
+	out.Delphi.Facilitator = pickString(out.Delphi.Facilitator, overlay.Delphi.Facilitator)
+	out.Delphi.Reporter = pickString(out.Delphi.Reporter, overlay.Delphi.Reporter)
+	out.Delphi.Actor = pickString(out.Delphi.Actor, overlay.Delphi.Actor)
+	return normalizeRoles(out)
 }
 
 func mergeProposalPolicy(base ProposalPolicyConfig, overlay ProposalPolicyConfig) ProposalPolicyConfig {

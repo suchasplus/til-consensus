@@ -64,8 +64,9 @@ agents:
     role: reporter
 
 roles:
-  proposers: [proposer-openrouter]
-  challengers: [challenger-openrouter]
-  semantic_verifier: verifier-openrouter
-  arbiter: arbiter-openrouter
-  reporter: reporter-openrouter
+  adjudication:
+    proposers: [proposer-openrouter]
+    challengers: [challenger-openrouter]
+    semantic_verifier: verifier-openrouter
+    arbiter: arbiter-openrouter
+    reporter: reporter-openrouter

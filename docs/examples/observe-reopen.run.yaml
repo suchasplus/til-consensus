@@ -8,12 +8,12 @@ task_spec:
     - 如果 observation 与 retained claims 矛盾，必须 reopen
 
 roles:
-  proposers: [proposer-a]
-  challengers: [challenger-a]
-  arbiter: arbiter-a
-  reporter: reporter-a
-  actor: actor-a
-
+  adjudication:
+    proposers: [proposer-a]
+    challengers: [challenger-a]
+    arbiter: arbiter-a
+    reporter: reporter-a
+    actor: actor-a
 observe_policy:
   on_contradiction: reopen
   sources:

@@ -145,8 +145,9 @@ agents:
     model: default
     role: challenger
 roles:
-  proposers: [proposer-a]
-  challengers: [challenger-a]
+  adjudication:
+    proposers: [proposer-a]
+    challengers: [challenger-a]
 `)
 	writeConfigTestFile(t, filepath.Join(partials, "override.yaml"), `
 providers:
@@ -184,7 +185,8 @@ agents:
     model: default
     role: arbiter
 roles:
-  arbiter: arbiter-a
+  adjudication:
+    arbiter: arbiter-a
 `)
 
 	loaded, err := Load(configPath)
@@ -241,8 +243,9 @@ agents:
   - id: proposer-a
     provider: mock
 roles:
-  proposers: [proposer-a]
-  challengers: [proposer-a]
+  adjudication:
+    proposers: [proposer-a]
+    challengers: [proposer-a]
 `)
 	writeConfigTestFile(t, second, `
 include:

@@ -53,8 +53,9 @@ agents:
     role: reporter
 
 roles:
-  proposers: [proposer-codex]
-  challengers: [challenger-codex]
-  semantic_verifier: verifier-codex
-  arbiter: arbiter-codex
-  reporter: reporter-codex
+  adjudication:
+    proposers: [proposer-codex]
+    challengers: [challenger-codex]
+    semantic_verifier: verifier-codex
+    arbiter: arbiter-codex
+    reporter: reporter-codex

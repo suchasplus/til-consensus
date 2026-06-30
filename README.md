@@ -100,7 +100,7 @@ til-consensus delphi ./docs/decision.md
 - `debate` 固定使用 `free_debate`
 - `delphi` 固定使用 `delphi`
 - 第一个位置参数如果是存在的文件，会按 `--task-file` 读取全文；否则按一段任务文本处理
-- `debate` / `delphi` 没有显式 `--participants` 时，会优先使用配置里的 `roles.participants`，否则从 proposer/challenger 去重推导
+- `debate` / `delphi` 没有显式 `--participants` 时，会优先使用配置里的 `roles.free_debate.participants` 或 `roles.delphi.participants`，否则从 `roles.adjudication.proposers/challengers` 去重推导
 
 查看相关也有快捷入口：
 
@@ -423,7 +423,7 @@ API provider 中，`gemini-api` 使用官方 `google.golang.org/genai` 的 `Mode
 
 preflight 会发起一次最小非交互 JSON 探测，要求 provider 返回 `{"ok": true}`。API provider 探测默认使用 `max_output_tokens=2048`；如果对应 API model 配置了更小的 `max_output_tokens`，则尊重配置值。CLI provider 当前不支持在配置里声明 output-token budget。
 
-因此，`profile preflight` 默认不要求 `roles.proposers / roles.challengers / participants` 等 workflow 角色完整；只要 `providers` 层级合法，且被指定的 `agents` 能正确引用 provider/model，就可以执行探测。要检查完整运行配置，仍然使用 `til-consensus config validate`。
+因此，`profile preflight` 默认不要求 `roles.adjudication.proposers/challengers`、`roles.free_debate.participants`、`roles.delphi.participants` 等 workflow 角色完整；只要 `providers` 层级合法，且被指定的 `agents` 能正确引用 provider/model，就可以执行探测。要检查完整运行配置，仍然使用 `til-consensus config validate`。
 
 多个 provider 会逐个探测并分块输出：每个 provider 完成后立即打印该 provider 的 readiness，最后再打印 `profile preflight completed ready=x/y` 和 artifact 路径。stdout 是真实终端时，最终 summary 全部 ready 会显示为绿色，否则显示为红色。
 

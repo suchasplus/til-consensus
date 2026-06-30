@@ -61,8 +61,9 @@ agents:
     role: reporter
 
 roles:
-  proposers: [proposer-kimi]
-  challengers: [challenger-kimi]
-  semantic_verifier: verifier-kimi
-  arbiter: arbiter-kimi
-  reporter: reporter-kimi
+  adjudication:
+    proposers: [proposer-kimi]
+    challengers: [challenger-kimi]
+    semantic_verifier: verifier-kimi
+    arbiter: arbiter-kimi
+    reporter: reporter-kimi

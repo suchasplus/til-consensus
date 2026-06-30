@@ -21,12 +21,12 @@ task_spec:
         需要确认该说法在今天是否仍然成立。
 
 roles:
-  proposers: [proposer-gemini]
-  challengers: [challenger-gemini]
-  arbiter: arbiter-gemini
-  semantic_verifier: verifier-gemini
-  reporter: reporter-gemini
-
+  adjudication:
+    proposers: [proposer-gemini]
+    challengers: [challenger-gemini]
+    semantic_verifier: verifier-gemini
+    arbiter: arbiter-gemini
+    reporter: reporter-gemini
 proposal_policy:
   max_passes: 1
   max_claims_per_worker: 4

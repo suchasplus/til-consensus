@@ -82,9 +82,10 @@ agents:
     role: reporter
 
 roles:
-  participants:
-    - participant-claude
-    - participant-gemini
-    - participant-codex
-  facilitator: facilitator-claude
-  reporter: reporter-codex
+  delphi:
+    participants:
+      - participant-claude
+      - participant-gemini
+      - participant-codex
+    facilitator: facilitator-claude
+    reporter: reporter-codex

@@ -55,9 +55,10 @@ agents:
     model: default
     role: arbiter
 roles:
-  proposers: [proposer-a]
-  challengers: [challenger-a]
-  arbiter: arbiter-a
+  adjudication:
+    proposers: [proposer-a]
+    challengers: [challenger-a]
+    arbiter: arbiter-a
 `, filepath.Join(tmp, "out", "{requestId}")))
 
 	var stdout bytes.Buffer
@@ -145,9 +146,10 @@ agents:
     model: default
     role: arbiter
 roles:
-  proposers: [proposer-a]
-  challengers: [challenger-a]
-  arbiter: arbiter-a
+  adjudication:
+    proposers: [proposer-a]
+    challengers: [challenger-a]
+    arbiter: arbiter-a
 `, filepath.Join(tmp, "out", "{requestId}")))
 
 	stdout.Reset()
@@ -235,8 +237,9 @@ agents:
     model: default
     role: challenger
 roles:
-  proposers: [proposer-a]
-  challengers: [challenger-a]
+  adjudication:
+    proposers: [proposer-a]
+    challengers: [challenger-a]
 `, filepath.Join(tmp, "out", "{requestId}")))
 
 	var stdout bytes.Buffer

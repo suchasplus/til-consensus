@@ -329,18 +329,20 @@ agents:
     model: default
     role: reporter
 roles:
-  participants: [participant-a, participant-b]
-  facilitator: facilitator-a
-  reporter: reporter-a
+  delphi:
+    participants: [participant-a, participant-b]
+    facilitator: facilitator-a
+    reporter: reporter-a
 `, filepath.Join(tmp, "out", "{requestId}")))
 	writeFile(t, inputPath, `request_id: delphi-run-001
 mode: delphi
 task_spec:
   goal: 评估是否应迁移 CI 平台
 roles:
-  participants: [participant-a, participant-b]
-  facilitator: facilitator-a
-  reporter: reporter-a
+  delphi:
+    participants: [participant-a, participant-b]
+    facilitator: facilitator-a
+    reporter: reporter-a
 delphi_policy:
   min_rounds: 2
   max_rounds: 2
@@ -406,9 +408,10 @@ agents:
     model: default
     role: arbiter
 roles:
-  proposers: [proposer-a]
-  challengers: [challenger-a]
-  arbiter: arbiter-a
+  adjudication:
+    proposers: [proposer-a]
+    challengers: [challenger-a]
+    arbiter: arbiter-a
 `, filepath.Join(tmp, "out", "{requestId}")))
 	writeFile(t, taskFile, "来自 task-file 的完整任务\n第二行也要保留\n")
 	writeFile(t, inputPath, `task_spec:

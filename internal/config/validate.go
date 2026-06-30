@@ -196,44 +196,79 @@ func validateAgentProfiles(cfg Config, requireAgents bool) (map[string]struct{},
 }
 
 func validateRoles(cfg Config, knownAgents map[string]struct{}) error {
-	for _, id := range cfg.Roles.Proposers {
-		if _, ok := knownAgents[id]; !ok {
-			return fmt.Errorf("roles.proposers references unknown agent %s", id)
-		}
-	}
-	for _, id := range cfg.Roles.Challengers {
-		if _, ok := knownAgents[id]; !ok {
-			return fmt.Errorf("roles.challengers references unknown agent %s", id)
-		}
-	}
-	for _, id := range cfg.Roles.Participants {
-		if _, ok := knownAgents[id]; !ok {
-			return fmt.Errorf("roles.participants references unknown agent %s", id)
-		}
-	}
-	for _, id := range []string{cfg.Roles.Arbiter, cfg.Roles.SemanticVerifier, cfg.Roles.Facilitator, cfg.Roles.Reporter, cfg.Roles.Actor} {
+	roles := normalizeRoles(cfg.Roles)
+	validateAgent := func(id string, field string) error {
 		if id == "" {
-			continue
+			return nil
 		}
 		if _, ok := knownAgents[id]; !ok {
-			return fmt.Errorf("roles references unknown agent %s", id)
+			return fmt.Errorf("%s references unknown agent %s", field, id)
+		}
+		return nil
+	}
+	validateAgents := func(ids []string, field string) error {
+		for _, id := range ids {
+			if err := validateAgent(id, field); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := validateAgents(roles.Adjudication.Proposers, "roles.adjudication.proposers"); err != nil {
+		return err
+	}
+	if err := validateAgents(roles.Adjudication.Challengers, "roles.adjudication.challengers"); err != nil {
+		return err
+	}
+	for field, id := range map[string]string{
+		"roles.adjudication.arbiter":           roles.Adjudication.Arbiter,
+		"roles.adjudication.semantic_verifier": roles.Adjudication.SemanticVerifier,
+		"roles.adjudication.reporter":          roles.Adjudication.Reporter,
+		"roles.adjudication.actor":             roles.Adjudication.Actor,
+	} {
+		if err := validateAgent(id, field); err != nil {
+			return err
+		}
+	}
+	if err := validateAgents(roles.FreeDebate.Participants, "roles.free_debate.participants"); err != nil {
+		return err
+	}
+	for field, id := range map[string]string{
+		"roles.free_debate.reporter": roles.FreeDebate.Reporter,
+		"roles.free_debate.actor":    roles.FreeDebate.Actor,
+	} {
+		if err := validateAgent(id, field); err != nil {
+			return err
+		}
+	}
+	if err := validateAgents(roles.Delphi.Participants, "roles.delphi.participants"); err != nil {
+		return err
+	}
+	for field, id := range map[string]string{
+		"roles.delphi.facilitator": roles.Delphi.Facilitator,
+		"roles.delphi.reporter":    roles.Delphi.Reporter,
+		"roles.delphi.actor":       roles.Delphi.Actor,
+	} {
+		if err := validateAgent(id, field); err != nil {
+			return err
 		}
 	}
 	mode := cfg.Defaults.Mode
 	if mode == "" {
 		mode = consensus.WorkflowModeAdjudication
 	}
+	activeRoles := RoleAssignmentsForMode(roles, mode)
 	switch mode {
 	case consensus.WorkflowModeFreeDebate, consensus.WorkflowModeDelphi:
-		if len(cfg.Roles.Participants) == 0 {
-			return fmt.Errorf("roles.participants must not be empty for mode %s", cfg.Defaults.Mode)
+		if len(activeRoles.Participants) == 0 {
+			return fmt.Errorf("roles.%s.participants must not be empty for mode %s", mode, cfg.Defaults.Mode)
 		}
 	default:
-		if len(cfg.Roles.Proposers) == 0 {
-			return fmt.Errorf("roles.proposers must not be empty")
+		if len(activeRoles.Proposers) == 0 {
+			return fmt.Errorf("roles.adjudication.proposers must not be empty")
 		}
-		if len(cfg.Roles.Challengers) == 0 {
-			return fmt.Errorf("roles.challengers must not be empty")
+		if len(activeRoles.Challengers) == 0 {
+			return fmt.Errorf("roles.adjudication.challengers must not be empty")
 		}
 	}
 	return nil

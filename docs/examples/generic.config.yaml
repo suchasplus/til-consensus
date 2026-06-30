@@ -60,8 +60,9 @@ agents:
     role: reporter
 
 roles:
-  proposers: [proposer-generic]
-  challengers: [challenger-generic]
-  semantic_verifier: verifier-generic
-  arbiter: arbiter-generic
-  reporter: reporter-generic
+  adjudication:
+    proposers: [proposer-generic]
+    challengers: [challenger-generic]
+    semantic_verifier: verifier-generic
+    arbiter: arbiter-generic
+    reporter: reporter-generic

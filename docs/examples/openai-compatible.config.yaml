@@ -63,8 +63,9 @@ agents:
     role: reporter
 
 roles:
-  proposers: [proposer-openai]
-  challengers: [challenger-openai]
-  semantic_verifier: verifier-openai
-  arbiter: arbiter-openai
-  reporter: reporter-openai
+  adjudication:
+    proposers: [proposer-openai]
+    challengers: [challenger-openai]
+    semantic_verifier: verifier-openai
+    arbiter: arbiter-openai
+    reporter: reporter-openai

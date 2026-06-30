@@ -23,12 +23,12 @@ task_spec:
         不能显著增加运维复杂度，也不能为了先进架构牺牲交付速度。
 
 roles:
-  proposers: [proposer-claude]
-  challengers: [challenger-claude]
-  arbiter: arbiter-claude
-  semantic_verifier: verifier-claude
-  reporter: reporter-claude
-
+  adjudication:
+    proposers: [proposer-claude]
+    challengers: [challenger-claude]
+    semantic_verifier: verifier-claude
+    arbiter: arbiter-claude
+    reporter: reporter-claude
 proposal_policy:
   max_passes: 1
   max_claims_per_worker: 6
