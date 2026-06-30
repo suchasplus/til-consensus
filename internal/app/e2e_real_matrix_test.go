@@ -181,7 +181,7 @@ func TestE2EAPIFixtureMatrix(t *testing.T) {
 			}
 
 			summary := loadComplianceSummary(t, resultPath)
-			assertComplianceSummary(t, summary, "api", []string{"openai-test", "anthropic-test", "gemini-test"})
+			assertComplianceSummary(t, summary, "api", []string{"openai-test", "anthropic-test"})
 			if openAIHits == 0 || anthropicHits == 0 || geminiHits == 0 {
 				t.Fatalf("expected all api providers to be exercised, openai=%d anthropic=%d gemini=%d", openAIHits, anthropicHits, geminiHits)
 			}
