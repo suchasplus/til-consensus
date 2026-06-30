@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -15,11 +16,14 @@ type fixedClock struct{ now time.Time }
 func (c fixedClock) Now() time.Time { return c.now }
 
 type stepClock struct {
+	mu    sync.Mutex
 	times []time.Time
 	idx   int
 }
 
 func (c *stepClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if len(c.times) == 0 {
 		return time.Unix(0, 0).UTC()
 	}
@@ -31,10 +35,15 @@ func (c *stepClock) Now() time.Time {
 	return value
 }
 
-type deterministicIDs struct{ n int }
+type deterministicIDs struct {
+	mu sync.Mutex
+	n  int
+}
 
 func (i *deterministicIDs) NewSessionID() string { return "session-1" }
 func (i *deterministicIDs) NewEntityID(prefix string) string {
+	i.mu.Lock()
+	defer i.mu.Unlock()
 	i.n++
 	return fmt.Sprintf("%s-%d", prefix, i.n)
 }
@@ -50,10 +59,13 @@ func (l *memoryLedger) Append(_ context.Context, entry EvidenceRecord) (Evidence
 }
 
 type captureObserver struct {
+	mu     sync.Mutex
 	events []RunEventType
 }
 
 func (o *captureObserver) OnEvent(_ context.Context, event RunEvent) error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
 	o.events = append(o.events, event.Type)
 	return nil
 }
@@ -134,6 +146,7 @@ func (s *stubStore) Patch(_ context.Context, _ string, patch SessionPatch) error
 }
 
 type stubDelegate struct {
+	mu              sync.Mutex
 	tasks           map[string]Task
 	next            int
 	failActionType  bool
@@ -143,6 +156,8 @@ type stubDelegate struct {
 }
 
 func (d *stubDelegate) Dispatch(_ context.Context, task Task) (DispatchReceipt, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	if d.tasks == nil {
 		d.tasks = map[string]Task{}
 	}
@@ -153,13 +168,19 @@ func (d *stubDelegate) Dispatch(_ context.Context, task Task) (DispatchReceipt, 
 }
 
 func (d *stubDelegate) Await(_ context.Context, taskID string, _ time.Duration) (AwaitedTask, error) {
+	d.mu.Lock()
 	task := d.tasks[taskID]
+	failActionType := d.failActionType
+	challengeDrafts := append([]ChallengeDraft(nil), d.challengeDrafts...)
+	revisionDrafts := append([]ClaimRevisionDraft(nil), d.revisionDrafts...)
 	if d.failKinds != nil {
 		if remaining := d.failKinds[task.Kind()]; remaining > 0 {
 			d.failKinds[task.Kind()] = remaining - 1
+			d.mu.Unlock()
 			return AwaitedTask{OK: false, Error: "forced failure"}, nil
 		}
 	}
+	d.mu.Unlock()
 	switch value := task.(type) {
 	case ProposalTask:
 		return AwaitedTask{OK: true, Output: ProposalTaskResult{Output: ProposalOutput{
@@ -171,7 +192,7 @@ func (d *stubDelegate) Await(_ context.Context, taskID string, _ time.Duration) 
 			}},
 		}}}, nil
 	case ChallengeTask:
-		drafts := d.challengeDrafts
+		drafts := challengeDrafts
 		if len(drafts) == 0 {
 			drafts = []ChallengeDraft{{
 				ClaimID:   value.Claims[0].ClaimID,
@@ -193,7 +214,7 @@ func (d *stubDelegate) Await(_ context.Context, taskID string, _ time.Duration) 
 			Tickets: drafts,
 		}}}, nil
 	case ReviseTask:
-		drafts := d.revisionDrafts
+		drafts := revisionDrafts
 		if len(drafts) == 0 {
 			drafts = []ClaimRevisionDraft{{
 				TargetClaimID:   value.Claims[0].ClaimID,
@@ -304,7 +325,7 @@ func (d *stubDelegate) Await(_ context.Context, taskID string, _ time.Duration) 
 			Recommendation: "Use monorepo",
 		}}}, nil
 	case ActionTask:
-		if d.failActionType {
+		if failActionType {
 			return AwaitedTask{OK: true, Output: ProposalTaskResult{}}, nil
 		}
 		return AwaitedTask{OK: true, Output: ActionTaskResult{Output: ActionExecution{FullResponse: "done", Summary: "done"}}}, nil
@@ -314,6 +335,52 @@ func (d *stubDelegate) Await(_ context.Context, taskID string, _ time.Duration) 
 }
 
 func (d *stubDelegate) Cancel(_ context.Context, _ string) error { return nil }
+
+type barrierDelegate struct {
+	mu            sync.Mutex
+	tasks         map[string]Task
+	next          int
+	want          int
+	allDispatched chan struct{}
+	closed        bool
+}
+
+func newBarrierDelegate(want int) *barrierDelegate {
+	return &barrierDelegate{
+		want:          want,
+		allDispatched: make(chan struct{}),
+	}
+}
+
+func (d *barrierDelegate) Dispatch(_ context.Context, task Task) (DispatchReceipt, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.tasks == nil {
+		d.tasks = map[string]Task{}
+	}
+	taskID := fmt.Sprintf("task-%d", d.next)
+	d.next++
+	d.tasks[taskID] = task
+	if d.next >= d.want && !d.closed {
+		close(d.allDispatched)
+		d.closed = true
+	}
+	return DispatchReceipt{TaskID: taskID, AgentID: task.Meta().AgentID, Kind: task.Kind()}, nil
+}
+
+func (d *barrierDelegate) Await(_ context.Context, taskID string, timeout time.Duration) (AwaitedTask, error) {
+	select {
+	case <-d.allDispatched:
+	case <-time.After(timeout):
+		return AwaitedTask{OK: false, Error: "__timeout__"}, nil
+	}
+	d.mu.Lock()
+	task := d.tasks[taskID]
+	d.mu.Unlock()
+	return AwaitedTask{OK: true, Output: ProposalTaskResult{Output: ProposalOutput{Summary: "ok " + task.Meta().AgentID}}}, nil
+}
+
+func (d *barrierDelegate) Cancel(_ context.Context, _ string) error { return nil }
 
 type stubVerifier struct {
 	status VerificationStatus
@@ -450,6 +517,33 @@ func TestEngineProducesSupportedVerdict(t *testing.T) {
 	}
 	if len(observer.events) == 0 || observer.events[0] != RunEventSessionStarted {
 		t.Fatalf("unexpected event stream: %#v", observer.events)
+	}
+}
+
+func TestExecuteTaskBatchDispatchesTasksBeforeAwait(t *testing.T) {
+	delegate := newBarrierDelegate(3)
+	engine := NewEngine(EngineDeps{
+		TaskDelegate: delegate,
+		Clock:        fixedClock{now: time.Unix(1, 0).UTC()},
+		IDFactory:    &deterministicIDs{},
+	})
+	request := baseRequest()
+	tasks := []Task{
+		ProposalTask{TaskMeta: TaskMeta{SessionID: "session-1", RequestID: request.RequestID, AgentID: "proposer-1"}},
+		ProposalTask{TaskMeta: TaskMeta{SessionID: "session-1", RequestID: request.RequestID, AgentID: "proposer-2"}},
+		ProposalTask{TaskMeta: TaskMeta{SessionID: "session-1", RequestID: request.RequestID, AgentID: "proposer-3"}},
+	}
+	results := engine.executeTaskBatch(context.Background(), request, "session-1", tasks, time.Unix(1, 0).UTC(), 500*time.Millisecond, len(tasks))
+	if len(results) != len(tasks) {
+		t.Fatalf("expected %d results, got %d", len(tasks), len(results))
+	}
+	for idx, result := range results {
+		if result.Err != nil || !result.Awaited.OK {
+			t.Fatalf("result %d failed: err=%v awaited=%#v", idx, result.Err, result.Awaited)
+		}
+		if result.Task.Meta().AgentID != tasks[idx].Meta().AgentID {
+			t.Fatalf("result order drifted at %d: got %s want %s", idx, result.Task.Meta().AgentID, tasks[idx].Meta().AgentID)
+		}
 	}
 }
 

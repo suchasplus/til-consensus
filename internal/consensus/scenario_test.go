@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -27,11 +28,14 @@ func (l *scenarioLedger) Append(_ context.Context, entry consensus.EvidenceRecor
 }
 
 type scenarioDelegate struct {
+	mu    sync.Mutex
 	tasks map[string]consensus.Task
 	next  int
 }
 
 func (d *scenarioDelegate) Dispatch(_ context.Context, task consensus.Task) (consensus.DispatchReceipt, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	if d.tasks == nil {
 		d.tasks = map[string]consensus.Task{}
 	}
@@ -42,7 +46,9 @@ func (d *scenarioDelegate) Dispatch(_ context.Context, task consensus.Task) (con
 }
 
 func (d *scenarioDelegate) Await(_ context.Context, taskID string, _ time.Duration) (consensus.AwaitedTask, error) {
+	d.mu.Lock()
 	task := d.tasks[taskID]
+	d.mu.Unlock()
 	switch value := task.(type) {
 	case consensus.ProposalTask:
 		return consensus.AwaitedTask{OK: true, Output: consensus.ProposalTaskResult{Output: consensus.ProposalOutput{

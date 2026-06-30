@@ -465,8 +465,9 @@ proposalPhase:
 			run.metrics.GlobalDeadlineHit = true
 			break proposalPhase
 		}
+		tasks := make([]Task, 0, len(request.Roles.Proposers))
 		for _, proposerID := range request.Roles.Proposers {
-			receipt, awaited, taskErr := e.executeTask(ctx, request, run.sessionID, ProposalTask{
+			tasks = append(tasks, ProposalTask{
 				TaskMeta: TaskMeta{
 					SessionID: run.sessionID,
 					RequestID: request.RequestID,
@@ -478,19 +479,15 @@ proposalPhase:
 				Scope:          fmt.Sprintf("proposal pass %d", pass+1),
 				MaxClaims:      request.ProposalPolicy.MaxClaimsPerWorker,
 				DedupeStrategy: request.ProposalPolicy.DedupeStrategy,
-			}, run.startedAt, request.WaitingPolicy.PerTaskTimeout)
-			run.metrics.TasksDispatched++
-			if taskErr != nil {
-				if errors.Is(taskErr, ErrGlobalDeadlineExceeded) {
-					run.metrics.GlobalDeadlineHit = true
-					break proposalPhase
-				}
-				if strings.Contains(taskErr.Error(), "__timeout__") {
-					run.metrics.WaitTimeouts++
-				}
+			})
+		}
+		for _, result := range e.executeTaskBatch(ctx, request, run.sessionID, tasks, run.startedAt, request.WaitingPolicy.PerTaskTimeout, len(tasks)) {
+			recordTaskBatchResultMetrics(&run.metrics, result)
+			if result.Err != nil {
 				continue
 			}
-			output, ok := awaited.Output.(ProposalTaskResult)
+			proposerID := result.Task.Meta().AgentID
+			output, ok := result.Awaited.Output.(ProposalTaskResult)
 			if !ok {
 				return fmt.Errorf("proposal task returned unexpected result type")
 			}
@@ -501,11 +498,11 @@ proposalPhase:
 				ProducerRole:          "proposer",
 				SourceType:            "proposal",
 				Summary:               output.Output.Summary,
-				Artifact:              awaited.Artifact,
+				Artifact:              result.Awaited.Artifact,
 				ProvenanceQuality:     ProvenanceQualityMedium,
 				FirstHandVsSecondHand: EvidencePerspectiveFirstHand,
 				Metadata: map[string]any{
-					"taskId":   receipt.TaskID,
+					"taskId":   result.Receipt.TaskID,
 					"taskKind": TaskKindPropose,
 					"pass":     pass,
 					"blind":    true,
@@ -555,19 +552,22 @@ proposalPhase:
 				run.claimGraph = AttachEvidenceToClaim(run.claimGraph, claim.ClaimID, entry.EntryID)
 			}
 		}
+		if run.metrics.GlobalDeadlineHit {
+			break proposalPhase
+		}
 	}
 	return nil
 }
 
 func (e *Engine) runChallengePhase(ctx context.Context, request StartRequest, run *workflowRun, claimIDs []string, round int) error {
 	claims := filterClaimsByID(run.claimGraph, claimIDs)
-challengePhase:
+	tasks := make([]Task, 0, len(request.Roles.Challengers))
 	for _, challengerID := range request.Roles.Challengers {
 		if e.isGlobalDeadlineHit(request, run.startedAt) {
 			run.metrics.GlobalDeadlineHit = true
-			break challengePhase
+			return nil
 		}
-		receipt, awaited, taskErr := e.executeTask(ctx, request, run.sessionID, ChallengeTask{
+		tasks = append(tasks, ChallengeTask{
 			TaskMeta: TaskMeta{
 				SessionID: run.sessionID,
 				RequestID: request.RequestID,
@@ -577,19 +577,15 @@ challengePhase:
 			},
 			TaskSpec: request.TaskSpec,
 			Claims:   claims,
-		}, run.startedAt, request.WaitingPolicy.PerTaskTimeout)
-		run.metrics.TasksDispatched++
-		if taskErr != nil {
-			if errors.Is(taskErr, ErrGlobalDeadlineExceeded) {
-				run.metrics.GlobalDeadlineHit = true
-				break challengePhase
-			}
-			if strings.Contains(taskErr.Error(), "__timeout__") {
-				run.metrics.WaitTimeouts++
-			}
+		})
+	}
+	for _, result := range e.executeTaskBatch(ctx, request, run.sessionID, tasks, run.startedAt, request.WaitingPolicy.PerTaskTimeout, len(tasks)) {
+		recordTaskBatchResultMetrics(&run.metrics, result)
+		if result.Err != nil {
 			continue
 		}
-		output, ok := awaited.Output.(ChallengeTaskResult)
+		challengerID := result.Task.Meta().AgentID
+		output, ok := result.Awaited.Output.(ChallengeTaskResult)
 		if !ok {
 			return fmt.Errorf("challenge task returned unexpected result type")
 		}
@@ -600,11 +596,11 @@ challengePhase:
 			ProducerRole:          "challenger",
 			SourceType:            "attack",
 			Summary:               output.Output.Summary,
-			Artifact:              awaited.Artifact,
+			Artifact:              result.Awaited.Artifact,
 			ProvenanceQuality:     ProvenanceQualityMedium,
 			FirstHandVsSecondHand: EvidencePerspectiveFirstHand,
 			Metadata: map[string]any{
-				"taskId":   receipt.TaskID,
+				"taskId":   result.Receipt.TaskID,
 				"taskKind": TaskKindChallenge,
 				"round":    round,
 			},
@@ -666,22 +662,23 @@ func (e *Engine) runVerifyPhase(ctx context.Context, request StartRequest, run *
 		verifier = NewCompositeVerifier(CompositeVerifierDeps{
 			TaskDelegate:   e.deps.TaskDelegate,
 			Clock:          e.clock,
-			IDFactory:      e.ids,
+			IDFactory:      newLockedIDFactory(e.ids),
 			ArtifactDir:    e.deps.ArtifactDir,
 			PerTaskTimeout: e.effectivePerTaskTimeout(request, run.startedAt, request.WaitingPolicy.PerTaskTimeout),
 			RetryAttempts:  request.WaitingPolicy.RetryAttempts,
 		})
 	}
+	claims := make([]ClaimNode, 0)
 	for _, claim := range filterClaimsByID(run.claimGraph, claimIDs) {
 		if claim.Status == ClaimStatusWithdrawn {
 			continue
 		}
-		findings, verifyErr := verifier.Run(verifyCtx, VerificationRequest{
-			Request:    request,
-			SessionID:  run.sessionID,
-			Claim:      claim,
-			Challenges: selectChallenges(run.challengeTickets, claim.ClaimID),
-		})
+		claims = append(claims, claim)
+	}
+	for _, verifyResult := range runVerificationBatch(verifyCtx, verifier, request, run.sessionID, claims, run.challengeTickets, request.VerificationPolicy.MaxParallelChecks) {
+		claim := verifyResult.Claim
+		findings := verifyResult.Findings
+		verifyErr := verifyResult.Err
 		if verifyErr != nil {
 			if errors.Is(verifyErr, context.DeadlineExceeded) || errors.Is(verifyErr, context.Canceled) {
 				run.metrics.GlobalDeadlineHit = true
@@ -799,7 +796,19 @@ func (e *Engine) runRevisionPhase(ctx context.Context, request StartRequest, run
 		revisionsByProposer[proposerID] = append(revisionsByProposer[proposerID], claim)
 	}
 	applied := make([]ClaimRevisionRecord, 0)
-	for proposerID, claims := range revisionsByProposer {
+	proposerIDs := make([]string, 0, len(revisionsByProposer))
+	for proposerID := range revisionsByProposer {
+		proposerIDs = append(proposerIDs, proposerID)
+	}
+	slices.Sort(proposerIDs)
+	type revisionTaskItem struct {
+		proposerID string
+		builtin    []ClaimRevisionRecord
+	}
+	taskItems := make([]revisionTaskItem, 0, len(proposerIDs))
+	tasks := make([]Task, 0, len(proposerIDs))
+	for _, proposerID := range proposerIDs {
+		claims := revisionsByProposer[proposerID]
 		groupClaimIDs := claimIDs(claims)
 		findings := selectFindingsForClaims(run.verificationResults, groupClaimIDs)
 		challenges := selectChallengesForClaims(run.challengeTickets, groupClaimIDs)
@@ -808,7 +817,8 @@ func (e *Engine) runRevisionPhase(ctx context.Context, request StartRequest, run
 			applied = append(applied, builtin...)
 			continue
 		}
-		receipt, awaited, taskErr := e.executeTask(ctx, request, run.sessionID, ReviseTask{
+		taskItems = append(taskItems, revisionTaskItem{proposerID: proposerID, builtin: builtin})
+		tasks = append(tasks, ReviseTask{
 			TaskMeta: TaskMeta{
 				SessionID: run.sessionID,
 				RequestID: request.RequestID,
@@ -822,44 +832,44 @@ func (e *Engine) runRevisionPhase(ctx context.Context, request StartRequest, run
 			Claims:     claims,
 			Challenges: challenges,
 			Findings:   findings,
-		}, run.startedAt, request.WaitingPolicy.PerTaskTimeout)
-		run.metrics.TasksDispatched++
-		if taskErr != nil {
-			if strings.Contains(taskErr.Error(), "__timeout__") {
-				run.metrics.WaitTimeouts++
-			}
-			applied = append(applied, builtin...)
+		})
+	}
+	for idx, result := range e.executeTaskBatch(ctx, request, run.sessionID, tasks, run.startedAt, request.WaitingPolicy.PerTaskTimeout, len(tasks)) {
+		recordTaskBatchResultMetrics(&run.metrics, result)
+		item := taskItems[idx]
+		if result.Err != nil {
+			applied = append(applied, item.builtin...)
 			continue
 		}
-		output, ok := awaited.Output.(ReviseTaskResult)
+		output, ok := result.Awaited.Output.(ReviseTaskResult)
 		if !ok {
-			applied = append(applied, builtin...)
+			applied = append(applied, item.builtin...)
 			continue
 		}
 		entry, err := e.appendEvidence(ctx, request, run.sessionID, &run.ledgerEntries, &run.ledgerCursor, EvidenceRecord{
 			Kind:                  EvidenceKindWorkerOutput,
 			Source:                EvidenceSourceWorker,
-			ProducerID:            proposerID,
+			ProducerID:            item.proposerID,
 			ProducerRole:          "proposer",
 			SourceType:            "revision",
 			Summary:               output.Output.Summary,
-			Artifact:              awaited.Artifact,
+			Artifact:              result.Awaited.Artifact,
 			ProvenanceQuality:     ProvenanceQualityMedium,
 			FirstHandVsSecondHand: EvidencePerspectiveFirstHand,
-			Metadata:              map[string]any{"taskId": receipt.TaskID, "taskKind": TaskKindRevise, "round": round},
+			Metadata:              map[string]any{"taskId": result.Receipt.TaskID, "taskKind": TaskKindRevise, "round": round},
 		})
 		if err != nil {
 			return nil, false, err
 		}
 		if len(output.Output.Revisions) == 0 {
-			applied = append(applied, builtin...)
+			applied = append(applied, item.builtin...)
 			continue
 		}
 		for _, draft := range output.Output.Revisions {
 			applied = append(applied, ClaimRevisionRecord{
 				RevisionID:         e.ids.NewEntityID("revision"),
 				TargetClaimID:      draft.TargetClaimID,
-				ProposerID:         proposerID,
+				ProposerID:         item.proposerID,
 				Action:             draft.Action,
 				RevisedText:        draft.RevisedText,
 				ConfidenceDelta:    draft.ConfidenceDelta,
@@ -1436,8 +1446,9 @@ func (e *Engine) startFreeDebate(ctx context.Context, request StartRequest) (_ *
 		return nil, err
 	}
 	initialRound := DebateRoundRecord{Round: 0, Phase: "initial", ParticipantOutputs: make([]DebateParticipantOutput, 0, len(request.Roles.Participants))}
+	initialTasks := make([]Task, 0, len(request.Roles.Participants))
 	for _, participantID := range request.Roles.Participants {
-		receipt, awaited, taskErr := e.executeTask(ctx, request, run.sessionID, InitialProposalTask{
+		initialTasks = append(initialTasks, InitialProposalTask{
 			TaskMeta: TaskMeta{
 				SessionID: run.sessionID,
 				RequestID: request.RequestID,
@@ -1447,15 +1458,15 @@ func (e *Engine) startFreeDebate(ctx context.Context, request StartRequest) (_ *
 			TaskSpec:  request.TaskSpec,
 			Round:     0,
 			MaxClaims: request.ProposalPolicy.MaxClaimsPerWorker,
-		}, run.startedAt, request.WaitingPolicy.PerTaskTimeout)
-		run.metrics.TasksDispatched++
-		if taskErr != nil {
-			if strings.Contains(taskErr.Error(), "__timeout__") {
-				run.metrics.WaitTimeouts++
-			}
+		})
+	}
+	for _, result := range e.executeTaskBatch(ctx, request, run.sessionID, initialTasks, run.startedAt, request.WaitingPolicy.PerTaskTimeout, len(initialTasks)) {
+		recordTaskBatchResultMetrics(&run.metrics, result)
+		if result.Err != nil {
 			continue
 		}
-		output, ok := awaited.Output.(InitialProposalTaskResult)
+		participantID := result.Task.Meta().AgentID
+		output, ok := result.Awaited.Output.(InitialProposalTaskResult)
 		if !ok {
 			return nil, fmt.Errorf("initial proposal task returned unexpected result type")
 		}
@@ -1465,8 +1476,8 @@ func (e *Engine) startFreeDebate(ctx context.Context, request StartRequest) (_ *
 			ProducerID:   participantID,
 			ProducerRole: "participant",
 			Summary:      output.Output.Summary,
-			Artifact:     awaited.Artifact,
-			Metadata:     map[string]any{"round": 0, "taskId": receipt.TaskID},
+			Artifact:     result.Awaited.Artifact,
+			Metadata:     map[string]any{"round": 0, "taskId": result.Receipt.TaskID},
 		})
 		if err != nil {
 			return nil, err
@@ -1524,9 +1535,10 @@ func (e *Engine) startFreeDebate(ctx context.Context, request StartRequest) (_ *
 		roundRecord := DebateRoundRecord{Round: round, Phase: "debate", ParticipantOutputs: make([]DebateParticipantOutput, 0, len(request.Roles.Participants))}
 		roundNewClaims := 0
 		onlyAgree := true
+		roundTasks := make([]Task, 0, len(request.Roles.Participants))
 		for _, participantID := range request.Roles.Participants {
 			selfClaims, peerClaims := splitDebateClaims(claims, participantID)
-			receipt, awaited, taskErr := e.executeTask(ctx, request, run.sessionID, DebateRoundTask{
+			roundTasks = append(roundTasks, DebateRoundTask{
 				TaskMeta: TaskMeta{
 					SessionID: run.sessionID,
 					RequestID: request.RequestID,
@@ -1539,16 +1551,16 @@ func (e *Engine) startFreeDebate(ctx context.Context, request StartRequest) (_ *
 				PeerClaims:      peerClaims,
 				RoundSummary:    summarizeDebateClaims(peerClaims),
 				PeerContextMode: request.DebatePolicy.PeerContextMode,
-			}, run.startedAt, request.WaitingPolicy.PerTaskTimeout)
-			run.metrics.TasksDispatched++
-			if taskErr != nil {
-				if strings.Contains(taskErr.Error(), "__timeout__") {
-					run.metrics.WaitTimeouts++
-				}
+			})
+		}
+		for _, result := range e.executeTaskBatch(ctx, request, run.sessionID, roundTasks, run.startedAt, request.WaitingPolicy.PerTaskTimeout, len(roundTasks)) {
+			recordTaskBatchResultMetrics(&run.metrics, result)
+			if result.Err != nil {
 				onlyAgree = false
 				continue
 			}
-			output, ok := awaited.Output.(DebateRoundTaskResult)
+			participantID := result.Task.Meta().AgentID
+			output, ok := result.Awaited.Output.(DebateRoundTaskResult)
 			if !ok {
 				return nil, fmt.Errorf("debate round task returned unexpected result type")
 			}
@@ -1558,8 +1570,8 @@ func (e *Engine) startFreeDebate(ctx context.Context, request StartRequest) (_ *
 				ProducerID:   participantID,
 				ProducerRole: "participant",
 				Summary:      output.Output.Summary,
-				Artifact:     awaited.Artifact,
-				Metadata:     map[string]any{"round": round, "taskId": receipt.TaskID},
+				Artifact:     result.Awaited.Artifact,
+				Metadata:     map[string]any{"round": round, "taskId": result.Receipt.TaskID},
 			})
 			if err != nil {
 				return nil, err
@@ -1611,8 +1623,9 @@ func (e *Engine) startFreeDebate(ctx context.Context, request StartRequest) (_ *
 		return nil, err
 	}
 	activeClaims := activeDebateClaims(claims)
+	voteTasks := make([]Task, 0, len(request.Roles.Participants))
 	for _, participantID := range request.Roles.Participants {
-		receipt, awaited, taskErr := e.executeTask(ctx, request, run.sessionID, FinalVoteTask{
+		voteTasks = append(voteTasks, FinalVoteTask{
 			TaskMeta: TaskMeta{
 				SessionID: run.sessionID,
 				RequestID: request.RequestID,
@@ -1622,15 +1635,15 @@ func (e *Engine) startFreeDebate(ctx context.Context, request StartRequest) (_ *
 			TaskSpec: request.TaskSpec,
 			Round:    len(rounds),
 			Claims:   activeClaims,
-		}, run.startedAt, request.WaitingPolicy.PerTaskTimeout)
-		run.metrics.TasksDispatched++
-		if taskErr != nil {
-			if strings.Contains(taskErr.Error(), "__timeout__") {
-				run.metrics.WaitTimeouts++
-			}
+		})
+	}
+	for _, result := range e.executeTaskBatch(ctx, request, run.sessionID, voteTasks, run.startedAt, request.WaitingPolicy.PerTaskTimeout, len(voteTasks)) {
+		recordTaskBatchResultMetrics(&run.metrics, result)
+		if result.Err != nil {
 			continue
 		}
-		output, ok := awaited.Output.(FinalVoteTaskResult)
+		participantID := result.Task.Meta().AgentID
+		output, ok := result.Awaited.Output.(FinalVoteTaskResult)
 		if !ok {
 			return nil, fmt.Errorf("final vote task returned unexpected result type")
 		}
@@ -1643,9 +1656,9 @@ func (e *Engine) startFreeDebate(ctx context.Context, request StartRequest) (_ *
 				ProducerID:   participantID,
 				ProducerRole: "participant",
 				Summary:      output.Output.Summary,
-				Artifact:     awaited.Artifact,
+				Artifact:     result.Awaited.Artifact,
 				Metadata: map[string]any{
-					"taskId":    receipt.TaskID,
+					"taskId":    result.Receipt.TaskID,
 					"vote":      draft.Vote,
 					"rationale": draft.Rationale,
 				},
@@ -1762,10 +1775,10 @@ func (e *Engine) startDelphi(ctx context.Context, request StartRequest) (_ *RunR
 			return nil, err
 		}
 		responses := make([]DelphiResponseRecord, 0, len(request.Roles.Participants))
+		tasks := make([]Task, 0, len(request.Roles.Participants))
 		for _, participantID := range request.Roles.Participants {
-			var task Task
 			if round == 1 {
-				task = DelphiQuestionnaireTask{
+				tasks = append(tasks, DelphiQuestionnaireTask{
 					TaskMeta: TaskMeta{
 						SessionID: run.sessionID,
 						RequestID: request.RequestID,
@@ -1777,9 +1790,9 @@ func (e *Engine) startDelphi(ctx context.Context, request StartRequest) (_ *RunR
 					Questionnaire:      request.TaskSpec.Goal,
 					PreviousStatements: statements,
 					PreviousSummary:    lastSummary,
-				}
+				})
 			} else {
-				task = DelphiRevisionTask{
+				tasks = append(tasks, DelphiRevisionTask{
 					TaskMeta: TaskMeta{
 						SessionID: run.sessionID,
 						RequestID: request.RequestID,
@@ -1790,19 +1803,17 @@ func (e *Engine) startDelphi(ctx context.Context, request StartRequest) (_ *RunR
 					Round:              round,
 					StatementSummaries: statements,
 					PreviousSummary:    lastSummary,
-				}
+				})
 			}
-			receipt, awaited, taskErr := e.executeTask(ctx, request, run.sessionID, task, run.startedAt, request.WaitingPolicy.PerTaskTimeout)
-			run.metrics.TasksDispatched++
-			if taskErr != nil {
-				if strings.Contains(taskErr.Error(), "__timeout__") {
-					run.metrics.WaitTimeouts++
-				}
+		}
+		for _, result := range e.executeTaskBatch(ctx, request, run.sessionID, tasks, run.startedAt, request.WaitingPolicy.PerTaskTimeout, len(tasks)) {
+			recordTaskBatchResultMetrics(&run.metrics, result)
+			if result.Err != nil {
 				continue
 			}
 			var outputResponses []DelphiResponseDraft
 			var summary string
-			switch typed := awaited.Output.(type) {
+			switch typed := result.Awaited.Output.(type) {
 			case DelphiQuestionnaireTaskResult:
 				outputResponses = typed.Output.Responses
 				summary = typed.Output.Summary
@@ -1825,10 +1836,10 @@ func (e *Engine) startDelphi(ctx context.Context, request StartRequest) (_ *RunR
 					Source:       EvidenceSourceWorker,
 					ProducerRole: "participant",
 					Summary:      summary,
-					Artifact:     awaited.Artifact,
+					Artifact:     result.Awaited.Artifact,
 					Metadata: map[string]any{
 						"round":     round,
-						"taskId":    receipt.TaskID,
+						"taskId":    result.Receipt.TaskID,
 						"statement": record.Statement,
 						"rating":    record.Rating,
 					},
