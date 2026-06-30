@@ -132,6 +132,7 @@ func proposalPromptHints() []string {
 		"- Do not emit dependencies or parentClaimIds in proposal outputs.",
 		"- If a claim only applies under certain assumptions, put those assumptions in applicability or boundaryConditions instead of creating claim graph references.",
 		"- Claims must answer the user's task. Do not create claims about this run's debate process, peer claim counts, dedup hygiene, prompt behavior, or system workflow.",
+		"- Do not prefix claim titles or statements with status labels such as [Status: keep], [Status: revise], or 裁决状态：keep. Status belongs in judgement/action fields, not claim text.",
 	}
 }
 
@@ -140,6 +141,7 @@ func proposalRepairHints() []string {
 		"- If the previous output used dependencies or parentClaimIds, remove those fields.",
 		"- Preserve prerequisites as plain language in applicability or boundaryConditions when they are already stated in the previous output.",
 		"- Remove claims about debate process, peer claim counts, dedup hygiene, prompt behavior, or system workflow. If useful, move them into summary only.",
+		"- Remove status prefixes from claim titles and statements. Keep only the substantive claim text.",
 	}
 }
 
@@ -373,6 +375,7 @@ func debateRoundPromptHints(task consensus.DebateRoundTask) []string {
 		"- If judgement is not revise, omit revisedStatement entirely.",
 		"- Prefer one judgement entry per peer claim in this round. If you want to keep a peer claim unchanged, use judgement=no_change.",
 		"- newClaims must be substantive claims about the user's task. Do not put process/meta observations about this run, peer claim counts, dedup needs, round hygiene, or system workflow into newClaims; put those observations in summary only.",
+		"- Do not prefix newClaims titles or statements with status labels such as [Status: keep], [Status: revise], or 裁决状态：keep.",
 	}
 	if len(validIDs) == 0 {
 		lines = append(lines,
@@ -394,6 +397,7 @@ func debateRoundRepairHints(task consensus.DebateRoundTask) []string {
 		"- Replace any non-canonical judgement literal with the closest canonical value: agree, disagree, revise, or no_change, while preserving the original stance.",
 		"- If a row intends to propose a textual rewrite, use judgement=revise and move the rewritten text into revisedStatement.",
 		"- Remove any newClaims entries that are about this run's process, peer claim counts, dedup hygiene, round hygiene, or system workflow. Preserve them in summary only if they are useful.",
+		"- Remove status prefixes from newClaims titles, newClaims statements, and revisedStatement. Keep only substantive claim text.",
 	}
 	validIDs := debateRoundPeerClaimIDs(task)
 	if len(validIDs) == 0 {

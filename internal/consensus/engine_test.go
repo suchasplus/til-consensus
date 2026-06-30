@@ -745,6 +745,59 @@ func TestResolveDebateClaimsUsesConfidenceDistribution(t *testing.T) {
 	}
 }
 
+func TestFreeDebateCanonicalizesStatusPrefixesBeforeDedup(t *testing.T) {
+	request := baseRequest()
+	request.Mode = WorkflowModeFreeDebate
+	request.Roles = RoleAssignments{
+		Participants: []string{"debater-1", "debater-2"},
+	}
+	request.DebatePolicy = DebatePolicy{
+		MinRounds:       1,
+		MaxRounds:       1,
+		VoteThreshold:   1.0,
+		EnableEarlyStop: true,
+		PeerContextMode: "summary+active_claims",
+	}
+	statement := "Go 在大团队默认协作成本更低，但 Rust 在安全收益可量化时可能抵消额外成本。"
+	engine := NewEngine(EngineDeps{
+		TaskDelegate: &stubDelegate{debateDrafts: []ClaimDraft{
+			{Title: "[Status: keep] Language TCO", Statement: "[Status: keep] " + statement},
+			{Title: "裁决状态：unresolved。Language TCO", Statement: "裁决状态：unresolved。" + statement},
+		}},
+		SessionStore: &stubStore{},
+		Clock:        fixedClock{now: time.Unix(1, 0).UTC()},
+		IDFactory:    &deterministicIDs{},
+	})
+	result, err := engine.Start(context.Background(), request)
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	if result.FreeDebate == nil {
+		t.Fatal("expected free debate result")
+	}
+	matches := 0
+	for _, claim := range result.FreeDebate.Claims {
+		if claim.Statement != statement {
+			if strings.Contains(claim.Statement, "Status:") || strings.Contains(claim.Statement, "裁决状态") {
+				t.Fatalf("status prefix should be stripped before storage: %#v", claim)
+			}
+			continue
+		}
+		matches++
+		if strings.Contains(claim.Title, "Status:") || strings.Contains(claim.Title, "裁决状态") {
+			t.Fatalf("status prefix should be stripped from title: %#v", claim)
+		}
+	}
+	if matches != 1 {
+		t.Fatalf("expected status-prefixed duplicates to collapse into one claim, got %d claims: %#v", matches, result.FreeDebate.Claims)
+	}
+	for _, resolution := range result.FreeDebate.ClaimResolutions {
+		if strings.Contains(resolution.FinalStatement, "Status:") || strings.Contains(resolution.FinalStatement, "裁决状态") {
+			t.Fatalf("status prefix should not leak to final vote summary: %#v", resolution)
+		}
+	}
+}
+
 func TestFreeDebateSkipsProcessMetaNewClaims(t *testing.T) {
 	request := baseRequest()
 	request.Mode = WorkflowModeFreeDebate

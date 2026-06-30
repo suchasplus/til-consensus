@@ -347,6 +347,7 @@ func taskSpecificContract(task consensus.Task) []string {
 			"- Proposal claimType allowed: fact, inference, recommendation, assumption.",
 			"- Proposal confidence must be a JSON number, not a string.",
 			"- Proposal claims must answer the user's task, not this run's debate process, peer claim counts, dedup hygiene, prompt behavior, or system workflow.",
+			"- Proposal claim titles/statements must not include status prefixes like [Status: keep], [Status: revise], or 裁决状态：keep.",
 		}
 	case consensus.ChallengeTask:
 		return []string{
@@ -404,6 +405,7 @@ func taskSpecificContract(task consensus.Task) []string {
 			"- Debate-round if judgement=revise, revisedStatement is required. Otherwise omit revisedStatement.",
 			"- Debate-round prefer one judgement row per peer claim. Use no_change instead of skipping a peer claim you reviewed.",
 			"- Debate-round newClaims must be substantive claims about the user's task. Put process/meta observations about peer claim counts, dedup needs, round hygiene, or workflow only in summary.",
+			"- Debate-round newClaims titles/statements and revisedStatement must not include status prefixes like [Status: keep], [Status: revise], or 裁决状态：keep.",
 		}
 	case consensus.FinalVoteTask:
 		return []string{

@@ -1484,6 +1484,7 @@ func (e *Engine) startFreeDebate(ctx context.Context, request StartRequest) (_ *
 		}
 		participant := DebateParticipantOutput{AgentID: participantID, Summary: output.Output.Summary}
 		for _, draft := range output.Output.Claims {
+			draft = canonicalizeDebateClaimDraft(draft)
 			if strings.TrimSpace(draft.Statement) == "" {
 				continue
 			}
@@ -1492,6 +1493,9 @@ func (e *Engine) startFreeDebate(ctx context.Context, request StartRequest) (_ *
 			}
 			var claimID string
 			claims, claimID = upsertDebateClaim(claims, draft, participantID, 0, entry.EntryID, e.ids)
+			if claimID == "" {
+				continue
+			}
 			participant.NewClaimIDs = append(participant.NewClaimIDs, claimID)
 			run.metrics.ClaimsProposed++
 		}
@@ -1581,6 +1585,7 @@ func (e *Engine) startFreeDebate(ctx context.Context, request StartRequest) (_ *
 			}
 			participant := DebateParticipantOutput{AgentID: participantID, Summary: output.Output.Summary}
 			for _, draft := range output.Output.NewClaims {
+				draft = canonicalizeDebateClaimDraft(draft)
 				if strings.TrimSpace(draft.Statement) == "" {
 					continue
 				}
@@ -1589,6 +1594,9 @@ func (e *Engine) startFreeDebate(ctx context.Context, request StartRequest) (_ *
 				}
 				var claimID string
 				claims, claimID = upsertDebateClaim(claims, draft, participantID, round, entry.EntryID, e.ids)
+				if claimID == "" {
+					continue
+				}
 				participant.NewClaimIDs = append(participant.NewClaimIDs, claimID)
 				roundNewClaims++
 				run.metrics.ClaimsProposed++
@@ -1608,8 +1616,10 @@ func (e *Engine) startFreeDebate(ctx context.Context, request StartRequest) (_ *
 						Title:     "Revision by " + participantID,
 						Statement: judgement.RevisedStatement,
 					}, participantID, round, entry.EntryID, e.ids)
-					roundNewClaims++
-					run.metrics.ClaimsProposed++
+					if record.RevisedClaimID != "" {
+						roundNewClaims++
+						run.metrics.ClaimsProposed++
+					}
 				}
 				if len(record.MergeWithClaims) > 0 {
 					claims = markDebateClaimMerged(claims, record.ClaimID, record.MergeWithClaims[0])
@@ -2100,6 +2110,10 @@ func (e *Engine) runDebateSemanticDedup(ctx context.Context, request StartReques
 }
 
 func upsertDebateClaim(claims []DebateClaim, draft ClaimDraft, ownerID string, round int, evidenceRef string, ids IDFactory) ([]DebateClaim, string) {
+	draft = canonicalizeDebateClaimDraft(draft)
+	if strings.TrimSpace(draft.Statement) == "" {
+		return claims, ""
+	}
 	key := normalizedClaimKey(draft.Statement)
 	for idx := range claims {
 		if normalizedClaimKey(claims[idx].Statement) != key {
