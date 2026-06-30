@@ -1,6 +1,10 @@
 package buildinfo
 
-import "strings"
+import (
+	"fmt"
+	"runtime"
+	"strings"
+)
 
 var (
 	Version   = "dev"
@@ -43,5 +47,21 @@ func Info() map[string]string {
 		"commit":    CommitID(),
 		"buildTime": BuiltAt(),
 		"dirty":     IsDirty(),
+		"goVersion": runtime.Version(),
+		"goos":      runtime.GOOS,
+		"goarch":    runtime.GOARCH,
 	}
+}
+
+func Format() string {
+	return fmt.Sprintf(
+		"version: %s\ncommit: %s\nbuild time: %s\ndirty: %s\ngo version: %s\ngoos: %s\ngoarch: %s\n",
+		Short(),
+		CommitID(),
+		BuiltAt(),
+		IsDirty(),
+		runtime.Version(),
+		runtime.GOOS,
+		runtime.GOARCH,
+	)
 }

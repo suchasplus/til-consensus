@@ -14,6 +14,7 @@ import (
 	"github.com/suchasplus/til-consensus/internal/config"
 	"github.com/suchasplus/til-consensus/internal/consensus"
 	filestore "github.com/suchasplus/til-consensus/internal/store/file"
+	"github.com/urfave/cli/v3"
 )
 
 func TestNewBuildsCommandTree(t *testing.T) {
@@ -33,6 +34,39 @@ func TestNewBuildsCommandTree(t *testing.T) {
 	}
 	if strings.Join(names, ",") != "run,ask,debate,delphi,setup,followup,config,profile,doctor,artifact,last,inspect,logs,open,telemetry,act,session,view,version" {
 		t.Fatalf("unexpected command tree: %#v", names)
+	}
+}
+
+func TestVersionFlagPrintsFullBuildInfo(t *testing.T) {
+	cmd := New()
+	var flagOut bytes.Buffer
+	cmd.Writer = &flagOut
+	cli.ShowVersion(cmd)
+	assertFullVersionOutput(t, "--version", flagOut.String())
+
+	versionCmd := newVersionCommand()
+	var subcommandOut bytes.Buffer
+	versionCmd.Writer = &subcommandOut
+	if err := versionCmd.Run(context.Background(), []string{"version"}); err != nil {
+		t.Fatalf("version command failed: %v", err)
+	}
+	assertFullVersionOutput(t, "version", subcommandOut.String())
+}
+
+func assertFullVersionOutput(t *testing.T, label string, output string) {
+	t.Helper()
+	for _, needle := range []string{
+		"version:",
+		"commit:",
+		"build time:",
+		"dirty:",
+		"go version:",
+		"goos:",
+		"goarch:",
+	} {
+		if !strings.Contains(output, needle) {
+			t.Fatalf("version output for %s missing %q:\n%s", label, needle, output)
+		}
 	}
 }
 

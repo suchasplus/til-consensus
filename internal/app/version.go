@@ -13,10 +13,7 @@ func newVersionCommand() *cli.Command {
 		Name:  "version",
 		Usage: "显示版本信息",
 		Action: func(_ context.Context, cmd *cli.Command) error {
-			_, _ = fmt.Fprintf(cmd.Writer, "version: %s\n", buildinfo.Short())
-			_, _ = fmt.Fprintf(cmd.Writer, "commit: %s\n", buildinfo.CommitID())
-			_, _ = fmt.Fprintf(cmd.Writer, "build time: %s\n", buildinfo.BuiltAt())
-			_, _ = fmt.Fprintf(cmd.Writer, "dirty: %s\n", buildinfo.IsDirty())
+			_, _ = fmt.Fprint(cmd.Writer, buildinfo.Format())
 			return nil
 		},
 	}

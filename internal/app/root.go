@@ -2,10 +2,17 @@ package app
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/suchasplus/til-consensus/internal/buildinfo"
 	"github.com/urfave/cli/v3"
 )
+
+func init() {
+	cli.VersionPrinter = func(cmd *cli.Command) {
+		_, _ = fmt.Fprint(cmd.Root().Writer, buildinfo.Format())
+	}
+}
 
 func New() *cli.Command {
 	return &cli.Command{
