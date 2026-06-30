@@ -249,6 +249,9 @@ func (p *preflightPrinter) PrintEntry(entry telemetry.ProviderReadinessEntry) {
 	if entry.Agent != "" {
 		label += " agent=" + entry.Agent
 	}
+	if p.color {
+		label = ansi(34, label)
+	}
 	readyText := fmt.Sprintf("ready=%t", entry.Ready)
 	if p.color {
 		if entry.Ready {
