@@ -336,6 +336,9 @@ func decodeTaskOutputFromJSON(task consensus.Task, payload []byte) (consensus.Ta
 		if err := validateClaimDrafts(output.Claims, false); err != nil {
 			return nil, fmt.Errorf("validate initial proposal output: %w", err)
 		}
+		if err := validateDebateNewClaims(output.Claims); err != nil {
+			return nil, fmt.Errorf("validate initial proposal claims: %w", err)
+		}
 		return consensus.InitialProposalTaskResult{Output: output}, nil
 	case consensus.ChallengeTask:
 		var output consensus.ChallengeOutput
@@ -367,6 +370,9 @@ func decodeTaskOutputFromJSON(task consensus.Task, payload []byte) (consensus.Ta
 			return nil, fmt.Errorf("debate round output missing summary")
 		}
 		if err := validateClaimDrafts(output.NewClaims, false); err != nil {
+			return nil, fmt.Errorf("validate debate round newClaims: %w", err)
+		}
+		if err := validateDebateNewClaims(output.NewClaims); err != nil {
 			return nil, fmt.Errorf("validate debate round newClaims: %w", err)
 		}
 		if err := validateDebateJudgements(output.Judgements); err != nil {
@@ -939,6 +945,15 @@ func validateDebateVotes(votes []consensus.DebateVoteDraft) error {
 		}
 		if *vote.Confidence < 0 || *vote.Confidence > 1 {
 			return fmt.Errorf("votes[%d].confidence must be within [0,1]", idx)
+		}
+	}
+	return nil
+}
+
+func validateDebateNewClaims(claims []consensus.ClaimDraft) error {
+	for idx, claim := range claims {
+		if consensus.IsDebateProcessMetaClaimDraft(claim) {
+			return fmt.Errorf("newClaims[%d] is a debate process/meta observation; put it in summary, not newClaims", idx)
 		}
 	}
 	return nil

@@ -1487,6 +1487,9 @@ func (e *Engine) startFreeDebate(ctx context.Context, request StartRequest) (_ *
 			if strings.TrimSpace(draft.Statement) == "" {
 				continue
 			}
+			if IsDebateProcessMetaClaimDraft(draft) {
+				continue
+			}
 			var claimID string
 			claims, claimID = upsertDebateClaim(claims, draft, participantID, 0, entry.EntryID, e.ids)
 			participant.NewClaimIDs = append(participant.NewClaimIDs, claimID)
@@ -1579,6 +1582,9 @@ func (e *Engine) startFreeDebate(ctx context.Context, request StartRequest) (_ *
 			participant := DebateParticipantOutput{AgentID: participantID, Summary: output.Output.Summary}
 			for _, draft := range output.Output.NewClaims {
 				if strings.TrimSpace(draft.Statement) == "" {
+					continue
+				}
+				if IsDebateProcessMetaClaimDraft(draft) {
 					continue
 				}
 				var claimID string

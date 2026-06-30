@@ -518,6 +518,18 @@ func TestNormalizeDebateRoundOutputRejectsRelationshipFieldsInNewClaims(t *testi
 	}
 }
 
+func TestNormalizeDebateRoundOutputRejectsProcessMetaNewClaims(t *testing.T) {
+	_, err := NormalizeTaskOutputFromText(consensus.DebateRoundTask{
+		TaskMeta: consensus.TaskMeta{AgentID: "participant-1"},
+	}, `{"summary":"debate","newClaims":[{"title":"43 条 peer claims 可合并为约 12 条独立论点","statement":"本轮 43 条 peer claims 的实际独立论点约 12 个，建议系统层面实施去重，将声明数量控制在 15 条以内。","applicability":"辩论流程优化","claimType":"recommendation","confidence":0.95}],"judgements":[]}`)
+	if err == nil {
+		t.Fatal("expected process/meta newClaims to fail validation")
+	}
+	if !strings.Contains(err.Error(), "process/meta") {
+		t.Fatalf("expected process/meta validation error, got %v", err)
+	}
+}
+
 func containsString(values []string, target string) bool {
 	for _, value := range values {
 		if value == target {

@@ -153,6 +153,7 @@ type stubDelegate struct {
 	failActionType  bool
 	challengeDrafts []ChallengeDraft
 	revisionDrafts  []ClaimRevisionDraft
+	debateDrafts    []ClaimDraft
 	failKinds       map[TaskKind]int
 	mergeFirstTwo   bool
 }
@@ -175,6 +176,7 @@ func (d *stubDelegate) Await(_ context.Context, taskID string, _ time.Duration) 
 	failActionType := d.failActionType
 	challengeDrafts := append([]ChallengeDraft(nil), d.challengeDrafts...)
 	revisionDrafts := append([]ClaimRevisionDraft(nil), d.revisionDrafts...)
+	debateDrafts := append([]ClaimDraft(nil), d.debateDrafts...)
 	mergeFirstTwo := d.mergeFirstTwo
 	if d.failKinds != nil {
 		if remaining := d.failKinds[task.Kind()]; remaining > 0 {
@@ -259,6 +261,7 @@ func (d *stubDelegate) Await(_ context.Context, taskID string, _ time.Duration) 
 		}
 		return AwaitedTask{OK: true, Output: DebateRoundTaskResult{Output: DebateRoundOutput{
 			Summary:    "debate round",
+			NewClaims:  debateDrafts,
 			Judgements: judgements,
 		}}}, nil
 	case SemanticDedupTask:
@@ -739,6 +742,46 @@ func TestResolveDebateClaimsUsesConfidenceDistribution(t *testing.T) {
 	}
 	if resolution.VoteCount != 3 {
 		t.Fatalf("expected vote count 3, got %d", resolution.VoteCount)
+	}
+}
+
+func TestFreeDebateSkipsProcessMetaNewClaims(t *testing.T) {
+	request := baseRequest()
+	request.Mode = WorkflowModeFreeDebate
+	request.Roles = RoleAssignments{
+		Participants: []string{"debater-1", "debater-2"},
+	}
+	request.DebatePolicy = DebatePolicy{
+		MinRounds:       1,
+		MaxRounds:       1,
+		VoteThreshold:   1.0,
+		EnableEarlyStop: true,
+		PeerContextMode: "summary+active_claims",
+	}
+	metaDraft := ClaimDraft{
+		Title:         "43 条 peer claims 可合并为约 12 条独立论点",
+		Statement:     "本轮 43 条 peer claims 的实际独立论点约 12 个，建议系统层面实施去重，将声明数量控制在 15 条以内。",
+		Applicability: "辩论流程优化",
+		ClaimType:     ClaimTypeRecommendation,
+		Confidence:    0.95,
+	}
+	engine := NewEngine(EngineDeps{
+		TaskDelegate: &stubDelegate{debateDrafts: []ClaimDraft{metaDraft}},
+		SessionStore: &stubStore{},
+		Clock:        fixedClock{now: time.Unix(1, 0).UTC()},
+		IDFactory:    &deterministicIDs{},
+	})
+	result, err := engine.Start(context.Background(), request)
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	if result.FreeDebate == nil {
+		t.Fatal("expected free debate result")
+	}
+	for _, claim := range result.FreeDebate.Claims {
+		if strings.Contains(claim.Statement, "peer claims") || strings.Contains(claim.Statement, "声明数量") {
+			t.Fatalf("process meta claim should not enter free debate claims: %#v", claim)
+		}
 	}
 }
 
