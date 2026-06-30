@@ -1,0 +1,12 @@
+schema_version: 1
+
+roles:
+  adjudication:
+    proposers:
+      - proposer-codex-cli
+    challengers:
+      - challenger-claude-cli
+      - challenger-gemini-cli
+    semantic_verifier: verifier-gemini-api
+    arbiter: arbiter-anthropic-api
+    reporter: reporter-openai-api

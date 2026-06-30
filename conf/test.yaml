@@ -1,0 +1,57 @@
+schema_version: 1
+
+include:
+  - ./providers.yaml
+  - ./agents-adjudication.yaml
+  - ./agents-free-debate.yaml
+  - ./agents-delphi.yaml
+  - ./roles-adjudication.yaml
+  - ./roles-free-debate.yaml
+  - ./roles-delphi.yaml
+
+profile: adjudication
+
+defaults:
+  success_criteria:
+    - 给出 claim 级裁决或多方收敛结论
+    - 输出关键 caveat、风险和 unresolved
+  per_task_timeout: 20m
+  task_retry_attempts: 1
+  proposal_policy:
+    max_passes: 1
+    max_claims_per_worker: 4
+    dedupe_strategy: normalized-statement
+  verification_policy:
+    allow_semantic_verifier: true
+    max_parallel_checks: 2
+  arbiter_policy:
+    allow_undetermined: true
+    blind_review: true
+  debate_policy:
+    min_rounds: 2
+    max_rounds: 3
+    vote_threshold: 0.67
+    enable_early_stop: true
+    peer_context_mode: summary+active_claims
+  delphi_policy:
+    min_rounds: 2
+    max_rounds: 3
+    convergence_threshold: 0.78
+    rating_scale_min: 1
+    rating_scale_max: 5
+    anonymous: true
+    facilitator_summary_style: anonymous-aggregate
+
+output:
+  directory: ./out/{requestId}
+
+profiles:
+  adjudication:
+    defaults:
+      mode: adjudication
+  free-debate:
+    defaults:
+      mode: free_debate
+  delphi:
+    defaults:
+      mode: delphi

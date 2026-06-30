@@ -1,31 +1,84 @@
 schema_version: 1
 
+# Provider profiles extracted from tmp/provider-lab/providers-all.yaml.
+# 这里只放 provider / model / auth / transport 配置，不放 workflow roles。
 providers:
-  deepseek-api:
-    type: api
-    protocol: openai-compatible
-    base_url: https://api.deepseek.com
-    api_key_env: DEEPSEEK_API_KEY
-    options:
-      endpoint_path: /chat/completions
-      structured_output_mode: none
-      max_output_tokens_field: max_tokens
-      reasoning_field: reasoning_effort
-      timeout_ms: 120000
-      extra_body:
-        response_format:
-          type: json_object
-        thinking:
-          # 可改为 disabled 关闭思考模式。
-          type: enabled
-        # 可选：按业务维度隔离调度与 KVCache。不要填写用户隐私。
-        # user_id: til-consensus
+  # ------------------------------
+  # CLI providers
+  # ------------------------------
+  codex-cli:
+    type: cli
+    cli_type: codex
+    command: codex
     models:
       default:
-        provider_model: deepseek-v4-pro
-        max_output_tokens: 4096
-        # DeepSeek OpenAI 格式支持 high / max。
+        provider_model: gpt-5.5
+        reasoning: xhigh
+
+  claude-cli:
+    type: cli
+    cli_type: claude
+    command: claude
+    models:
+      default:
+        provider_model: claude-opus-4-6[1m]
         reasoning: max
+
+  gemini-cli:
+    type: cli
+    cli_type: gemini
+    command: gemini
+    models:
+      default:
+        provider_model: gemini-3.1-pro-preview
+        reasoning: high
+
+  antigravity-cli:
+    type: cli
+    cli_type: antigravity
+    command: agy
+    models:
+      default:
+        # `agy models` shows model list.
+        provider_model: Gemini 3.1 Pro (High)
+        reasoning: medium
+
+  # ------------------------------
+  # Official API providers
+  # ------------------------------
+  openai-api:
+    type: api
+    protocol: openai-compatible
+    base_url: https://api.openai.com/v1
+    api_key_env: OPENAI_API_KEY
+    options:
+      endpoint_path: /chat/completions
+      structured_output_mode: json_schema
+      max_output_tokens_field: max_completion_tokens
+      reasoning_field: reasoning_effort
+      timeout_ms: 600000
+    models:
+      default:
+        provider_model: gpt-5.4
+        max_output_tokens: 128000
+        temperature: 0.2
+        reasoning: medium
+
+  anthropic-api:
+    type: api
+    protocol: anthropic-compatible
+    base_url: https://api.anthropic.com/v1
+    api_key_env: ANTHROPIC_API_KEY
+    options:
+      endpoint_path: /messages
+      anthropic_version: "2023-06-01"
+      timeout_ms: 600000
+    models:
+      default:
+        provider_model: claude-opus-4-6
+        max_output_tokens: 128000
+        temperature: 0.2
+        reasoning: medium
 
   gemini-api:
     type: api
@@ -36,31 +89,89 @@ providers:
       endpoint_path: /models/{model}:generateContent
       response_mime_type: application/json
       response_schema_field: response_json_schema
-      timeout_ms: 120000
+      timeout_ms: 600000
     models:
       default:
-        provider_model: gemini-3.5-flash
-        max_output_tokens: 4096
+        provider_model: gemini-3.1-pro-preview
+        max_output_tokens: 65536
         temperature: 0.2
-        reasoning: medium
+        reasoning: high
 
-  qwen-max-api:
+  # ------------------------------
+  # OpenAI-compatible gateways
+  # ------------------------------
+  openrouter-api:
     type: api
     protocol: openai-compatible
-    base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
-    api_key_env: BAILIAN_API_KEY
+    base_url: https://openrouter.ai/api/v1
+    api_key_env: OPENROUTER_API_KEY
+    headers:
+      HTTP-Referer: https://til-consensus.local
+      X-Title: til-consensus
     options:
       endpoint_path: /chat/completions
       structured_output_mode: none
       max_output_tokens_field: max_tokens
       reasoning_field: "-"
-      timeout_ms: 120000
+      timeout_ms: 600000
+    models:
+      default:
+        provider_model: x-ai/grok-4.3
+        # OpenRouter lists no output-token limit for this model; 0 means til-consensus will not send max_tokens.
+        max_output_tokens: 0
+        temperature: 0.2
+
+  kimi-api:
+    type: api
+    protocol: openai-compatible
+    base_url: https://api.moonshot.cn/v1
+    api_key_env: KIMI_API_KEY
+    options:
+      endpoint_path: /chat/completions
+      structured_output_mode: none
+      max_output_tokens_field: max_tokens
+      reasoning_field: "-"
+      timeout_ms: 600000
+    models:
+      default:
+        provider_model: kimi-k2.6
+        max_output_tokens: 262144
+        temperature: 1
+
+  deepseek-api:
+    type: api
+    protocol: openai-compatible
+    base_url: https://api.deepseek.com
+    api_key_env: DEEPSEEK_API_KEY
+    options:
+      endpoint_path: /chat/completions
+      structured_output_mode: none
+      max_output_tokens_field: max_tokens
+      reasoning_field: reasoning_effort
+      timeout_ms: 600000
       extra_body:
         response_format:
           type: json_object
-        # 可改为 false 关闭百炼兼容模式的思考输出。
+        thinking:
+          type: enabled
+    models:
+      default:
+        provider_model: deepseek-v4-pro
+        max_output_tokens: 393216
+        reasoning: max
+
+  qwen-max-api:
+    type: api
+    protocol: openai-responses
+    base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    api_key_env: BAILIAN_API_KEY
+    options:
+      endpoint_path: /responses
+      structured_output_mode: json_schema
+      timeout_ms: 600000
+      extra_body:
         enable_thinking: true
     models:
       default:
         provider_model: qwen3.7-max
-        max_output_tokens: 4096
+        max_output_tokens: 65536

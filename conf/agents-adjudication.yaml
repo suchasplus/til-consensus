@@ -1,0 +1,28 @@
+schema_version: 1
+
+# Agents used by adjudication mode.
+agents:
+  - id: proposer-codex-cli
+    provider: codex-cli
+    model: default
+    role: proposer
+  - id: challenger-claude-cli
+    provider: claude-cli
+    model: default
+    role: challenger
+  - id: challenger-gemini-cli
+    provider: gemini-cli
+    model: default
+    role: challenger
+  - id: verifier-gemini-api
+    provider: gemini-api
+    model: default
+    role: semantic-verifier
+  - id: arbiter-anthropic-api
+    provider: anthropic-api
+    model: default
+    role: arbiter
+  - id: reporter-openai-api
+    provider: openai-api
+    model: default
+    role: reporter

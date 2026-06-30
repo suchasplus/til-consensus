@@ -1,0 +1,32 @@
+schema_version: 1
+
+# Agents used by delphi mode.
+agents:
+  - id: participant-openai-api
+    provider: openai-api
+    model: default
+    role: participant
+  - id: participant-anthropic-api
+    provider: anthropic-api
+    model: default
+    role: participant
+  - id: participant-gemini-api
+    provider: gemini-api
+    model: default
+    role: participant
+  - id: participant-deepseek-api
+    provider: deepseek-api
+    model: default
+    role: participant
+  - id: participant-qwen-max-api
+    provider: qwen-max-api
+    model: default
+    role: participant
+  - id: facilitator-anthropic-api
+    provider: anthropic-api
+    model: default
+    role: facilitator
+  - id: reporter-openai-api
+    provider: openai-api
+    model: default
+    role: reporter

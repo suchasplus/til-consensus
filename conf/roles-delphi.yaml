@@ -1,0 +1,12 @@
+schema_version: 1
+
+roles:
+  delphi:
+    participants:
+      - participant-openai-api
+      - participant-anthropic-api
+      - participant-gemini-api
+      - participant-deepseek-api
+      - participant-qwen-max-api
+    facilitator: facilitator-anthropic-api
+    reporter: reporter-openai-api
