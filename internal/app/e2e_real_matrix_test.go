@@ -142,6 +142,7 @@ func TestE2EAPIFixtureMatrix(t *testing.T) {
 			openAIHits := 0
 			anthropicHits := 0
 			geminiHits := 0
+			t.Setenv("GEMINI_TEST_API_KEY", "test-key")
 			openAIServer, anthropicServer, geminiServer := startE2EAPIServers(t, fixture.Manifest.Mode, &openAIHits, &anthropicHits, &geminiHits)
 			defer openAIServer.Close()
 			defer anthropicServer.Close()
@@ -627,9 +628,10 @@ func writeE2EProviderConfig(t *testing.T, params e2eConfigParams) {
 				},
 			},
 			"gemini-test": {
-				Type:     config.ProviderTypeAPI,
-				Protocol: config.APIProtocolGemini,
-				BaseURL:  params.GeminiBaseURL,
+				Type:      config.ProviderTypeAPI,
+				Protocol:  config.APIProtocolGemini,
+				BaseURL:   params.GeminiBaseURL,
+				APIKeyEnv: "GEMINI_TEST_API_KEY",
 				Models: map[string]config.ProviderModelConfig{
 					"default": {ProviderModel: "gemini-test"},
 				},
