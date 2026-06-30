@@ -15,9 +15,10 @@ VERSION_PKG ?= github.com/suchasplus/til-consensus/internal/buildinfo
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 BUILD_TIME ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
+BUILD_MACHINE ?= $(shell hostname 2>/dev/null || echo unknown)
 GIT_HOOKS_DIR ?= .git/hooks
 DIRTY ?= $(shell if [ -n "$$(git status --porcelain 2>/dev/null)" ]; then echo true; else echo false; fi)
-COMMON_LDFLAGS := -X $(VERSION_PKG).Version=$(VERSION) -X $(VERSION_PKG).Commit=$(COMMIT) -X $(VERSION_PKG).BuildTime=$(BUILD_TIME) -X $(VERSION_PKG).Dirty=$(DIRTY)
+COMMON_LDFLAGS := -X $(VERSION_PKG).Version=$(VERSION) -X $(VERSION_PKG).Commit=$(COMMIT) -X $(VERSION_PKG).BuildTime=$(BUILD_TIME) -X $(VERSION_PKG).BuildMachine=$(BUILD_MACHINE) -X $(VERSION_PKG).Dirty=$(DIRTY)
 RELEASE_LDFLAGS := $(COMMON_LDFLAGS) -s -w
 UNAME_S := $(shell uname -s)
 

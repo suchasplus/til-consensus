@@ -7,10 +7,11 @@ import (
 )
 
 var (
-	Version   = "dev"
-	Commit    = "unknown"
-	BuildTime = "unknown"
-	Dirty     = "unknown"
+	Version      = "dev"
+	Commit       = "unknown"
+	BuildTime    = "unknown"
+	BuildMachine = "unknown"
+	Dirty        = "unknown"
 )
 
 func Short() string {
@@ -34,6 +35,13 @@ func BuiltAt() string {
 	return "unknown"
 }
 
+func Machine() string {
+	if value := strings.TrimSpace(BuildMachine); value != "" {
+		return value
+	}
+	return "unknown"
+}
+
 func IsDirty() string {
 	if value := strings.TrimSpace(Dirty); value != "" {
 		return value
@@ -43,22 +51,24 @@ func IsDirty() string {
 
 func Info() map[string]string {
 	return map[string]string{
-		"version":   Short(),
-		"commit":    CommitID(),
-		"buildTime": BuiltAt(),
-		"dirty":     IsDirty(),
-		"goVersion": runtime.Version(),
-		"goos":      runtime.GOOS,
-		"goarch":    runtime.GOARCH,
+		"version":      Short(),
+		"commit":       CommitID(),
+		"buildTime":    BuiltAt(),
+		"buildMachine": Machine(),
+		"dirty":        IsDirty(),
+		"goVersion":    runtime.Version(),
+		"goos":         runtime.GOOS,
+		"goarch":       runtime.GOARCH,
 	}
 }
 
 func Format() string {
 	return fmt.Sprintf(
-		"version: %s\ncommit: %s\nbuild time: %s\ndirty: %s\ngo version: %s\ngoos: %s\ngoarch: %s\n",
+		"version: %s\ncommit: %s\nbuild time: %s\nbuild machine: %s\ndirty: %s\ngo version: %s\ngoos: %s\ngoarch: %s\n",
 		Short(),
 		CommitID(),
 		BuiltAt(),
+		Machine(),
 		IsDirty(),
 		runtime.Version(),
 		runtime.GOOS,

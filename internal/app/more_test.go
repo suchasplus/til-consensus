@@ -59,6 +59,7 @@ func assertFullVersionOutput(t *testing.T, label string, output string) {
 		"version:",
 		"commit:",
 		"build time:",
+		"build machine:",
 		"dirty:",
 		"go version:",
 		"goos:",
