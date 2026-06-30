@@ -717,10 +717,14 @@ til-consensus view --config ./til-consensus.yaml --section rounds --section conv
 - `make run ARGS="..."`
   - 直接运行 CLI
 - `make cover`
-  - 生成并打印单元测试覆盖率
+  - 生成 `tmp/coverage/cover.out` 并打印单元测试覆盖率
+- `make coverage-treemap`
+  - 生成 `tmp/coverage/cover.out`
+  - 自动安装或复用 `go-cover-treemap`
+  - 生成覆盖率 treemap：`tmp/coverage/coverage.svg`
 - `make pre-push`
   - 推送前的快速质量门禁
-  - 执行格式检查、单元测试、`go vet`、`golangci-lint run` 和本地构建
+  - 执行格式检查、覆盖率测试、覆盖率 treemap、`go vet`、`golangci-lint run` 和本地构建
 - `make install-git-hooks`
   - 安装仓库内置 Git `pre-push` hook
   - 安装后每次 `git push` 前会自动运行 `make pre-push`
@@ -861,7 +865,7 @@ make install-git-hooks
 make pre-push
 ```
 
-`make pre-push` 比 `make ci` 快，不跑 race 测试；它用于日常提交前拦截格式、单测、`go vet`、`golangci-lint` 和构建问题。需要完全对齐 GitHub Actions 时仍然运行 `make ci`。
+`make pre-push` 比 `make ci` 快，不跑 race 测试；它用于日常提交前拦截格式、覆盖率单测、`go vet`、`golangci-lint` 和构建问题，并生成 `tmp/coverage/coverage.svg`。需要完全对齐 GitHub Actions 时仍然运行 `make ci`。
 
 本地模拟单个平台发布：
 

@@ -12,11 +12,8 @@ include:
 profile: adjudication
 
 defaults:
-  success_criteria:
-    - 给出 claim 级裁决或多方收敛结论
-    - 输出关键 caveat、风险和 unresolved
   per_task_timeout: 20m
-  task_retry_attempts: 1
+  task_retry_attempts: 2
   proposal_policy:
     max_passes: 1
     max_claims_per_worker: 4
@@ -49,9 +46,21 @@ profiles:
   adjudication:
     defaults:
       mode: adjudication
+      success_criteria:
+        - 每条关键 claim 必须给出 claim 级裁决
+        - 必须标注 keep、revise、reject 或 unresolved 的裁决状态
+        - 必须输出关键 caveat、证据缺口和最终 task verdict
   free-debate:
     defaults:
       mode: free_debate
+      success_criteria:
+        - 必须呈现主要支持方和反对方观点
+        - 必须记录每轮关键分歧、观点变化和未解决冲突
+        - 必须输出最终投票结果、少数意见和 unresolved 分歧
   delphi:
     defaults:
       mode: delphi
+      success_criteria:
+        - 必须进行匿名多轮评分或意见修订
+        - 必须输出每轮共识变化、收敛程度和分歧摘要
+        - 必须明确最终共识、未收敛问题和下一步建议

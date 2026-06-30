@@ -193,6 +193,7 @@ type OutputConfig struct {
 }
 
 type ProviderModelConfig struct {
+	Enabled            *bool    `yaml:"enabled,omitempty"`
 	ProviderModel      string   `yaml:"provider_model,omitempty"`
 	ContextWindow      int      `yaml:"context_window,omitempty"`
 	MaxOutputTokens    int      `yaml:"max_output_tokens,omitempty"`
@@ -202,6 +203,7 @@ type ProviderModelConfig struct {
 }
 
 type ProviderConfig struct {
+	Enabled      *bool                              `yaml:"enabled,omitempty"`
 	Type         string                             `yaml:"type"`
 	Protocol     string                             `yaml:"protocol,omitempty"`
 	CLIType      string                             `yaml:"cli_type,omitempty"`

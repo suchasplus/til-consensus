@@ -67,7 +67,8 @@ make pre-push
 它会顺序执行：
 
 - 格式检查
-- `go test ./...`
+- `go test ./... -coverprofile=./tmp/coverage/cover.out`
+- 生成覆盖率 treemap：`tmp/coverage/coverage.svg`
 - `go vet ./...`
 - `golangci-lint run`
 - `make build`

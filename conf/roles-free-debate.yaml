@@ -3,9 +3,7 @@ schema_version: 1
 roles:
   free_debate:
     participants:
-      - participant-openai-api
-      - participant-anthropic-api
       - participant-gemini-api
       - participant-deepseek-api
-      - participant-qwen-max-api
-    reporter: reporter-openai-api
+      - participant-dashscope-api
+    reporter: reporter-dashscope-api

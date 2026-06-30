@@ -18,11 +18,11 @@ agents:
     provider: gemini-api
     model: default
     role: semantic-verifier
-  - id: arbiter-anthropic-api
-    provider: anthropic-api
+  - id: arbiter-claude-cli
+    provider: claude-cli
     model: default
     role: arbiter
-  - id: reporter-openai-api
-    provider: openai-api
+  - id: reporter-dashscope-api
+    provider: dashscope-api
     model: default
     role: reporter

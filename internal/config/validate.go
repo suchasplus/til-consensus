@@ -183,12 +183,19 @@ func validateAgentProfiles(cfg Config, requireAgents bool) (map[string]struct{},
 		if !ok {
 			return nil, fmt.Errorf("agent %s: unknown provider %s", agent.ID, agent.Provider)
 		}
+		if !IsProviderEnabled(provider) {
+			return nil, fmt.Errorf("agent %s: provider %s is disabled", agent.ID, agent.Provider)
+		}
 		if len(provider.Models) > 0 {
 			if strings.TrimSpace(agent.Model) == "" {
 				return nil, fmt.Errorf("agent %s: model is required", agent.ID)
 			}
-			if _, ok := provider.Models[agent.Model]; !ok {
+			model, ok := provider.Models[agent.Model]
+			if !ok {
 				return nil, fmt.Errorf("agent %s: unknown model %s for provider %s", agent.ID, agent.Model, agent.Provider)
+			}
+			if !IsProviderModelEnabled(model) {
+				return nil, fmt.Errorf("agent %s: model %s for provider %s is disabled", agent.ID, agent.Model, agent.Provider)
 			}
 		}
 	}

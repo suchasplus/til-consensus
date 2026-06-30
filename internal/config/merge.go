@@ -119,6 +119,9 @@ func mergeProviders(base map[string]ProviderConfig, overlay map[string]ProviderC
 
 func mergeProvider(base ProviderConfig, overlay ProviderConfig) ProviderConfig {
 	out := base
+	if overlay.Enabled != nil {
+		out.Enabled = cloneBoolPtr(overlay.Enabled)
+	}
 	out.Type = pickString(out.Type, overlay.Type)
 	out.Protocol = pickString(out.Protocol, overlay.Protocol)
 	out.CLIType = pickString(out.CLIType, overlay.CLIType)
@@ -163,6 +166,9 @@ func mergeProviderModels(base map[string]ProviderModelConfig, overlay map[string
 
 func mergeProviderModel(base ProviderModelConfig, overlay ProviderModelConfig) ProviderModelConfig {
 	out := base
+	if overlay.Enabled != nil {
+		out.Enabled = cloneBoolPtr(overlay.Enabled)
+	}
 	out.ProviderModel = pickString(out.ProviderModel, overlay.ProviderModel)
 	if overlay.ContextWindow != 0 {
 		out.ContextWindow = overlay.ContextWindow
@@ -456,6 +462,7 @@ func mergeAnyValue(base any, overlay any) (any, bool) {
 
 func cloneProvider(provider ProviderConfig) ProviderConfig {
 	out := provider
+	out.Enabled = cloneBoolPtr(provider.Enabled)
 	out.Headers = cloneStringMap(provider.Headers)
 	out.Models = mergeProviderModels(nil, provider.Models)
 	out.Args = cloneStrings(provider.Args)
@@ -477,11 +484,20 @@ func cloneProfile(profile ProfileConfig) ProfileConfig {
 
 func cloneProviderModel(model ProviderModelConfig) ProviderModelConfig {
 	out := model
+	out.Enabled = cloneBoolPtr(model.Enabled)
 	if model.Temperature != nil {
 		value := *model.Temperature
 		out.Temperature = &value
 	}
 	return out
+}
+
+func cloneBoolPtr(value *bool) *bool {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
 }
 
 func cloneAgent(agent AgentConfig) AgentConfig {

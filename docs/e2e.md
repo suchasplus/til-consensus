@@ -205,7 +205,8 @@ make pre-push
 
 ```bash
 gofmt -l .
-go test ./...
+go test ./... -coverprofile=./tmp/coverage/cover.out
+go-cover-treemap -coverprofile=./tmp/coverage/cover.out > ./tmp/coverage/coverage.svg
 go vet ./...
 golangci-lint run
 make build

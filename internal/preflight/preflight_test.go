@@ -1,10 +1,49 @@
 package preflight
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/suchasplus/til-consensus/internal/config"
 )
+
+func TestBuildCandidatesSkipsDisabledProviderAndModels(t *testing.T) {
+	disabled := false
+	cfg := config.Normalize(config.Config{
+		SchemaVersion: 1,
+		Providers: map[string]config.ProviderConfig{
+			"enabled-api": {
+				Type:     config.ProviderTypeAPI,
+				Protocol: config.APIProtocolOpenAICompatible,
+				Models: map[string]config.ProviderModelConfig{
+					"enabled":  {ProviderModel: "enabled-model"},
+					"disabled": {Enabled: &disabled, ProviderModel: "disabled-model"},
+				},
+			},
+			"disabled-api": {
+				Enabled:  &disabled,
+				Type:     config.ProviderTypeAPI,
+				Protocol: config.APIProtocolOpenAICompatible,
+				Models: map[string]config.ProviderModelConfig{
+					"default": {ProviderModel: "disabled-provider-model"},
+				},
+			},
+		},
+	})
+
+	candidates, err := buildCandidates(cfg, Options{All: true})
+	if err != nil {
+		t.Fatalf("buildCandidates failed: %v", err)
+	}
+	if len(candidates) != 1 || candidates[0].ProviderID != "enabled-api" || candidates[0].ModelID != "enabled" {
+		t.Fatalf("expected only enabled provider/model candidate, got %#v", candidates)
+	}
+
+	_, err = buildCandidates(cfg, Options{ProviderIDs: []string{"disabled-api"}})
+	if err == nil || !strings.Contains(err.Error(), "provider disabled-api is disabled") {
+		t.Fatalf("expected explicit disabled provider error, got %v", err)
+	}
+}
 
 func TestEffectiveMaxOutputTokensUsesDefaultBudget(t *testing.T) {
 	got := effectiveMaxOutputTokens(candidate{

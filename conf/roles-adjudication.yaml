@@ -8,5 +8,5 @@ roles:
       - challenger-claude-cli
       - challenger-gemini-cli
     semantic_verifier: verifier-gemini-api
-    arbiter: arbiter-anthropic-api
-    reporter: reporter-openai-api
+    arbiter: arbiter-claude-cli
+    reporter: reporter-dashscope-api

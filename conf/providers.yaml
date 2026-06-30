@@ -7,38 +7,46 @@ providers:
   # CLI providers
   # ------------------------------
   codex-cli:
+    enabled: true
     type: cli
     cli_type: codex
     command: codex
     models:
       default:
+        enabled: true
         provider_model: gpt-5.5
         reasoning: xhigh
 
   claude-cli:
+    enabled: true
     type: cli
     cli_type: claude
     command: claude
     models:
       default:
+        enabled: true
         provider_model: claude-opus-4-6[1m]
         reasoning: max
 
   gemini-cli:
+    enabled: true
     type: cli
     cli_type: gemini
     command: gemini
     models:
       default:
+        enabled: true
         provider_model: gemini-3.1-pro-preview
         reasoning: high
 
   antigravity-cli:
+    enabled: true
     type: cli
     cli_type: antigravity
     command: agy
     models:
       default:
+        enabled: true
         # `agy models` shows model list.
         provider_model: Gemini 3.1 Pro (High)
         reasoning: medium
@@ -47,6 +55,7 @@ providers:
   # Official API providers
   # ------------------------------
   openai-api:
+    enabled: false
     type: api
     protocol: openai-compatible
     base_url: https://api.openai.com/v1
@@ -59,12 +68,14 @@ providers:
       timeout_ms: 600000
     models:
       default:
+        enabled: true
         provider_model: gpt-5.4
         max_output_tokens: 128000
         temperature: 0.2
         reasoning: medium
 
   anthropic-api:
+    enabled: false
     type: api
     protocol: anthropic-compatible
     base_url: https://api.anthropic.com/v1
@@ -75,12 +86,14 @@ providers:
       timeout_ms: 600000
     models:
       default:
+        enabled: true
         provider_model: claude-opus-4-6
         max_output_tokens: 128000
         temperature: 0.2
         reasoning: medium
 
   gemini-api:
+    enabled: true
     type: api
     protocol: gemini-api
     base_url: https://generativelanguage.googleapis.com/v1beta
@@ -92,6 +105,7 @@ providers:
       timeout_ms: 600000
     models:
       default:
+        enabled: true
         provider_model: gemini-3.1-pro-preview
         max_output_tokens: 65536
         temperature: 0.2
@@ -101,6 +115,7 @@ providers:
   # OpenAI-compatible gateways
   # ------------------------------
   openrouter-api:
+    enabled: true
     type: api
     protocol: openai-compatible
     base_url: https://openrouter.ai/api/v1
@@ -116,12 +131,14 @@ providers:
       timeout_ms: 600000
     models:
       default:
+        enabled: true
         provider_model: x-ai/grok-4.3
         # OpenRouter lists no output-token limit for this model; 0 means til-consensus will not send max_tokens.
         max_output_tokens: 0
         temperature: 0.2
 
   kimi-api:
+    enabled: true
     type: api
     protocol: openai-compatible
     base_url: https://api.moonshot.cn/v1
@@ -134,11 +151,13 @@ providers:
       timeout_ms: 600000
     models:
       default:
+        enabled: true
         provider_model: kimi-k2.6
         max_output_tokens: 262144
         temperature: 1
 
   deepseek-api:
+    enabled: true
     type: api
     protocol: openai-compatible
     base_url: https://api.deepseek.com
@@ -156,11 +175,13 @@ providers:
           type: enabled
     models:
       default:
+        enabled: true
         provider_model: deepseek-v4-pro
         max_output_tokens: 393216
         reasoning: max
 
-  qwen-max-api:
+  dashscope-api:
+    enabled: true
     type: api
     protocol: openai-responses
     base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
@@ -173,5 +194,6 @@ providers:
         enable_thinking: true
     models:
       default:
+        enabled: true
         provider_model: qwen3.7-max
         max_output_tokens: 65536

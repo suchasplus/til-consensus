@@ -104,12 +104,20 @@ func buildCandidates(cfg config.Config, opts Options) ([]candidate, error) {
 	out := []candidate{}
 	providerIDs := sortedProviderIDs(cfg.Providers)
 	for _, providerID := range providerIDs {
+		explicitlySelected := false
 		if len(providerFilter) > 0 {
 			if _, ok := providerFilter[providerID]; !ok {
 				continue
 			}
+			explicitlySelected = true
 		}
 		provider := cfg.Providers[providerID]
+		if !config.IsProviderEnabled(provider) {
+			if explicitlySelected {
+				return nil, fmt.Errorf("provider %s is disabled", providerID)
+			}
+			continue
+		}
 		items := candidatesForProvider(providerID, provider)
 		out = append(out, items...)
 	}
@@ -132,6 +140,9 @@ func candidateForAgent(cfg config.Config, agent config.AgentConfig) (candidate, 
 	if !ok {
 		return candidate{}, fmt.Errorf("agent %s references unknown provider %s", agent.ID, agent.Provider)
 	}
+	if !config.IsProviderEnabled(provider) {
+		return candidate{}, fmt.Errorf("agent %s references disabled provider %s", agent.ID, agent.Provider)
+	}
 	modelID := strings.TrimSpace(agent.Model)
 	modelConfig := config.ProviderModelConfig{}
 	if len(provider.Models) > 0 {
@@ -146,6 +157,9 @@ func candidateForAgent(cfg config.Config, agent config.AgentConfig) (candidate, 
 		resolved, ok := provider.Models[modelID]
 		if !ok {
 			return candidate{}, fmt.Errorf("agent %s: unknown model %s for provider %s", agent.ID, modelID, agent.Provider)
+		}
+		if !config.IsProviderModelEnabled(resolved) {
+			return candidate{}, fmt.Errorf("agent %s references disabled model %s for provider %s", agent.ID, modelID, agent.Provider)
 		}
 		modelConfig = resolved
 	}
@@ -172,6 +186,9 @@ func candidatesForProvider(providerID string, provider config.ProviderConfig) []
 		modelConfig := provider.Models[modelID]
 		if len(provider.Models) == 0 {
 			modelConfig = config.ProviderModelConfig{}
+		}
+		if !config.IsProviderModelEnabled(modelConfig) {
+			continue
 		}
 		providerModel := providerModelFor(provider, modelID, modelConfig)
 		id := providerID

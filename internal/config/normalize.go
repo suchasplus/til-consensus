@@ -51,6 +51,9 @@ func Normalize(cfg Config) Config {
 
 func normalizeProvider(provider ProviderConfig) ProviderConfig {
 	out := provider
+	if out.Enabled == nil {
+		out.Enabled = boolPtr(true)
+	}
 	switch out.Type {
 	case ProviderTypeOpenAI:
 		out.Type = ProviderTypeAPI
@@ -82,6 +85,12 @@ func normalizeProvider(provider ProviderConfig) ProviderConfig {
 			"default": {ProviderModel: "default"},
 		}
 	}
+	for modelID, model := range out.Models {
+		if model.Enabled == nil {
+			model.Enabled = boolPtr(true)
+		}
+		out.Models[modelID] = model
+	}
 	if out.Headers == nil {
 		out.Headers = map[string]string{}
 	}
@@ -95,6 +104,25 @@ func normalizeProvider(provider ProviderConfig) ProviderConfig {
 		out.Participants = map[string]MockParticipantScenario{}
 	}
 	return out
+}
+
+func IsProviderEnabled(provider ProviderConfig) bool {
+	return boolValue(provider.Enabled, true)
+}
+
+func IsProviderModelEnabled(model ProviderModelConfig) bool {
+	return boolValue(model.Enabled, true)
+}
+
+func boolValue(value *bool, fallback bool) bool {
+	if value == nil {
+		return fallback
+	}
+	return *value
+}
+
+func boolPtr(value bool) *bool {
+	return &value
 }
 
 func normalizeRoles(roles RolesConfig) RolesConfig {

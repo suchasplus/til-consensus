@@ -326,6 +326,87 @@ agents:
 	}
 }
 
+func TestProviderAndModelEnabledDefaultsAndValidation(t *testing.T) {
+	tmp := t.TempDir()
+	configPath := filepath.Join(tmp, "enabled-defaults.yaml")
+	writeConfigTestFile(t, configPath, `
+schema_version: 1
+providers:
+  api:
+    type: api
+    protocol: openai-compatible
+    models:
+      default:
+        provider_model: test-model
+`)
+	loaded, err := LoadProfiles(configPath)
+	if err != nil {
+		t.Fatalf("LoadProfiles failed: %v", err)
+	}
+	provider := loaded.Config.Providers["api"]
+	if !IsProviderEnabled(provider) {
+		t.Fatalf("provider should default to enabled")
+	}
+	if !IsProviderModelEnabled(provider.Models["default"]) {
+		t.Fatalf("provider model should default to enabled")
+	}
+
+	configPath = filepath.Join(tmp, "disabled-provider.yaml")
+	writeConfigTestFile(t, configPath, `
+schema_version: 1
+providers:
+  disabled-api:
+    enabled: false
+    type: api
+    protocol: openai-compatible
+    models:
+      default:
+        provider_model: disabled-model
+agents:
+  - id: proposer-a
+    provider: disabled-api
+    model: default
+    role: proposer
+roles:
+  adjudication:
+    proposers: [proposer-a]
+    challengers: [proposer-a]
+`)
+	_, err = Load(configPath)
+	if err == nil || !strings.Contains(err.Error(), "provider disabled-api is disabled") {
+		t.Fatalf("expected disabled provider reference error, got %v", err)
+	}
+	if _, err := LoadProfiles(configPath); err != nil {
+		t.Fatalf("LoadProfiles should allow disabled provider declarations: %v", err)
+	}
+
+	configPath = filepath.Join(tmp, "disabled-model.yaml")
+	writeConfigTestFile(t, configPath, `
+schema_version: 1
+providers:
+  api:
+    type: api
+    protocol: openai-compatible
+    models:
+      default:
+        enabled: false
+        provider_model: disabled-model
+agents:
+  - id: proposer-a
+    provider: api
+    model: default
+    role: proposer
+roles:
+  adjudication:
+    proposers: [proposer-a]
+    challengers: [proposer-a]
+`)
+	_, err = Load(configPath)
+	if err == nil || !strings.Contains(err.Error(), "model default for provider api is disabled") {
+		t.Fatalf("expected disabled model reference error, got %v", err)
+	}
+}
+
 func TestLoadProfilesRejectsCLIMaxOutputTokens(t *testing.T) {
 	tmp := t.TempDir()
 	configPath := filepath.Join(tmp, "bad-cli-token-budget.yaml")

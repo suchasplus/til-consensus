@@ -7,6 +7,10 @@ TARGET_GOOS ?= $(shell $(GO) env GOOS)
 TARGET_GOARCH ?= $(shell $(GO) env GOARCH)
 RELEASE_NAME ?= $(APP)_$(VERSION)_$(TARGET_GOOS)_$(TARGET_GOARCH)
 DEBUG_FLAGS ?= -gcflags "all=-N -l"
+COVERAGE_DIR ?= ./tmp/coverage
+COVERPROFILE ?= $(COVERAGE_DIR)/cover.out
+COVERAGE_SVG ?= $(COVERAGE_DIR)/coverage.svg
+GO_COVER_TREEMAP_PKG ?= github.com/nikolaydubina/go-cover-treemap@latest
 VERSION_PKG ?= github.com/suchasplus/til-consensus/internal/buildinfo
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
@@ -23,7 +27,7 @@ else
 INSTALL_DIR ?= $(HOME)/.local/bin
 endif
 
-.PHONY: fmt fmt-check test test-e2e test-e2e-real test-e2e-real-api vet lint pre-push install-git-hooks ci build build-debug build-release release-archive install run cover clean
+.PHONY: fmt fmt-check test test-e2e test-e2e-real test-e2e-real-api vet lint pre-push install-git-hooks ci build build-debug build-release release-archive install run cover coverage-treemap clean
 
 fmt:
 	$(GO) fmt ./...
@@ -54,7 +58,7 @@ vet:
 lint:
 	golangci-lint run
 
-pre-push: fmt-check test vet lint build
+pre-push: fmt-check coverage-treemap vet lint build
 
 install-git-hooks:
 	@test -d .git || (echo "当前目录不是 git worktree 根目录"; exit 1)
@@ -98,8 +102,28 @@ run:
 	$(GO) run -ldflags "$(COMMON_LDFLAGS)" $(CMD_PKG) $(ARGS)
 
 cover:
-	$(GO) test ./... -coverprofile=coverage.out
-	$(GO) tool cover -func=coverage.out
+	mkdir -p $(COVERAGE_DIR)
+	$(GO) test ./... -coverprofile=$(COVERPROFILE)
+	$(GO) tool cover -func=$(COVERPROFILE)
+
+coverage-treemap:
+	mkdir -p $(COVERAGE_DIR)
+	$(GO) test ./... -coverprofile=$(COVERPROFILE)
+	@tool="$$(command -v go-cover-treemap 2>/dev/null || true)"; \
+	if [ -z "$$tool" ]; then \
+		gobin="$$( $(GO) env GOBIN )"; \
+		if [ -z "$$gobin" ]; then gobin="$$( $(GO) env GOPATH )/bin"; fi; \
+		if [ -x "$$gobin/go-cover-treemap" ]; then tool="$$gobin/go-cover-treemap"; fi; \
+	fi; \
+	if [ -z "$$tool" ]; then \
+		echo "installing $(GO_COVER_TREEMAP_PKG)"; \
+		$(GO) install $(GO_COVER_TREEMAP_PKG); \
+		gobin="$$( $(GO) env GOBIN )"; \
+		if [ -z "$$gobin" ]; then gobin="$$( $(GO) env GOPATH )/bin"; fi; \
+		tool="$$gobin/go-cover-treemap"; \
+	fi; \
+	"$$tool" -coverprofile=$(COVERPROFILE) > $(COVERAGE_SVG)
+	@echo "coverage treemap: $(COVERAGE_SVG)"
 
 clean:
-	rm -rf $(BIN_DIR) $(DIST_DIR) coverage.out
+	rm -rf $(BIN_DIR) $(DIST_DIR) $(COVERAGE_DIR) coverage.out cover.out

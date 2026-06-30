@@ -25,6 +25,7 @@ func validateProviderModelFields(value *yaml.Node) error {
 		return nil
 	}
 	allowed := map[string]struct{}{
+		"enabled":           {},
 		"provider_model":    {},
 		"context_window":    {},
 		"max_output_tokens": {},
