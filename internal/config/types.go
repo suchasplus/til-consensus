@@ -94,6 +94,7 @@ type RolesConfig struct {
 	Participants     []string `yaml:"-" json:"-"`
 	Arbiter          string   `yaml:"-" json:"-"`
 	SemanticVerifier string   `yaml:"-" json:"-"`
+	SemanticDeduper  string   `yaml:"-" json:"-"`
 	Facilitator      string   `yaml:"-" json:"-"`
 	Reporter         string   `yaml:"-" json:"-"`
 	Actor            string   `yaml:"-" json:"-"`
@@ -109,9 +110,10 @@ type AdjudicationRolesConfig struct {
 }
 
 type DebateRolesConfig struct {
-	Participants []string `yaml:"participants,omitempty"`
-	Reporter     string   `yaml:"reporter,omitempty"`
-	Actor        string   `yaml:"actor,omitempty"`
+	Participants    []string `yaml:"participants,omitempty"`
+	SemanticDeduper string   `yaml:"semantic_deduper,omitempty"`
+	Reporter        string   `yaml:"reporter,omitempty"`
+	Actor           string   `yaml:"actor,omitempty"`
 }
 
 type DelphiRolesConfig struct {
@@ -132,6 +134,7 @@ func (r AdjudicationRolesConfig) IsZero() bool {
 
 func (r DebateRolesConfig) IsZero() bool {
 	return len(r.Participants) == 0 &&
+		strings.TrimSpace(r.SemanticDeduper) == "" &&
 		strings.TrimSpace(r.Reporter) == "" &&
 		strings.TrimSpace(r.Actor) == ""
 }
@@ -165,11 +168,17 @@ type ArbiterPolicyConfig struct {
 }
 
 type DebatePolicyConfig struct {
-	MinRounds       int     `yaml:"min_rounds,omitempty"`
-	MaxRounds       int     `yaml:"max_rounds,omitempty"`
-	VoteThreshold   float64 `yaml:"vote_threshold,omitempty"`
-	EnableEarlyStop bool    `yaml:"enable_early_stop"`
-	PeerContextMode string  `yaml:"peer_context_mode,omitempty"`
+	MinRounds       int                       `yaml:"min_rounds,omitempty"`
+	MaxRounds       int                       `yaml:"max_rounds,omitempty"`
+	VoteThreshold   float64                   `yaml:"vote_threshold,omitempty"`
+	EnableEarlyStop bool                      `yaml:"enable_early_stop"`
+	PeerContextMode string                    `yaml:"peer_context_mode,omitempty"`
+	SemanticDedup   DebateSemanticDedupConfig `yaml:"semantic_dedup,omitempty"`
+}
+
+type DebateSemanticDedupConfig struct {
+	Enabled             bool    `yaml:"enabled"`
+	SimilarityThreshold float64 `yaml:"similarity_threshold,omitempty"`
 }
 
 type DelphiPolicyConfig struct {
@@ -301,6 +310,7 @@ type RunOverrides struct {
 	Participants         []string
 	Arbiter              string
 	SemanticVerifier     string
+	SemanticDeduper      string
 	Facilitator          string
 	Reporter             string
 	Actor                string

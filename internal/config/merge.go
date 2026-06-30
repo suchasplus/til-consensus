@@ -239,6 +239,7 @@ func mergeRoles(base RolesConfig, overlay RolesConfig) RolesConfig {
 	if len(overlay.FreeDebate.Participants) > 0 {
 		out.FreeDebate.Participants = cloneStrings(overlay.FreeDebate.Participants)
 	}
+	out.FreeDebate.SemanticDeduper = pickString(out.FreeDebate.SemanticDeduper, overlay.FreeDebate.SemanticDeduper)
 	out.FreeDebate.Reporter = pickString(out.FreeDebate.Reporter, overlay.FreeDebate.Reporter)
 	out.FreeDebate.Actor = pickString(out.FreeDebate.Actor, overlay.FreeDebate.Actor)
 	if len(overlay.Delphi.Participants) > 0 {
@@ -341,6 +342,12 @@ func mergeDebatePolicy(base DebatePolicyConfig, overlay DebatePolicyConfig) Deba
 		out.EnableEarlyStop = true
 	}
 	out.PeerContextMode = pickString(out.PeerContextMode, overlay.PeerContextMode)
+	if overlay.SemanticDedup.Enabled {
+		out.SemanticDedup.Enabled = true
+	}
+	if overlay.SemanticDedup.SimilarityThreshold != 0 {
+		out.SemanticDedup.SimilarityThreshold = overlay.SemanticDedup.SimilarityThreshold
+	}
 	return out
 }
 

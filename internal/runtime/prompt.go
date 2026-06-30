@@ -94,6 +94,8 @@ func taskPromptHints(task consensus.Task) []string {
 		return arbiterPromptHints(typed)
 	case consensus.DebateRoundTask:
 		return debateRoundPromptHints(typed)
+	case consensus.SemanticDedupTask:
+		return semanticDedupPromptHints(typed)
 	default:
 		return nil
 	}
@@ -113,6 +115,8 @@ func taskRepairHints(task consensus.Task) []string {
 		return arbiterRepairHints(typed)
 	case consensus.DebateRoundTask:
 		return debateRoundRepairHints(typed)
+	case consensus.SemanticDedupTask:
+		return semanticDedupRepairHints(typed)
 	default:
 		return nil
 	}
@@ -130,6 +134,31 @@ func proposalRepairHints() []string {
 	return []string{
 		"- If the previous output used dependencies or parentClaimIds, remove those fields.",
 		"- Preserve prerequisites as plain language in applicability or boundaryConditions when they are already stated in the previous output.",
+	}
+}
+
+func semanticDedupPromptHints(task consensus.SemanticDedupTask) []string {
+	threshold := fmt.Sprintf("%.2f", task.SimilarityThreshold)
+	return []string{
+		"- Semantic dedup compares only the provided active claims.",
+		"- Return merges only when two claims have the same practical meaning or one is a strict paraphrase of the other.",
+		"- Do not merge claims that are merely related, complementary, or in tension.",
+		"- Do not create, rewrite, split, or delete claim text. Only emit sourceClaimId -> targetClaimId merge decisions.",
+		"- targetClaimId must be the better canonical claim: clearer, broader provenance, or earlier round if otherwise equal.",
+		"- similarity must be a JSON number and must be >= " + threshold + ".",
+		"- Every sourceClaimId and targetClaimId must exactly match one input claimId.",
+		"- Each sourceClaimId may appear at most once.",
+		"- A claim must not appear as both sourceClaimId and targetClaimId across merges; do not emit chained or cyclic merges.",
+		"- If there are no semantic duplicates above the threshold, return merges as an empty array.",
+	}
+}
+
+func semanticDedupRepairHints(task consensus.SemanticDedupTask) []string {
+	return []string{
+		"- Keep the same merge intent, but remove any merge below the similarity threshold.",
+		"- Do not invent new claim IDs. Use only claim IDs from the task context.",
+		"- Remove chained or cyclic merges where a claim appears as both sourceClaimId and targetClaimId.",
+		"- Keep merges as sourceClaimId, targetClaimId, similarity, rationale.",
 	}
 }
 

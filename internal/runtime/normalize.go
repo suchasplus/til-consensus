@@ -57,6 +57,14 @@ func TaskOutputJSONSchema(task consensus.Task) map[string]any {
 				"judgements": arraySchema(debateJudgementSchema()),
 			},
 		)
+	case consensus.SemanticDedupTask:
+		return objectSchema(
+			[]string{"summary", "merges"},
+			map[string]any{
+				"summary": schemaString(),
+				"merges":  arraySchema(debateClaimMergeSchema()),
+			},
+		)
 	case consensus.FinalVoteTask:
 		return objectSchema(
 			[]string{"summary", "votes"},
@@ -365,6 +373,18 @@ func decodeTaskOutputFromJSON(task consensus.Task, payload []byte) (consensus.Ta
 			return nil, fmt.Errorf("validate debate round output: %w", err)
 		}
 		return consensus.DebateRoundTaskResult{Output: output}, nil
+	case consensus.SemanticDedupTask:
+		var output consensus.SemanticDedupOutput
+		if err := json.Unmarshal(payload, &output); err != nil {
+			return nil, fmt.Errorf("decode semantic dedup output: %w", err)
+		}
+		if strings.TrimSpace(output.Summary) == "" {
+			return nil, fmt.Errorf("semantic dedup output missing summary")
+		}
+		if err := validateDebateClaimMerges(typed.Claims, output.Merges, typed.SimilarityThreshold); err != nil {
+			return nil, fmt.Errorf("validate semantic dedup output: %w", err)
+		}
+		return consensus.SemanticDedupTaskResult{Output: output}, nil
 	case consensus.FinalVoteTask:
 		var output consensus.FinalVoteOutput
 		if err := json.Unmarshal(payload, &output); err != nil {
@@ -537,6 +557,18 @@ func debateVoteSchema() map[string]any {
 			"claimId":   schemaString(),
 			"vote":      enumStringSchema([]string{string(consensus.DebateVoteAccept), string(consensus.DebateVoteReject), string(consensus.DebateVoteAbstain)}),
 			"rationale": schemaString(),
+		},
+	)
+}
+
+func debateClaimMergeSchema() map[string]any {
+	return objectSchema(
+		[]string{"sourceClaimId", "targetClaimId", "similarity", "rationale"},
+		map[string]any{
+			"sourceClaimId": schemaString(),
+			"targetClaimId": schemaString(),
+			"similarity":    schemaNumber(),
+			"rationale":     schemaString(),
 		},
 	)
 }
@@ -900,6 +932,53 @@ func validateDebateVotes(votes []consensus.DebateVoteDraft) error {
 		}
 		if !isAllowedDebateVote(vote.Vote) {
 			return fmt.Errorf("votes[%d].vote must be one of accept|reject|abstain", idx)
+		}
+	}
+	return nil
+}
+
+func validateDebateClaimMerges(claims []consensus.DebateClaim, merges []consensus.DebateClaimMergeDraft, threshold float64) error {
+	active := make(map[string]struct{}, len(claims))
+	for _, claim := range claims {
+		if claim.Active {
+			active[claim.ClaimID] = struct{}{}
+		}
+	}
+	seenSources := make(map[string]struct{}, len(merges))
+	seenTargets := make(map[string]struct{}, len(merges))
+	for idx, merge := range merges {
+		sourceID := strings.TrimSpace(merge.SourceClaimID)
+		targetID := strings.TrimSpace(merge.TargetClaimID)
+		if sourceID == "" {
+			return fmt.Errorf("merges[%d].sourceClaimId is required", idx)
+		}
+		if targetID == "" {
+			return fmt.Errorf("merges[%d].targetClaimId is required", idx)
+		}
+		if sourceID == targetID {
+			return fmt.Errorf("merges[%d] cannot merge a claim into itself", idx)
+		}
+		if _, ok := active[sourceID]; !ok {
+			return fmt.Errorf("merges[%d].sourceClaimId %q is not an active input claim", idx, sourceID)
+		}
+		if _, ok := active[targetID]; !ok {
+			return fmt.Errorf("merges[%d].targetClaimId %q is not an active input claim", idx, targetID)
+		}
+		if _, ok := seenSources[sourceID]; ok {
+			return fmt.Errorf("merges[%d].sourceClaimId %q is duplicated", idx, sourceID)
+		}
+		seenSources[sourceID] = struct{}{}
+		seenTargets[targetID] = struct{}{}
+		if merge.Similarity < threshold || merge.Similarity > 1 {
+			return fmt.Errorf("merges[%d].similarity must be in [%.2f,1]", idx, threshold)
+		}
+		if strings.TrimSpace(merge.Rationale) == "" {
+			return fmt.Errorf("merges[%d].rationale is required", idx)
+		}
+	}
+	for targetID := range seenTargets {
+		if _, ok := seenSources[targetID]; ok {
+			return fmt.Errorf("semantic dedup merges cannot be chained or cyclic: %q is both sourceClaimId and targetClaimId", targetID)
 		}
 	}
 	return nil

@@ -162,6 +162,10 @@ profiles:
 - `debate_policy.vote_threshold`
 - `debate_policy.enable_early_stop`
 - `debate_policy.peer_context_mode`
+- `debate_policy.semantic_dedup.enabled`
+- `debate_policy.semantic_dedup.similarity_threshold`
+
+启用 `semantic_dedup` 时，还必须配置 `roles.free_debate.semantic_deduper`。这个 agent 会走正常的 CLI/API provider 调用链路，并输出结构化的 claim merge 建议；系统不会使用本地文本相似度 fallback。如果希望强制外部 API 依赖，把 semantic deduper agent 绑定到 `type: api` provider 即可。
 
 `delphi` 常用 policy：
 
@@ -224,6 +228,7 @@ Mode 对应 roles：
   - `actor`
 - `free_debate`
   - `participants`
+  - `semantic_deduper`
   - `reporter`
   - `actor`
 - `delphi`

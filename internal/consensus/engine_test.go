@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -153,6 +154,7 @@ type stubDelegate struct {
 	challengeDrafts []ChallengeDraft
 	revisionDrafts  []ClaimRevisionDraft
 	failKinds       map[TaskKind]int
+	mergeFirstTwo   bool
 }
 
 func (d *stubDelegate) Dispatch(_ context.Context, task Task) (DispatchReceipt, error) {
@@ -173,6 +175,7 @@ func (d *stubDelegate) Await(_ context.Context, taskID string, _ time.Duration) 
 	failActionType := d.failActionType
 	challengeDrafts := append([]ChallengeDraft(nil), d.challengeDrafts...)
 	revisionDrafts := append([]ClaimRevisionDraft(nil), d.revisionDrafts...)
+	mergeFirstTwo := d.mergeFirstTwo
 	if d.failKinds != nil {
 		if remaining := d.failKinds[task.Kind()]; remaining > 0 {
 			d.failKinds[task.Kind()] = remaining - 1
@@ -257,6 +260,20 @@ func (d *stubDelegate) Await(_ context.Context, taskID string, _ time.Duration) 
 		return AwaitedTask{OK: true, Output: DebateRoundTaskResult{Output: DebateRoundOutput{
 			Summary:    "debate round",
 			Judgements: judgements,
+		}}}, nil
+	case SemanticDedupTask:
+		merges := []DebateClaimMergeDraft(nil)
+		if mergeFirstTwo && len(value.Claims) >= 2 {
+			merges = []DebateClaimMergeDraft{{
+				SourceClaimID: value.Claims[1].ClaimID,
+				TargetClaimID: value.Claims[0].ClaimID,
+				Similarity:    value.SimilarityThreshold,
+				Rationale:     "same practical position",
+			}}
+		}
+		return AwaitedTask{OK: true, Output: SemanticDedupTaskResult{Output: SemanticDedupOutput{
+			Summary: "semantic dedup",
+			Merges:  merges,
 		}}}, nil
 	case FinalVoteTask:
 		votes := make([]DebateVoteDraft, 0, len(value.Claims))
@@ -626,6 +643,64 @@ func TestEngineRunsFreeDebateWorkflow(t *testing.T) {
 	}
 	if len(result.FreeDebate.Votes) == 0 {
 		t.Fatalf("expected final votes, got %#v", result.FreeDebate)
+	}
+}
+
+func TestFreeDebateSemanticDedupMergesClaimsBeforeVote(t *testing.T) {
+	request := baseRequest()
+	request.Mode = WorkflowModeFreeDebate
+	request.Roles = RoleAssignments{
+		Participants:    []string{"debater-1", "debater-2"},
+		SemanticDeduper: "deduper-1",
+	}
+	request.DebatePolicy = DebatePolicy{
+		MinRounds:       1,
+		MaxRounds:       1,
+		VoteThreshold:   1.0,
+		EnableEarlyStop: true,
+		PeerContextMode: "summary+active_claims",
+		SemanticDedup: DebateSemanticDedupPolicy{
+			Enabled:             true,
+			SimilarityThreshold: 0.85,
+		},
+	}
+	engine := NewEngine(EngineDeps{
+		TaskDelegate: &stubDelegate{mergeFirstTwo: true},
+		SessionStore: &stubStore{},
+		Clock:        fixedClock{now: time.Unix(1, 0).UTC()},
+		IDFactory:    &deterministicIDs{},
+	})
+	result, err := engine.Start(context.Background(), request)
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	if result.FreeDebate == nil {
+		t.Fatal("expected free debate result")
+	}
+	var canonical *DebateClaim
+	var merged *DebateClaim
+	for idx := range result.FreeDebate.Claims {
+		claim := &result.FreeDebate.Claims[idx]
+		if claim.Active {
+			canonical = claim
+		} else if claim.MergedInto != "" {
+			merged = claim
+		}
+	}
+	if canonical == nil || merged == nil {
+		t.Fatalf("expected one active canonical claim and one merged claim, got %#v", result.FreeDebate.Claims)
+	}
+	if merged.MergedInto != canonical.ClaimID {
+		t.Fatalf("expected merged claim to point at canonical claim, got %s want %s", merged.MergedInto, canonical.ClaimID)
+	}
+	if !slices.Contains(canonical.ProposedBy, "debater-1") || !slices.Contains(canonical.ProposedBy, "debater-2") {
+		t.Fatalf("expected provenance from both debaters, got %#v", canonical.ProposedBy)
+	}
+	if !slices.Contains(canonical.MergedClaimIDs, merged.ClaimID) {
+		t.Fatalf("expected canonical mergedClaimIds to include merged claim, got %#v", canonical.MergedClaimIDs)
+	}
+	if len(result.FreeDebate.Votes) != len(request.Roles.Participants) {
+		t.Fatalf("expected votes only on active canonical claim, got %#v", result.FreeDebate.Votes)
 	}
 }
 

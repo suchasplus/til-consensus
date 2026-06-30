@@ -98,6 +98,10 @@ func ResolveRunPlan(loaded LoadedConfig, input RunInput, overrides RunOverrides,
 		VoteThreshold:   pickFloat(overrides.VoteThreshold, input.DebatePolicy.VoteThreshold, cfg.Defaults.DebatePolicy.VoteThreshold, consensus.DefaultVoteThreshold),
 		EnableEarlyStop: cfg.Defaults.DebatePolicy.EnableEarlyStop || input.DebatePolicy.EnableEarlyStop,
 		PeerContextMode: firstNonEmpty(input.DebatePolicy.PeerContextMode, cfg.Defaults.DebatePolicy.PeerContextMode, "summary+active_claims"),
+		SemanticDedup: consensus.DebateSemanticDedupPolicy{
+			Enabled:             cfg.Defaults.DebatePolicy.SemanticDedup.Enabled || input.DebatePolicy.SemanticDedup.Enabled,
+			SimilarityThreshold: pickFloat(input.DebatePolicy.SemanticDedup.SimilarityThreshold, cfg.Defaults.DebatePolicy.SemanticDedup.SimilarityThreshold, 0.85),
+		},
 	}
 	if !debatePolicy.EnableEarlyStop {
 		debatePolicy.EnableEarlyStop = true
@@ -260,6 +264,7 @@ func resolveRoles(mode consensus.WorkflowMode, cfg RolesConfig, input RolesConfi
 		Participants:     pickStrings(overrides.Participants, inputRoles.Participants, cfgRoles.Participants),
 		Arbiter:          firstNonEmpty(overrides.Arbiter, inputRoles.Arbiter, cfgRoles.Arbiter),
 		SemanticVerifier: firstNonEmpty(overrides.SemanticVerifier, inputRoles.SemanticVerifier, cfgRoles.SemanticVerifier),
+		SemanticDeduper:  firstNonEmpty(overrides.SemanticDeduper, inputRoles.SemanticDeduper, cfgRoles.SemanticDeduper),
 		Facilitator:      firstNonEmpty(overrides.Facilitator, inputRoles.Facilitator, cfgRoles.Facilitator),
 		Reporter:         firstNonEmpty(overrides.Reporter, inputRoles.Reporter, cfgRoles.Reporter),
 		Actor:            firstNonEmpty(overrides.Actor, inputRoles.Actor, cfgRoles.Actor),
@@ -319,6 +324,9 @@ func validateAssignedAgents(cfg Config, roles consensus.RoleAssignments, mode co
 		}
 	case consensus.WorkflowModeFreeDebate:
 		if err := validateAgents(roles.Participants, "roles.free_debate.participants"); err != nil {
+			return err
+		}
+		if err := validateAgent(roles.SemanticDeduper, "roles.free_debate.semantic_deduper"); err != nil {
 			return err
 		}
 	case consensus.WorkflowModeDelphi:

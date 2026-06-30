@@ -192,6 +192,41 @@ func TestNormalizeSemanticVerificationOutputRejectsInsufficientEvidenceWithoutCo
 	}
 }
 
+func TestNormalizeSemanticDedupOutputRequiresThresholdAndKnownClaims(t *testing.T) {
+	task := consensus.SemanticDedupTask{
+		TaskMeta:            consensus.TaskMeta{AgentID: "deduper-1"},
+		SimilarityThreshold: 0.85,
+		Claims: []consensus.DebateClaim{
+			{ClaimID: "claim-1", Active: true},
+			{ClaimID: "claim-2", Active: true},
+			{ClaimID: "claim-3", Active: true},
+		},
+	}
+	result, err := NormalizeTaskOutputFromText(task, `{"summary":"dedup","merges":[{"sourceClaimId":"claim-2","targetClaimId":"claim-1","similarity":0.92,"rationale":"same practical recommendation"},{"sourceClaimId":"claim-3","targetClaimId":"claim-1","similarity":0.91,"rationale":"same practical recommendation"}]}`)
+	if err != nil {
+		t.Fatalf("NormalizeTaskOutputFromText failed: %v", err)
+	}
+	typed, ok := result.(consensus.SemanticDedupTaskResult)
+	if !ok || len(typed.Output.Merges) != 2 {
+		t.Fatalf("unexpected semantic dedup output: %#v", result)
+	}
+	if typed.Output.Merges[0].Similarity != 0.92 {
+		t.Fatalf("unexpected similarity: %#v", typed.Output.Merges[0])
+	}
+	_, err = NormalizeTaskOutputFromText(task, `{"summary":"dedup","merges":[{"sourceClaimId":"claim-2","targetClaimId":"claim-1","similarity":0.84,"rationale":"close but below threshold"}]}`)
+	if err == nil {
+		t.Fatal("expected below-threshold semantic dedup merge to fail")
+	}
+	_, err = NormalizeTaskOutputFromText(task, `{"summary":"dedup","merges":[{"sourceClaimId":"claim-x","targetClaimId":"claim-1","similarity":0.95,"rationale":"unknown claim"}]}`)
+	if err == nil {
+		t.Fatal("expected unknown source claim to fail")
+	}
+	_, err = NormalizeTaskOutputFromText(task, `{"summary":"dedup","merges":[{"sourceClaimId":"claim-2","targetClaimId":"claim-1","similarity":0.92,"rationale":"same practical recommendation"},{"sourceClaimId":"claim-1","targetClaimId":"claim-3","similarity":0.91,"rationale":"same practical recommendation"}]}`)
+	if err == nil {
+		t.Fatal("expected chained semantic dedup merge to fail")
+	}
+}
+
 func TestNormalizeArbiterOutputRejectsMissingVerdict(t *testing.T) {
 	_, err := NormalizeTaskOutput(consensus.ArbiterTask{
 		TaskMeta: consensus.TaskMeta{AgentID: "arbiter-1"},

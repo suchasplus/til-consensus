@@ -1618,6 +1618,7 @@ func (e *Engine) startFreeDebate(ctx context.Context, request StartRequest) (_ *
 			break
 		}
 	}
+	claims = e.runDebateSemanticDedup(ctx, request, run, claims, len(rounds))
 
 	if err := e.advancePhase(ctx, request, run.sessionID, run.state, SessionPhaseFinalVote, nil, nil, run.ledgerCursor); err != nil {
 		return nil, err
@@ -2003,6 +2004,93 @@ func (e *Engine) composeModeReport(ctx context.Context, request StartRequest, se
 	return typed.Output, awaited.Artifact, nil
 }
 
+func (e *Engine) runDebateSemanticDedup(ctx context.Context, request StartRequest, run *workflowRun, claims []DebateClaim, round int) []DebateClaim {
+	policy := request.DebatePolicy.SemanticDedup
+	if !policy.Enabled || request.Roles.SemanticDeduper == "" {
+		return claims
+	}
+	activeClaims := activeDebateClaims(claims)
+	if len(activeClaims) < 2 {
+		return claims
+	}
+	receipt, awaited, err := e.executeTask(ctx, request, run.sessionID, SemanticDedupTask{
+		TaskMeta: TaskMeta{
+			SessionID: run.sessionID,
+			RequestID: request.RequestID,
+			AgentID:   request.Roles.SemanticDeduper,
+			Role:      "semantic-deduper",
+		},
+		TaskSpec:            request.TaskSpec,
+		Round:               round,
+		Claims:              activeClaims,
+		SimilarityThreshold: policy.SimilarityThreshold,
+	}, run.startedAt, request.WaitingPolicy.PerTaskTimeout)
+	run.metrics.TasksDispatched++
+	if err != nil {
+		if errors.Is(err, ErrGlobalDeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			run.metrics.GlobalDeadlineHit = true
+		}
+		if strings.Contains(err.Error(), "__timeout__") {
+			run.metrics.WaitTimeouts++
+		}
+		_, _ = e.appendEvidence(ctx, request, run.sessionID, &run.ledgerEntries, &run.ledgerCursor, EvidenceRecord{
+			Kind:         EvidenceKindDebateSemanticDedup,
+			Source:       EvidenceSourceWorker,
+			ProducerID:   request.Roles.SemanticDeduper,
+			ProducerRole: "semantic-deduper",
+			Summary:      "semantic dedup failed: " + err.Error(),
+			Artifact:     awaited.Artifact,
+			Metadata: map[string]any{
+				"taskId":              receipt.TaskID,
+				"taskKind":            TaskKindSemanticDedup,
+				"round":               round,
+				"similarityThreshold": policy.SimilarityThreshold,
+				"status":              "failed",
+			},
+		})
+		return claims
+	}
+	output, ok := awaited.Output.(SemanticDedupTaskResult)
+	if !ok {
+		_, _ = e.appendEvidence(ctx, request, run.sessionID, &run.ledgerEntries, &run.ledgerCursor, EvidenceRecord{
+			Kind:         EvidenceKindDebateSemanticDedup,
+			Source:       EvidenceSourceWorker,
+			ProducerID:   request.Roles.SemanticDeduper,
+			ProducerRole: "semantic-deduper",
+			Summary:      "semantic dedup returned unexpected result type",
+			Artifact:     awaited.Artifact,
+			Metadata: map[string]any{
+				"taskId":   receipt.TaskID,
+				"taskKind": TaskKindSemanticDedup,
+				"round":    round,
+				"status":   "failed",
+			},
+		})
+		return claims
+	}
+	entry, appendErr := e.appendEvidence(ctx, request, run.sessionID, &run.ledgerEntries, &run.ledgerCursor, EvidenceRecord{
+		Kind:         EvidenceKindDebateSemanticDedup,
+		Source:       EvidenceSourceWorker,
+		ProducerID:   request.Roles.SemanticDeduper,
+		ProducerRole: "semantic-deduper",
+		Summary:      output.Output.Summary,
+		Artifact:     awaited.Artifact,
+		Metadata: map[string]any{
+			"taskId":              receipt.TaskID,
+			"taskKind":            TaskKindSemanticDedup,
+			"round":               round,
+			"mergeCount":          len(output.Output.Merges),
+			"similarityThreshold": policy.SimilarityThreshold,
+			"status":              "completed",
+		},
+	})
+	evidenceRef := ""
+	if appendErr == nil {
+		evidenceRef = entry.EntryID
+	}
+	return applyDebateSemanticDedup(claims, output.Output.Merges, evidenceRef)
+}
+
 func upsertDebateClaim(claims []DebateClaim, draft ClaimDraft, ownerID string, round int, evidenceRef string, ids IDFactory) ([]DebateClaim, string) {
 	key := normalizedClaimKey(draft.Statement)
 	for idx := range claims {
@@ -2010,6 +2098,7 @@ func upsertDebateClaim(claims []DebateClaim, draft ClaimDraft, ownerID string, r
 			continue
 		}
 		claims[idx].EvidenceRefs = appendUnique(claims[idx].EvidenceRefs, evidenceRef)
+		claims[idx].ProposedBy = appendUnique(claims[idx].ProposedBy, ownerID)
 		claims[idx].Active = true
 		return claims, claims[idx].ClaimID
 	}
@@ -2018,6 +2107,7 @@ func upsertDebateClaim(claims []DebateClaim, draft ClaimDraft, ownerID string, r
 		Title:        strings.TrimSpace(draft.Title),
 		Statement:    strings.TrimSpace(draft.Statement),
 		OwnerID:      ownerID,
+		ProposedBy:   filterEmpty([]string{ownerID}),
 		Round:        round,
 		Active:       true,
 		EvidenceRefs: filterEmpty([]string{evidenceRef}),
@@ -2026,18 +2116,53 @@ func upsertDebateClaim(claims []DebateClaim, draft ClaimDraft, ownerID string, r
 }
 
 func markDebateClaimMerged(claims []DebateClaim, claimID string, targetID string) []DebateClaim {
-	if strings.TrimSpace(claimID) == "" || strings.TrimSpace(targetID) == "" || claimID == targetID {
-		return claims
-	}
-	for idx := range claims {
-		if claims[idx].ClaimID != claimID {
-			continue
-		}
-		claims[idx].Active = false
-		claims[idx].MergedInto = targetID
-		return claims
+	return mergeDebateClaim(claims, claimID, targetID, "")
+}
+
+func applyDebateSemanticDedup(claims []DebateClaim, merges []DebateClaimMergeDraft, evidenceRef string) []DebateClaim {
+	for _, merge := range merges {
+		claims = mergeDebateClaim(claims, merge.SourceClaimID, merge.TargetClaimID, evidenceRef)
 	}
 	return claims
+}
+
+func mergeDebateClaim(claims []DebateClaim, sourceID string, targetID string, evidenceRef string) []DebateClaim {
+	sourceID = strings.TrimSpace(sourceID)
+	targetID = strings.TrimSpace(targetID)
+	if sourceID == "" || targetID == "" || sourceID == targetID {
+		return claims
+	}
+	sourceIdx := -1
+	targetIdx := -1
+	for idx := range claims {
+		switch claims[idx].ClaimID {
+		case sourceID:
+			sourceIdx = idx
+		case targetID:
+			targetIdx = idx
+		}
+	}
+	if sourceIdx < 0 || targetIdx < 0 || !claims[sourceIdx].Active || !claims[targetIdx].Active {
+		return claims
+	}
+	source := claims[sourceIdx]
+	claims[sourceIdx].Active = false
+	claims[sourceIdx].MergedInto = targetID
+	claims[sourceIdx].EvidenceRefs = appendUnique(claims[sourceIdx].EvidenceRefs, evidenceRef)
+	sourceProposers := appendUniqueStrings(source.ProposedBy, source.OwnerID)
+	sourceEvidenceRefs := appendUniqueStrings(source.EvidenceRefs, evidenceRef)
+	claims[targetIdx].ProposedBy = appendUniqueStrings(claims[targetIdx].ProposedBy, sourceProposers...)
+	claims[targetIdx].MergedClaimIDs = appendUnique(claims[targetIdx].MergedClaimIDs, sourceID)
+	claims[targetIdx].EvidenceRefs = appendUniqueStrings(claims[targetIdx].EvidenceRefs, sourceEvidenceRefs...)
+	return claims
+}
+
+func appendUniqueStrings(base []string, values ...string) []string {
+	out := slices.Clone(base)
+	for _, value := range values {
+		out = appendUnique(out, value)
+	}
+	return out
 }
 
 func splitDebateClaims(claims []DebateClaim, ownerID string) ([]DebateClaim, []DebateClaim) {
@@ -2047,7 +2172,7 @@ func splitDebateClaims(claims []DebateClaim, ownerID string) ([]DebateClaim, []D
 		if !claim.Active {
 			continue
 		}
-		if claim.OwnerID == ownerID {
+		if claim.OwnerID == ownerID || slices.Contains(claim.ProposedBy, ownerID) {
 			self = append(self, claim)
 			continue
 		}
@@ -2099,6 +2224,7 @@ func resolveDebateClaims(activeClaims []DebateClaim, allClaims []DebateClaim, vo
 				SupportRatio:   0,
 				FinalStatement: claim.Statement,
 				MergedInto:     claim.MergedInto,
+				ProposedBy:     slices.Clone(claim.ProposedBy),
 			})
 			continue
 		}
@@ -2133,6 +2259,7 @@ func resolveDebateClaims(activeClaims []DebateClaim, allClaims []DebateClaim, vo
 			SupportingVoters: supporters,
 			OpposingVoters:   opposers,
 			FinalStatement:   claim.Statement,
+			ProposedBy:       slices.Clone(claim.ProposedBy),
 		})
 	}
 	switch {

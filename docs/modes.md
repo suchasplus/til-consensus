@@ -87,12 +87,18 @@ defaults:
     max_rounds: 3
     vote_threshold: 0.67
     enable_early_stop: true
+    semantic_dedup:
+      enabled: true
+      similarity_threshold: 0.85
 
 roles:
   free_debate:
     participants: [participant-a, participant-b, participant-c]
+    semantic_deduper: deduper-a
     reporter: reporter-a
 ```
+
+`semantic_dedup` 是进入 final vote 前的外部语义去重环节。启用后必须配置 `roles.free_debate.semantic_deduper`，该 agent 可以绑定任意 CLI/API provider。deduper 只输出 `sourceClaimId -> targetClaimId` 合并建议和 `similarity`，低于阈值的合并会被拒绝。合并后的 canonical claim 会保留 `proposedBy` 和 `mergedClaimIds`，例如“此 claim 由 Agent A 和 Agent C 独立提出”。
 
 ## `delphi`
 

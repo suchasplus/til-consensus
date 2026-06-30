@@ -12,6 +12,7 @@ const (
 	TaskKindAction                   TaskKind = "action"
 	TaskKindInitialProposal          TaskKind = "initial_proposal"
 	TaskKindDebateRound              TaskKind = "debate_round"
+	TaskKindSemanticDedup            TaskKind = "semantic_dedup"
 	TaskKindFinalVote                TaskKind = "final_vote"
 	TaskKindDelphiQuestionnaire      TaskKind = "delphi_questionnaire"
 	TaskKindDelphiRevision           TaskKind = "delphi_revision"
@@ -277,6 +278,35 @@ type DebateRoundTaskResult struct {
 }
 
 func (DebateRoundTaskResult) Kind() TaskKind { return TaskKindDebateRound }
+
+type SemanticDedupTask struct {
+	TaskMeta
+	TaskSpec            TaskSpec      `json:"taskSpec"`
+	Round               int           `json:"round"`
+	Claims              []DebateClaim `json:"claims"`
+	SimilarityThreshold float64       `json:"similarityThreshold"`
+}
+
+func (SemanticDedupTask) Kind() TaskKind   { return TaskKindSemanticDedup }
+func (t SemanticDedupTask) Meta() TaskMeta { return t.TaskMeta }
+
+type DebateClaimMergeDraft struct {
+	SourceClaimID string  `json:"sourceClaimId"`
+	TargetClaimID string  `json:"targetClaimId"`
+	Similarity    float64 `json:"similarity"`
+	Rationale     string  `json:"rationale"`
+}
+
+type SemanticDedupOutput struct {
+	Summary string                  `json:"summary"`
+	Merges  []DebateClaimMergeDraft `json:"merges"`
+}
+
+type SemanticDedupTaskResult struct {
+	Output SemanticDedupOutput `json:"output"`
+}
+
+func (SemanticDedupTaskResult) Kind() TaskKind { return TaskKindSemanticDedup }
 
 type FinalVoteTask struct {
 	TaskMeta

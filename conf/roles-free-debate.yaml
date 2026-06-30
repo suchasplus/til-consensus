@@ -6,4 +6,6 @@ roles:
       - participant-gemini-api
       - participant-deepseek-api
       - participant-dashscope-api
+      - participant-claude-cli
+      - participant-codex-cli
     reporter: reporter-kimi-api

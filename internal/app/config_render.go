@@ -238,6 +238,7 @@ func assignedRolesByAgent(roles config.RolesConfig) map[string][]string {
 	for _, id := range roles.FreeDebate.Participants {
 		add(id, "free_debate.participant")
 	}
+	add(roles.FreeDebate.SemanticDeduper, "free_debate.semantic_deduper")
 	add(roles.FreeDebate.Reporter, "free_debate.reporter")
 	add(roles.FreeDebate.Actor, "free_debate.actor")
 	for _, id := range roles.Delphi.Participants {
@@ -317,6 +318,7 @@ func renderConfigExplainText(report configExplainReport) string {
 	b.WriteString("    actor: " + report.Roles.Adjudication.Actor + "\n")
 	b.WriteString("  free_debate:\n")
 	b.WriteString("    participants: " + strings.Join(report.Roles.FreeDebate.Participants, ",") + "\n")
+	b.WriteString("    semantic_deduper: " + report.Roles.FreeDebate.SemanticDeduper + "\n")
 	b.WriteString("    reporter: " + report.Roles.FreeDebate.Reporter + "\n")
 	b.WriteString("    actor: " + report.Roles.FreeDebate.Actor + "\n")
 	b.WriteString("  delphi:\n")

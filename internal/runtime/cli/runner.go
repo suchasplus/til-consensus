@@ -374,6 +374,15 @@ func taskSpecificContract(task consensus.Task) []string {
 			lines = append(lines, "- Semantic claimId must be exactly "+typed.Claim.ClaimID+".")
 		}
 		return lines
+	case consensus.SemanticDedupTask:
+		return []string{
+			"- Semantic dedup fields: summary, merges[].sourceClaimId, merges[].targetClaimId, merges[].similarity, merges[].rationale.",
+			"- Semantic dedup must only merge claims whose meaning is equivalent or near-equivalent above threshold.",
+			"- Semantic dedup must not merge merely related claims, pro/con pairs, parent/child claims, or claims with different conditions.",
+			"- Semantic dedup must not invent claim IDs or rewrite claim text.",
+			"- Semantic dedup similarity must be a JSON number, not a string.",
+			"- Semantic dedup must not emit chained or cyclic merges where one claim is both sourceClaimId and targetClaimId.",
+		}
 	case consensus.ReviseTask:
 		return []string{
 			"- Revise fields: summary, revisions[].targetClaimId, revisions[].action, revisions[].reason, revisions[].confidenceDelta, revisions[].unresolved.",

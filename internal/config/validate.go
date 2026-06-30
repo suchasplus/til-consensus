@@ -241,8 +241,9 @@ func validateRoles(cfg Config, knownAgents map[string]struct{}) error {
 		return err
 	}
 	for field, id := range map[string]string{
-		"roles.free_debate.reporter": roles.FreeDebate.Reporter,
-		"roles.free_debate.actor":    roles.FreeDebate.Actor,
+		"roles.free_debate.semantic_deduper": roles.FreeDebate.SemanticDeduper,
+		"roles.free_debate.reporter":         roles.FreeDebate.Reporter,
+		"roles.free_debate.actor":            roles.FreeDebate.Actor,
 	} {
 		if err := validateAgent(id, field); err != nil {
 			return err

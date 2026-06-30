@@ -264,6 +264,7 @@ const (
 	EvidenceKindObservationRecorded  EvidenceKind = "observation_recorded"
 	EvidenceKindDebateRoundOpened    EvidenceKind = "debate_round_opened"
 	EvidenceKindDebateRoundOutput    EvidenceKind = "debate_round_output"
+	EvidenceKindDebateSemanticDedup  EvidenceKind = "debate_semantic_dedup"
 	EvidenceKindDebateVoteCast       EvidenceKind = "debate_vote_cast"
 	EvidenceKindDelphiRoundOpened    EvidenceKind = "delphi_round_opened"
 	EvidenceKindDelphiResponse       EvidenceKind = "delphi_response_recorded"
@@ -457,14 +458,16 @@ const (
 )
 
 type DebateClaim struct {
-	ClaimID      string   `json:"claimId"`
-	Title        string   `json:"title,omitempty"`
-	Statement    string   `json:"statement"`
-	OwnerID      string   `json:"ownerId"`
-	Round        int      `json:"round"`
-	Active       bool     `json:"active"`
-	MergedInto   string   `json:"mergedInto,omitempty"`
-	EvidenceRefs []string `json:"evidenceRefs,omitempty"`
+	ClaimID        string   `json:"claimId"`
+	Title          string   `json:"title,omitempty"`
+	Statement      string   `json:"statement"`
+	OwnerID        string   `json:"ownerId"`
+	ProposedBy     []string `json:"proposedBy,omitempty"`
+	Round          int      `json:"round"`
+	Active         bool     `json:"active"`
+	MergedInto     string   `json:"mergedInto,omitempty"`
+	MergedClaimIDs []string `json:"mergedClaimIds,omitempty"`
+	EvidenceRefs   []string `json:"evidenceRefs,omitempty"`
 }
 
 type DebateJudgementRecord struct {
@@ -506,6 +509,7 @@ type DebateClaimResolution struct {
 	OpposingVoters   []string `json:"opposingVoters,omitempty"`
 	FinalStatement   string   `json:"finalStatement,omitempty"`
 	MergedInto       string   `json:"mergedInto,omitempty"`
+	ProposedBy       []string `json:"proposedBy,omitempty"`
 }
 
 type FreeDebateResultSection struct {

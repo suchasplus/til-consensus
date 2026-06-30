@@ -51,17 +51,19 @@ type dryRunOutput struct {
 }
 
 type dryRunPolicies struct {
-	PerTaskTimeout        string   `json:"perTaskTimeout,omitempty"`
-	GlobalDeadline        string   `json:"globalDeadline,omitempty"`
-	RetryAttempts         int      `json:"retryAttempts"`
-	VerificationChecks    []string `json:"verificationChecks,omitempty"`
-	AllowSemanticVerifier bool     `json:"allowSemanticVerifier,omitempty"`
-	DebateMinRounds       int      `json:"debateMinRounds,omitempty"`
-	DebateMaxRounds       int      `json:"debateMaxRounds,omitempty"`
-	VoteThreshold         float64  `json:"voteThreshold,omitempty"`
-	DelphiMinRounds       int      `json:"delphiMinRounds,omitempty"`
-	DelphiMaxRounds       int      `json:"delphiMaxRounds,omitempty"`
-	ConvergenceThreshold  float64  `json:"convergenceThreshold,omitempty"`
+	PerTaskTimeout         string   `json:"perTaskTimeout,omitempty"`
+	GlobalDeadline         string   `json:"globalDeadline,omitempty"`
+	RetryAttempts          int      `json:"retryAttempts"`
+	VerificationChecks     []string `json:"verificationChecks,omitempty"`
+	AllowSemanticVerifier  bool     `json:"allowSemanticVerifier,omitempty"`
+	DebateMinRounds        int      `json:"debateMinRounds,omitempty"`
+	DebateMaxRounds        int      `json:"debateMaxRounds,omitempty"`
+	VoteThreshold          float64  `json:"voteThreshold,omitempty"`
+	SemanticDedup          bool     `json:"semanticDedup,omitempty"`
+	SemanticDedupThreshold float64  `json:"semanticDedupThreshold,omitempty"`
+	DelphiMinRounds        int      `json:"delphiMinRounds,omitempty"`
+	DelphiMaxRounds        int      `json:"delphiMaxRounds,omitempty"`
+	ConvergenceThreshold   float64  `json:"convergenceThreshold,omitempty"`
 }
 
 func writeDryRunPlan(writer io.Writer, loaded config.LoadedConfig, plan config.ResolvedRunPlan, source string, format string) error {
@@ -138,17 +140,19 @@ func buildDryRunPlan(loaded config.LoadedConfig, plan config.ResolvedRunPlan, so
 			SessionStoreDir: plan.SessionStoreDir,
 		},
 		Policies: dryRunPolicies{
-			PerTaskTimeout:        plan.StartRequest.WaitingPolicy.PerTaskTimeout.String(),
-			GlobalDeadline:        plan.StartRequest.WaitingPolicy.GlobalDeadline.String(),
-			RetryAttempts:         plan.StartRequest.WaitingPolicy.RetryAttempts,
-			VerificationChecks:    checks,
-			AllowSemanticVerifier: plan.StartRequest.VerificationPolicy.AllowSemanticVerifier,
-			DebateMinRounds:       plan.StartRequest.DebatePolicy.MinRounds,
-			DebateMaxRounds:       plan.StartRequest.DebatePolicy.MaxRounds,
-			VoteThreshold:         plan.StartRequest.DebatePolicy.VoteThreshold,
-			DelphiMinRounds:       plan.StartRequest.DelphiPolicy.MinRounds,
-			DelphiMaxRounds:       plan.StartRequest.DelphiPolicy.MaxRounds,
-			ConvergenceThreshold:  plan.StartRequest.DelphiPolicy.ConvergenceThreshold,
+			PerTaskTimeout:         plan.StartRequest.WaitingPolicy.PerTaskTimeout.String(),
+			GlobalDeadline:         plan.StartRequest.WaitingPolicy.GlobalDeadline.String(),
+			RetryAttempts:          plan.StartRequest.WaitingPolicy.RetryAttempts,
+			VerificationChecks:     checks,
+			AllowSemanticVerifier:  plan.StartRequest.VerificationPolicy.AllowSemanticVerifier,
+			DebateMinRounds:        plan.StartRequest.DebatePolicy.MinRounds,
+			DebateMaxRounds:        plan.StartRequest.DebatePolicy.MaxRounds,
+			VoteThreshold:          plan.StartRequest.DebatePolicy.VoteThreshold,
+			SemanticDedup:          plan.StartRequest.DebatePolicy.SemanticDedup.Enabled,
+			SemanticDedupThreshold: plan.StartRequest.DebatePolicy.SemanticDedup.SimilarityThreshold,
+			DelphiMinRounds:        plan.StartRequest.DelphiPolicy.MinRounds,
+			DelphiMaxRounds:        plan.StartRequest.DelphiPolicy.MaxRounds,
+			ConvergenceThreshold:   plan.StartRequest.DelphiPolicy.ConvergenceThreshold,
 		},
 	}
 }
@@ -167,6 +171,7 @@ func renderDryRunText(plan dryRunPlan) string {
 	b.WriteString("  challengers: " + strings.Join(plan.Roles.Challengers, ",") + "\n")
 	b.WriteString("  participants: " + strings.Join(plan.Roles.Participants, ",") + "\n")
 	b.WriteString("  semantic_verifier: " + plan.Roles.SemanticVerifier + "\n")
+	b.WriteString("  semantic_deduper: " + plan.Roles.SemanticDeduper + "\n")
 	b.WriteString("  arbiter: " + plan.Roles.Arbiter + "\n")
 	b.WriteString("  facilitator: " + plan.Roles.Facilitator + "\n")
 	b.WriteString("  reporter: " + plan.Roles.Reporter + "\n")
@@ -219,6 +224,7 @@ func orderedPlanAgentIDs(roles consensus.RoleAssignments) []string {
 		add(id)
 	}
 	add(roles.SemanticVerifier)
+	add(roles.SemanticDeduper)
 	add(roles.Arbiter)
 	add(roles.Facilitator)
 	add(roles.Reporter)
@@ -245,6 +251,7 @@ func assignedRolesByConsensusAgent(roles consensus.RoleAssignments) map[string][
 		add(id, "participant")
 	}
 	add(roles.SemanticVerifier, "semantic_verifier")
+	add(roles.SemanticDeduper, "semantic_deduper")
 	add(roles.Arbiter, "arbiter")
 	add(roles.Facilitator, "facilitator")
 	add(roles.Reporter, "reporter")

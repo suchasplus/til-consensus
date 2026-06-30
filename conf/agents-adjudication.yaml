@@ -6,22 +6,27 @@ agents:
     provider: codex-cli
     model: default
     role: proposer
+
   - id: challenger-claude-cli
     provider: claude-cli
     model: default
     role: challenger
+
   - id: challenger-gemini-cli
     provider: gemini-cli
     model: default
     role: challenger
+
   - id: verifier-gemini-api
     provider: gemini-api
     model: default
     role: semantic-verifier
+
   - id: arbiter-claude-cli
     provider: claude-cli
     model: default
     role: arbiter
+
   - id: reporter-dashscope-api
     provider: dashscope-api
     model: default

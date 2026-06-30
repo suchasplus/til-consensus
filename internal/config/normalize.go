@@ -138,9 +138,10 @@ func normalizeRoles(roles RolesConfig) RolesConfig {
 	}
 	if roles.FreeDebate.IsZero() {
 		roles.FreeDebate = DebateRolesConfig{
-			Participants: roles.Participants,
-			Reporter:     roles.Reporter,
-			Actor:        roles.Actor,
+			Participants:    roles.Participants,
+			SemanticDeduper: roles.SemanticDeduper,
+			Reporter:        roles.Reporter,
+			Actor:           roles.Actor,
 		}
 	}
 	if roles.Delphi.IsZero() {
@@ -158,6 +159,7 @@ func normalizeRoles(roles RolesConfig) RolesConfig {
 	roles.Adjudication.Reporter = strings.TrimSpace(roles.Adjudication.Reporter)
 	roles.Adjudication.Actor = strings.TrimSpace(roles.Adjudication.Actor)
 	roles.FreeDebate.Participants = dedupe(roles.FreeDebate.Participants)
+	roles.FreeDebate.SemanticDeduper = strings.TrimSpace(roles.FreeDebate.SemanticDeduper)
 	roles.FreeDebate.Reporter = strings.TrimSpace(roles.FreeDebate.Reporter)
 	roles.FreeDebate.Actor = strings.TrimSpace(roles.FreeDebate.Actor)
 	roles.Delphi.Participants = dedupe(roles.Delphi.Participants)
@@ -169,6 +171,7 @@ func normalizeRoles(roles RolesConfig) RolesConfig {
 	roles.Participants = firstNonEmptyStrings(roles.FreeDebate.Participants, roles.Delphi.Participants)
 	roles.Arbiter = roles.Adjudication.Arbiter
 	roles.SemanticVerifier = roles.Adjudication.SemanticVerifier
+	roles.SemanticDeduper = roles.FreeDebate.SemanticDeduper
 	roles.Facilitator = roles.Delphi.Facilitator
 	roles.Reporter = firstNonEmpty(roles.Adjudication.Reporter, roles.FreeDebate.Reporter, roles.Delphi.Reporter)
 	roles.Actor = firstNonEmpty(roles.Adjudication.Actor, roles.FreeDebate.Actor, roles.Delphi.Actor)
@@ -180,9 +183,10 @@ func RoleAssignmentsForMode(roles RolesConfig, mode consensus.WorkflowMode) cons
 	switch mode {
 	case consensus.WorkflowModeFreeDebate:
 		return consensus.RoleAssignments{
-			Participants: cloneStrings(roles.FreeDebate.Participants),
-			Reporter:     roles.FreeDebate.Reporter,
-			Actor:        roles.FreeDebate.Actor,
+			Participants:    cloneStrings(roles.FreeDebate.Participants),
+			SemanticDeduper: roles.FreeDebate.SemanticDeduper,
+			Reporter:        roles.FreeDebate.Reporter,
+			Actor:           roles.FreeDebate.Actor,
 		}
 	case consensus.WorkflowModeDelphi:
 		return consensus.RoleAssignments{

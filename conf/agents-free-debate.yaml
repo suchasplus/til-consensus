@@ -14,6 +14,14 @@ agents:
     provider: dashscope-api
     model: default
     role: participant
+  - id: participant-claude-cli
+    provider: claude-cli
+    model: default
+    role: participant
+  - id: participant-codex-cli
+    provider: codex-cli
+    model: default
+    role: participant
   - id: reporter-dashscope-api
     provider: dashscope-api
     model: default

@@ -465,6 +465,8 @@ func taskKindLabel(kind string) string {
 		return "revising challenged claims"
 	case string(consensus.TaskKindDebateRound):
 		return "running debate round"
+	case string(consensus.TaskKindSemanticDedup):
+		return "deduplicating debate claims"
 	case string(consensus.TaskKindFinalVote):
 		return "collecting final votes"
 	case string(consensus.TaskKindSemanticVerify):

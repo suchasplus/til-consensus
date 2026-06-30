@@ -149,6 +149,7 @@ type RoleAssignments struct {
 	Participants     []string `json:"participants,omitempty" yaml:"participants,omitempty"`
 	Arbiter          string   `json:"arbiter,omitempty" yaml:"arbiter,omitempty"`
 	SemanticVerifier string   `json:"semanticVerifier,omitempty" yaml:"semantic_verifier,omitempty"`
+	SemanticDeduper  string   `json:"semanticDeduper,omitempty" yaml:"semantic_deduper,omitempty"`
 	Facilitator      string   `json:"facilitator,omitempty" yaml:"facilitator,omitempty"`
 	Reporter         string   `json:"reporter,omitempty" yaml:"reporter,omitempty"`
 	Actor            string   `json:"actor,omitempty" yaml:"actor,omitempty"`
@@ -186,11 +187,17 @@ type ArbiterPolicy struct {
 }
 
 type DebatePolicy struct {
-	MinRounds       int     `json:"minRounds,omitempty" yaml:"min_rounds,omitempty"`
-	MaxRounds       int     `json:"maxRounds,omitempty" yaml:"max_rounds,omitempty"`
-	VoteThreshold   float64 `json:"voteThreshold,omitempty" yaml:"vote_threshold,omitempty"`
-	EnableEarlyStop bool    `json:"enableEarlyStop" yaml:"enable_early_stop"`
-	PeerContextMode string  `json:"peerContextMode,omitempty" yaml:"peer_context_mode,omitempty"`
+	MinRounds       int                       `json:"minRounds,omitempty" yaml:"min_rounds,omitempty"`
+	MaxRounds       int                       `json:"maxRounds,omitempty" yaml:"max_rounds,omitempty"`
+	VoteThreshold   float64                   `json:"voteThreshold,omitempty" yaml:"vote_threshold,omitempty"`
+	EnableEarlyStop bool                      `json:"enableEarlyStop" yaml:"enable_early_stop"`
+	PeerContextMode string                    `json:"peerContextMode,omitempty" yaml:"peer_context_mode,omitempty"`
+	SemanticDedup   DebateSemanticDedupPolicy `json:"semanticDedup,omitempty" yaml:"semantic_dedup,omitempty"`
+}
+
+type DebateSemanticDedupPolicy struct {
+	Enabled             bool    `json:"enabled" yaml:"enabled"`
+	SimilarityThreshold float64 `json:"similarityThreshold,omitempty" yaml:"similarity_threshold,omitempty"`
 }
 
 type DelphiPolicy struct {
@@ -302,6 +309,7 @@ func NormalizeStartRequest(in StartRequest) (StartRequest, error) {
 	out.Roles.Participants = dedupeStrings(out.Roles.Participants)
 	out.Roles.Arbiter = strings.TrimSpace(out.Roles.Arbiter)
 	out.Roles.SemanticVerifier = strings.TrimSpace(out.Roles.SemanticVerifier)
+	out.Roles.SemanticDeduper = strings.TrimSpace(out.Roles.SemanticDeduper)
 	out.Roles.Facilitator = strings.TrimSpace(out.Roles.Facilitator)
 	out.Roles.Reporter = strings.TrimSpace(out.Roles.Reporter)
 	out.Roles.Actor = strings.TrimSpace(out.Roles.Actor)
@@ -391,6 +399,9 @@ func NormalizeStartRequest(in StartRequest) (StartRequest, error) {
 	if strings.TrimSpace(out.DebatePolicy.PeerContextMode) == "" {
 		out.DebatePolicy.PeerContextMode = "summary+active_claims"
 	}
+	if out.DebatePolicy.SemanticDedup.Enabled && out.DebatePolicy.SemanticDedup.SimilarityThreshold == 0 {
+		out.DebatePolicy.SemanticDedup.SimilarityThreshold = 0.85
+	}
 	if out.DelphiPolicy.MinRounds == 0 {
 		out.DelphiPolicy.MinRounds = DefaultDelphiMinRounds
 	}
@@ -472,6 +483,14 @@ func ValidateStartRequest(in StartRequest) error {
 		}
 		if in.DebatePolicy.VoteThreshold <= 0 || in.DebatePolicy.VoteThreshold > 1 {
 			return fmt.Errorf("debate_policy.vote_threshold must be in (0,1]")
+		}
+		if in.DebatePolicy.SemanticDedup.Enabled {
+			if in.Roles.SemanticDeduper == "" {
+				return fmt.Errorf("debate_policy.semantic_dedup.enabled requires roles.free_debate.semantic_deduper")
+			}
+			if in.DebatePolicy.SemanticDedup.SimilarityThreshold <= 0 || in.DebatePolicy.SemanticDedup.SimilarityThreshold > 1 {
+				return fmt.Errorf("debate_policy.semantic_dedup.similarity_threshold must be in (0,1]")
+			}
 		}
 	case WorkflowModeDelphi:
 		if len(in.Roles.Participants) < 2 {
