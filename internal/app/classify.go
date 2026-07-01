@@ -23,12 +23,14 @@ const (
 )
 
 type classifyOutput struct {
-	Recommendation     string   `json:"recommendation"`
-	Confidence         float64  `json:"confidence"`
-	Summary            string   `json:"summary"`
-	Why                []string `json:"why"`
-	MissingInformation []string `json:"missingInformation"`
-	SuggestedTask      string   `json:"suggestedTask"`
+	Recommendation                  string   `json:"recommendation"`
+	Confidence                      float64  `json:"confidence"`
+	Summary                         string   `json:"summary"`
+	Why                             []string `json:"why"`
+	MissingInformation              []string `json:"missingInformation"`
+	EstimatedModeAfterClarification string   `json:"estimatedModeAfterClarification"`
+	EstimatedModeReason             string   `json:"estimatedModeReason"`
+	SuggestedTask                   string   `json:"suggestedTask"`
 }
 
 type classifyProviderSelection struct {
@@ -241,6 +243,9 @@ func buildClassifyPrompt(task string) string {
 - confidence 必须是 0 到 1 的数字。
 - why 用 2 到 5 条短理由说明。
 - missingInformation 只列真正需要用户补充的信息；没有则返回 []。
+- 当 recommendation=needs_clarification 时，estimatedModeAfterClarification 必须填写 adjudication/free_debate/delphi 三者之一，表示用户补齐 missingInformation 后大概率适合的任务模式。
+- 当 recommendation=needs_clarification 时，estimatedModeReason 必须说明为什么补齐后会倾向这个模式。
+- 当 recommendation 不是 needs_clarification 时，estimatedModeAfterClarification 和 estimatedModeReason 返回空字符串。
 - suggestedTask 给出一个更适合直接运行的任务表述；如果不需要改写，返回原任务的精炼版。
 
 待分类任务：
@@ -258,6 +263,8 @@ func classifyJSONSchema() map[string]any {
 			"summary",
 			"why",
 			"missingInformation",
+			"estimatedModeAfterClarification",
+			"estimatedModeReason",
 			"suggestedTask",
 		},
 		"properties": map[string]any{
@@ -287,6 +294,13 @@ func classifyJSONSchema() map[string]any {
 				"items": map[string]any{
 					"type": "string",
 				},
+			},
+			"estimatedModeAfterClarification": map[string]any{
+				"type": "string",
+				"enum": []string{"", "adjudication", "free_debate", "delphi"},
+			},
+			"estimatedModeReason": map[string]any{
+				"type": "string",
 			},
 			"suggestedTask": map[string]any{
 				"type": "string",
@@ -337,7 +351,27 @@ func validateClassifyOutput(out classifyOutput) error {
 	if len(out.Why) == 0 {
 		return fmt.Errorf("decode classify output: why must not be empty")
 	}
+	if out.Recommendation == "needs_clarification" {
+		if !isConcreteClassifyMode(out.EstimatedModeAfterClarification) {
+			return fmt.Errorf("decode classify output: estimatedModeAfterClarification must be adjudication/free_debate/delphi when recommendation=needs_clarification")
+		}
+		if strings.TrimSpace(out.EstimatedModeReason) == "" {
+			return fmt.Errorf("decode classify output: estimatedModeReason is required when recommendation=needs_clarification")
+		}
+	}
+	if out.EstimatedModeAfterClarification != "" && !isConcreteClassifyMode(out.EstimatedModeAfterClarification) {
+		return fmt.Errorf("decode classify output: unsupported estimatedModeAfterClarification %q", out.EstimatedModeAfterClarification)
+	}
 	return nil
+}
+
+func isConcreteClassifyMode(value string) bool {
+	switch value {
+	case "adjudication", "free_debate", "delphi":
+		return true
+	default:
+		return false
+	}
 }
 
 func classifyMaxOutputTokens(model config.ProviderModelConfig) int {
@@ -426,6 +460,12 @@ func writeClassifyText(writer io.Writer, result classifyOutput, configPath strin
 			if strings.TrimSpace(item) != "" {
 				_, _ = fmt.Fprintf(writer, "    - %s\n", strings.TrimSpace(item))
 			}
+		}
+	}
+	if result.Recommendation == "needs_clarification" && strings.TrimSpace(result.EstimatedModeAfterClarification) != "" {
+		_, _ = fmt.Fprintf(writer, "  estimated_mode_after_clarification: %s\n", strings.TrimSpace(result.EstimatedModeAfterClarification))
+		if strings.TrimSpace(result.EstimatedModeReason) != "" {
+			_, _ = fmt.Fprintf(writer, "  estimated_mode_reason: %s\n", strings.TrimSpace(result.EstimatedModeReason))
 		}
 	}
 	if strings.TrimSpace(result.SuggestedTask) != "" {

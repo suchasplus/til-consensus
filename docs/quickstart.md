@@ -73,7 +73,7 @@ til-consensus classify --file ./task.md --config ./til-consensus.yaml
 cat ./task.md | til-consensus classify --stdin --config ./til-consensus.yaml
 ```
 
-`classify` 默认使用 `gemini-api/default`，只要求 providers 配置可用，不要求 agents/roles 完整。它会返回 `adjudication`、`free_debate`、`delphi`、`needs_clarification` 或 `not_suitable`。
+`classify` 默认使用 `gemini-api/default`，只要求 providers 配置可用，不要求 agents/roles 完整。它会返回 `adjudication`、`free_debate`、`delphi`、`needs_clarification` 或 `not_suitable`。当返回 `needs_clarification` 时，它也会预估用户补齐缺失信息后大概率适合的 mode，并说明理由。
 
 底层 `run` 仍然保留，适合 CI、脚本或需要精确传入 `run.yaml` 的场景：
 

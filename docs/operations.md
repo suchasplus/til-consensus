@@ -36,7 +36,7 @@ til-consensus classify --file ./task.md \
 til-consensus classify --file ./task.md --config ./til-consensus.yaml --format json
 ```
 
-分类结果可能是 `adjudication`、`free_debate`、`delphi`、`needs_clarification` 或 `not_suitable`。前 3 个会给出建议命令；后 2 个会列出需要补充的信息或说明为什么不需要多 agent workflow。
+分类结果可能是 `adjudication`、`free_debate`、`delphi`、`needs_clarification` 或 `not_suitable`。前 3 个会给出建议命令；`needs_clarification` 会列出需要补充的信息，并通过 `estimatedModeAfterClarification` / `estimatedModeReason` 说明补齐后大概率适合的 mode；`not_suitable` 会说明为什么不需要多 agent workflow。
 
 底层 `run`：
 

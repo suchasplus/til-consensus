@@ -21,7 +21,7 @@ func TestClassifyCommandUsesProviderOnlyConfigAndTextInput(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
 			t.Fatalf("decode request: %v", err)
 		}
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"recommendation\":\"free_debate\",\"confidence\":0.86,\"summary\":\"需要多方比较方案取舍。\",\"why\":[\"问题是开放式架构取舍\",\"需要暴露不同立场\"],\"missingInformation\":[],\"suggestedTask\":\"比较 monorepo 和 polyrepo 在当前微服务团队中的取舍。\"}"}}]}`))
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"recommendation\":\"free_debate\",\"confidence\":0.86,\"summary\":\"需要多方比较方案取舍。\",\"why\":[\"问题是开放式架构取舍\",\"需要暴露不同立场\"],\"missingInformation\":[],\"estimatedModeAfterClarification\":\"\",\"estimatedModeReason\":\"\",\"suggestedTask\":\"比较 monorepo 和 polyrepo 在当前微服务团队中的取舍。\"}"}}]}`))
 	}))
 	defer server.Close()
 	t.Setenv("TEST_API_KEY", "test-key")
@@ -57,7 +57,7 @@ func TestClassifyCommandUsesProviderOnlyConfigAndTextInput(t *testing.T) {
 
 func TestClassifyCommandReadsFileAndOutputsJSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"recommendation\":\"needs_clarification\",\"confidence\":0.74,\"summary\":\"问题缺少目标和约束。\",\"why\":[\"没有说明决策目标\",\"没有评价标准\"],\"missingInformation\":[\"团队规模\",\"成功标准\"],\"suggestedTask\":\"请补充团队规模、约束和成功标准后再运行。\"}"}}]}`))
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"recommendation\":\"needs_clarification\",\"confidence\":0.74,\"summary\":\"问题缺少目标和约束。\",\"why\":[\"没有说明决策目标\",\"没有评价标准\"],\"missingInformation\":[\"团队规模\",\"成功标准\"],\"estimatedModeAfterClarification\":\"free_debate\",\"estimatedModeReason\":\"补齐约束后仍是多方案取舍，适合多参与者辩论和投票。\",\"suggestedTask\":\"请补充团队规模、约束和成功标准后再运行。\"}"}}]}`))
 	}))
 	defer server.Close()
 	t.Setenv("TEST_API_KEY", "test-key")
@@ -83,14 +83,14 @@ func TestClassifyCommandReadsFileAndOutputsJSON(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &decoded); err != nil {
 		t.Fatalf("decode output: %v\n%s", err, stdout.String())
 	}
-	if decoded.Recommendation != "needs_clarification" || len(decoded.MissingInformation) != 2 {
+	if decoded.Recommendation != "needs_clarification" || len(decoded.MissingInformation) != 2 || decoded.EstimatedModeAfterClarification != "free_debate" {
 		t.Fatalf("unexpected output: %#v", decoded)
 	}
 }
 
 func TestClassifyCommandReadsStdin(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"recommendation\":\"adjudication\",\"confidence\":0.91,\"summary\":\"适合裁决 claim 是否成立。\",\"why\":[\"目标是判断结论是否成立\"],\"missingInformation\":[],\"suggestedTask\":\"判断该 patch 是否修复竞态问题。\"}"}}]}`))
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"recommendation\":\"adjudication\",\"confidence\":0.91,\"summary\":\"适合裁决 claim 是否成立。\",\"why\":[\"目标是判断结论是否成立\"],\"missingInformation\":[],\"estimatedModeAfterClarification\":\"\",\"estimatedModeReason\":\"\",\"suggestedTask\":\"判断该 patch 是否修复竞态问题。\"}"}}]}`))
 	}))
 	defer server.Close()
 	t.Setenv("TEST_API_KEY", "test-key")

@@ -50,7 +50,7 @@ til-consensus last --config ./til-consensus.yaml
 
 选择建议见 [三种讨论模式](docs/modes.md)。
 
-如果问题还不够明确，`classify` 会返回 `needs_clarification` 或 `not_suitable`，并列出需要补充的信息，而不是强行推荐某个 mode。默认分类 provider 是 `gemini-api`，可用 `--provider` / `--model` 覆盖。
+如果问题还不够明确，`classify` 会返回 `needs_clarification` 或 `not_suitable`，并列出需要补充的信息，而不是强行推荐某个 mode。`needs_clarification` 还会给出用户补齐信息后大概率适合的 mode 及理由。默认分类 provider 是 `gemini-api`，可用 `--provider` / `--model` 覆盖。
 
 ## Provider 预检
 
