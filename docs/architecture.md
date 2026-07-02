@@ -17,8 +17,11 @@
 面向外部 Go 项目的包位于模块根目录：
 
 - `consensus`：核心 engine、workflow、request/result/task 类型。
-- `config`：配置 schema、include/profile 加载、run plan 解析。
-- `runner`：高层执行入口，封装 config 解析、engine 创建、run/resume/replay/action。
+- `config`：配置 schema、include/profile 加载、run plan 解析、render/explain 报告。
+- `runner`：高层执行入口，封装 config 解析、engine 创建、run/resume/replay/action/classify。
+- `preflight`：provider readiness 预检。
+- `telemetry`：readiness、strict compliance、run telemetry、daily report 类型和聚合。
+- `doctor`：配置、输出目录和 provider 可用性诊断。
 - `runtime`：provider delegate、schema enforcement、repair、normalize。
 - `runtime/api`、`runtime/cli`、`runtime/mock`、`runtime/sdk`：provider runner。
 - `store/file`、`store/memory`：session store 实现。
@@ -28,8 +31,6 @@
 
 - `internal/app`：CLI 命令，运行类命令应尽量只是 `runner.Executor` 的薄封装。
 - `internal/artifact`：CLI 输出文件、summary、error artifact。
-- `internal/preflight`：CLI provider 预检。
-- `internal/telemetry`：CLI telemetry artifact/view。
 - `internal/viewer`：终端/Web 展示。
 - `internal/buildinfo`：CLI build metadata。
 

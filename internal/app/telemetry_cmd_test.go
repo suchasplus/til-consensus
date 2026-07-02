@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/suchasplus/til-consensus/internal/telemetry"
+	"github.com/suchasplus/til-consensus/telemetry"
 )
 
 func TestTelemetryDailyCommandWritesMarkdown(t *testing.T) {

@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/suchasplus/til-consensus/config"
-	"github.com/suchasplus/til-consensus/internal/telemetry"
+	"github.com/suchasplus/til-consensus/telemetry"
 	"github.com/urfave/cli/v3"
 )
 

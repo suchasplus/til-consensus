@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	tilrunner "github.com/suchasplus/til-consensus/runner"
 )
 
 func TestClassifyCommandUsesProviderOnlyConfigAndTextInput(t *testing.T) {
@@ -79,7 +81,7 @@ func TestClassifyCommandReadsFileAndOutputsJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("classify failed: %v", err)
 	}
-	var decoded classifyOutput
+	var decoded tilrunner.ClassifyResult
 	if err := json.Unmarshal(stdout.Bytes(), &decoded); err != nil {
 		t.Fatalf("decode output: %v\n%s", err, stdout.String())
 	}

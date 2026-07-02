@@ -20,9 +20,9 @@ import (
 
 	"github.com/suchasplus/til-consensus/config"
 	"github.com/suchasplus/til-consensus/consensus"
-	"github.com/suchasplus/til-consensus/internal/telemetry"
 	tilruntime "github.com/suchasplus/til-consensus/runtime"
 	apiruntime "github.com/suchasplus/til-consensus/runtime/api"
+	"github.com/suchasplus/til-consensus/telemetry"
 	"github.com/urfave/cli/v3"
 	"gopkg.in/yaml.v3"
 )

@@ -6,9 +6,12 @@
 
 稳定面向嵌入方的包位于模块根目录：
 
-- `github.com/suchasplus/til-consensus/runner`：推荐入口，负责加载配置、解析 run plan、创建 engine、执行 run/resume/replay/action。
+- `github.com/suchasplus/til-consensus/runner`：推荐入口，负责加载配置、解析 run plan、创建 engine、执行 run/resume/replay/action/classify。
 - `github.com/suchasplus/til-consensus/consensus`：核心 engine、workflow 类型、任务和结果结构。
-- `github.com/suchasplus/til-consensus/config`：YAML 配置类型、include/profile 加载、run plan 解析。
+- `github.com/suchasplus/til-consensus/config`：YAML 配置类型、include/profile 加载、run plan 解析、render/explain 报告。
+- `github.com/suchasplus/til-consensus/preflight`：provider readiness 预检。
+- `github.com/suchasplus/til-consensus/telemetry`：readiness、strict compliance、run telemetry 和 daily report。
+- `github.com/suchasplus/til-consensus/doctor`：配置、输出目录和 provider 可用性诊断。
 - `github.com/suchasplus/til-consensus/runtime`：provider delegate、schema decode、repair 和 normalize。
 - `github.com/suchasplus/til-consensus/runtime/api`：API provider runner。
 - `github.com/suchasplus/til-consensus/runtime/cli`：CLI provider runner。
@@ -18,7 +21,7 @@
 - `github.com/suchasplus/til-consensus/store/memory`：内存型 session store。
 - `github.com/suchasplus/til-consensus/observer`：JSONL ledger/event observer。
 
-`internal/*` 仍然只给 CLI 使用，例如 `internal/app`、`internal/artifact`、`internal/viewer`、`internal/preflight`。
+`internal/*` 仍然只给 CLI 使用，例如 `internal/app`、`internal/artifact`、`internal/viewer`。
 
 ## 最小嵌入流程
 
@@ -88,6 +91,78 @@ if err != nil {
 }
 fmt.Println(action.Output.Summary)
 ```
+
+## 任务分类
+
+`runner.Executor.Classify` 可在启动完整 workflow 前判断任务更适合哪种模式，或提示用户补充信息：
+
+```go
+loaded, err := config.LoadProfilesWithProfile("conf/tc.yaml", "")
+if err != nil {
+	panic(err)
+}
+executor := runner.NewExecutor(loaded)
+
+decision, err := executor.Classify(ctx, runner.ClassifyInput{
+	Task:       "monorepo 和 polyrepo 如何取舍？",
+	ProviderID: "gemini-api",
+	ModelID:    "default",
+})
+if err != nil {
+	panic(err)
+}
+
+switch decision.Recommendation {
+case "adjudication", "free_debate", "delphi":
+	fmt.Println("run mode:", decision.Recommendation)
+	fmt.Println("task:", decision.SuggestedTask)
+case "needs_clarification":
+	fmt.Println("missing:", decision.MissingInformation)
+	fmt.Println("estimated mode:", decision.EstimatedModeAfterClarification)
+case "not_suitable":
+	fmt.Println("skip workflow:", decision.Summary)
+}
+```
+
+`Classify` 只需要 provider 配置可用，不要求 agents/roles 完整，所以可以用 `config.LoadProfilesWithProfile` 加载 provider-only 配置。
+
+## Provider 预检和诊断
+
+服务启动、配置保存或用户手动验证时，可以直接调用公开 preflight/doctor API：
+
+```go
+entries, err := preflight.Run(ctx, loaded.Config, preflight.Options{
+	All:     true,
+	Timeout: 90 * time.Second,
+}, nil)
+if err != nil {
+	panic(err)
+}
+for _, entry := range entries {
+	fmt.Println(entry.Provider, entry.Model, entry.Ready, entry.Error)
+}
+
+report := doctor.Run(ctx, doctor.Options{
+	ConfigPath: "conf/tc.yaml",
+	Profile:    "adjudication",
+	Providers:  true,
+	Timeout:    90 * time.Second,
+})
+fmt.Println(report.Summary)
+```
+
+## 配置解释和 Telemetry
+
+`config.BuildExplainReport` 可以生成结构化配置说明，适合管理后台展示最终生效的 provider/agent/roles：
+
+```go
+report := config.BuildExplainReport(loaded, config.ExplainOptions{
+	ProviderFilter: "gemini-api",
+})
+fmt.Println(config.RenderExplainText(report))
+```
+
+运行结束后，可以用 `telemetry.BuildRunTelemetry` 构建服务端自己的指标记录；如果沿用文件产物，也可以读取 `provider-readiness.json`、`strict-compliance-summary.json` 和 `run-telemetry.json`。
 
 ## 不使用 YAML
 

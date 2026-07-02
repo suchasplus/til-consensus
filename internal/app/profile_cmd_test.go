@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/suchasplus/til-consensus/internal/telemetry"
 	"github.com/suchasplus/til-consensus/internal/viewer"
+	"github.com/suchasplus/til-consensus/telemetry"
 )
 
 func TestProfilePreflightCommandWritesReadinessArtifacts(t *testing.T) {

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	tildoctor "github.com/suchasplus/til-consensus/doctor"
 	"github.com/urfave/cli/v3"
 )
 
@@ -152,7 +153,7 @@ func TestDoctorMockConfig(t *testing.T) {
 	if err := cmd.Run(context.Background(), []string{"doctor", "--config", configPath, "--format", "json"}); err != nil {
 		t.Fatalf("doctor failed: %v\n%s", err, stdout.String())
 	}
-	var report doctorReport
+	var report tildoctor.Report
 	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
 		t.Fatalf("decode doctor output: %v\n%s", err, stdout.String())
 	}

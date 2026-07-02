@@ -116,11 +116,14 @@ output:
 - `github.com/suchasplus/til-consensus/runner`
 - `github.com/suchasplus/til-consensus/consensus`
 - `github.com/suchasplus/til-consensus/config`
+- `github.com/suchasplus/til-consensus/preflight`
+- `github.com/suchasplus/til-consensus/telemetry`
+- `github.com/suchasplus/til-consensus/doctor`
 - `github.com/suchasplus/til-consensus/runtime`
 - `github.com/suchasplus/til-consensus/store/memory`
 - `github.com/suchasplus/til-consensus/observer`
 
-推荐从 `runner.Executor` 起步；需要深度定制 provider、持久化或事件系统时再下沉到 `consensus.Engine`。嵌入示例见 [Go Library 嵌入](docs/library.md)。
+推荐从 `runner.Executor` 起步；它支持 run/resume/replay/action，也支持 `Classify` 做任务路由。配置解释、provider preflight、telemetry 和 doctor 也都有公开包。嵌入示例见 [Go Library 嵌入](docs/library.md)。
 
 ## 常用命令
 

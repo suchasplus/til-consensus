@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/suchasplus/til-consensus/consensus"
-	"github.com/suchasplus/til-consensus/internal/telemetry"
+	"github.com/suchasplus/til-consensus/telemetry"
 )
 
 func TestRenderDocumentGolden(t *testing.T) {

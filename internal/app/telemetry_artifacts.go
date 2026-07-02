@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/suchasplus/til-consensus/consensus"
-	"github.com/suchasplus/til-consensus/internal/telemetry"
+	"github.com/suchasplus/til-consensus/telemetry"
 )
 
 func writeRunTelemetryArtifact(result *consensus.RunResult, artifactsDir string) error {
