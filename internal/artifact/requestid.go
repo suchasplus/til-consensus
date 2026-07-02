@@ -1,19 +1,13 @@
 package artifact
 
 import (
-	"crypto/rand"
-	"encoding/hex"
-	"fmt"
-	"regexp"
 	"time"
+
+	"github.com/suchasplus/til-consensus/consensus"
 )
 
-var RequestIDPattern = regexp.MustCompile(`^tc_\d+_[a-f0-9]{6}$`)
+var RequestIDPattern = consensus.RequestIDPattern
 
 func NewRequestID(now time.Time) string {
-	buf := make([]byte, 3)
-	if _, err := rand.Read(buf); err != nil {
-		return fmt.Sprintf("tc_%d_000000", now.UTC().UnixMilli())
-	}
-	return fmt.Sprintf("tc_%d_%s", now.UTC().UnixMilli(), hex.EncodeToString(buf))
+	return consensus.NewRequestID(now)
 }

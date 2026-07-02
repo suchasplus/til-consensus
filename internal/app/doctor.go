@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/suchasplus/til-consensus/internal/config"
+	"github.com/suchasplus/til-consensus/config"
 	"github.com/suchasplus/til-consensus/internal/preflight"
 	"github.com/suchasplus/til-consensus/internal/telemetry"
 	"github.com/urfave/cli/v3"

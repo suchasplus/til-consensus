@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/suchasplus/til-consensus/internal/config"
+	"github.com/suchasplus/til-consensus/config"
 )
 
 func TestBuildCandidatesSkipsDisabledProviderAndModels(t *testing.T) {

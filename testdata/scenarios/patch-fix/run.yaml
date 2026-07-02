@@ -10,7 +10,7 @@ task_spec:
     root: .
   constraints:
     allowed_paths:
-      - internal/consensus
+      - consensus
     required_commands:
       - go test ./...
   materials:

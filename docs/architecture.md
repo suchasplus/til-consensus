@@ -1,16 +1,37 @@
 # 技术架构
 
-这篇面向维护者，描述 `til-consensus` 的内部边界。第一次使用不需要先读这里。
+这篇面向维护者，描述 `til-consensus` 的 library / CLI 边界。第一次使用不需要先读这里。
 
 ## 核心目标
 
-`til-consensus` 是一个确定性 coordinator，加上可插拔 provider 执行层。它的目标不是让模型自由聊天，而是把多 agent 讨论过程落成可审计产物：
+`til-consensus` 是一个确定性 coordinator，加上可插拔 provider 执行层。它既可以通过 CLI 使用，也可以作为 Go library 嵌入。它的目标不是让模型自由聊天，而是把多 agent 讨论过程落成可审计产物：
 
 - task 被标准化为 case。
 - provider 输出被结构化约束。
 - claim、challenge、verification、revision、adjudication 都进入 ledger。
 - raw input/output 和 schema 失败单独落盘。
 - telemetry 衡量 provider 合规性和系统兜底行为。
+
+## 包边界
+
+面向外部 Go 项目的包位于模块根目录：
+
+- `consensus`：核心 engine、workflow、request/result/task 类型。
+- `config`：配置 schema、include/profile 加载、run plan 解析。
+- `runner`：高层执行入口，封装 config 解析、engine 创建、run/resume/replay/action。
+- `runtime`：provider delegate、schema enforcement、repair、normalize。
+- `runtime/api`、`runtime/cli`、`runtime/mock`、`runtime/sdk`：provider runner。
+- `store/file`、`store/memory`：session store 实现。
+- `observer`：JSONL event/ledger observer。
+
+`internal/*` 仅保留 CLI 专用能力：
+
+- `internal/app`：CLI 命令，运行类命令应尽量只是 `runner.Executor` 的薄封装。
+- `internal/artifact`：CLI 输出文件、summary、error artifact。
+- `internal/preflight`：CLI provider 预检。
+- `internal/telemetry`：CLI telemetry artifact/view。
+- `internal/viewer`：终端/Web 展示。
+- `internal/buildinfo`：CLI build metadata。
 
 ## Engine 边界
 

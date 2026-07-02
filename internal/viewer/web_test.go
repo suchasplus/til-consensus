@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/suchasplus/til-consensus/internal/consensus"
+	"github.com/suchasplus/til-consensus/consensus"
 )
 
 func TestRenderWebPageGolden(t *testing.T) {

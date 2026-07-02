@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/suchasplus/til-consensus/internal/consensus"
+	"github.com/suchasplus/til-consensus/consensus"
 )
 
 func BuildSummary(result *consensus.RunResult) string {

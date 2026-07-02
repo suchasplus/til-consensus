@@ -6,7 +6,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/suchasplus/til-consensus/internal/consensus"
+	"github.com/suchasplus/til-consensus/consensus"
 )
 
 func BuildRunTelemetry(result consensus.RunResult, summary ComplianceSummaryFile, artifactsDir string, now time.Time) RunTelemetryFile {

@@ -1,6 +1,6 @@
 # til-consensus
 
-`til-consensus` 是一个面向一次性论证、架构选择、代码裁决和多模型讨论的 CLI。它用确定性的 coordinator 编排多种 workflow，把过程和结论落成可审计的本地产物。
+`til-consensus` 是一个面向一次性论证、架构选择、代码裁决和多模型讨论的 CLI + Go library。它用确定性的 coordinator 编排多种 workflow，把过程和结论落成可审计的结构化结果。
 
 默认 mode 是 `adjudication`：系统不会只选“哪篇完整答案看起来更像对的”，而是围绕 claim 做 challenge、verification、revision 和 adjudication。
 
@@ -108,6 +108,19 @@ output:
 ```
 
 配置规则见 [配置](docs/config.md)。可复制样例见 [配置与输入样例](docs/examples.md)。
+
+## Go Library
+
+如果要嵌入到其它 Go 项目中，可以直接导入根级包：
+
+- `github.com/suchasplus/til-consensus/runner`
+- `github.com/suchasplus/til-consensus/consensus`
+- `github.com/suchasplus/til-consensus/config`
+- `github.com/suchasplus/til-consensus/runtime`
+- `github.com/suchasplus/til-consensus/store/memory`
+- `github.com/suchasplus/til-consensus/observer`
+
+推荐从 `runner.Executor` 起步；需要深度定制 provider、持久化或事件系统时再下沉到 `consensus.Engine`。嵌入示例见 [Go Library 嵌入](docs/library.md)。
 
 ## 常用命令
 

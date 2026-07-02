@@ -14,6 +14,7 @@
 - [操作手册](operations.md)
 - [输出产物](outputs.md)
 - [配置与输入样例](examples.md)
+- [Go Library 嵌入](library.md)
 
 ## 开发与维护
 

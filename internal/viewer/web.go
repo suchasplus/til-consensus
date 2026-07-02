@@ -15,7 +15,7 @@ import (
 
 	_ "embed"
 
-	"github.com/suchasplus/til-consensus/internal/consensus"
+	"github.com/suchasplus/til-consensus/consensus"
 )
 
 //go:embed web_template.html

@@ -7,8 +7,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/suchasplus/til-consensus/internal/config"
-	"github.com/suchasplus/til-consensus/internal/consensus"
+	"github.com/suchasplus/til-consensus/config"
+	"github.com/suchasplus/til-consensus/consensus"
 	"github.com/urfave/cli/v3"
 	"gopkg.in/yaml.v3"
 )

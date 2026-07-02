@@ -10,9 +10,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/suchasplus/til-consensus/internal/config"
-	runtimelib "github.com/suchasplus/til-consensus/internal/runtime"
-	apirunner "github.com/suchasplus/til-consensus/internal/runtime/api"
+	"github.com/suchasplus/til-consensus/config"
+	runtimelib "github.com/suchasplus/til-consensus/runtime"
+	apirunner "github.com/suchasplus/til-consensus/runtime/api"
 	"github.com/urfave/cli/v3"
 )
 

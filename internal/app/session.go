@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/suchasplus/til-consensus/internal/config"
-	filestore "github.com/suchasplus/til-consensus/internal/store/file"
+	"github.com/suchasplus/til-consensus/config"
+	filestore "github.com/suchasplus/til-consensus/store/file"
 	"github.com/urfave/cli/v3"
 )
 

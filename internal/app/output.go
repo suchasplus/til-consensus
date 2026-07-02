@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/suchasplus/til-consensus/internal/consensus"
+	"github.com/suchasplus/til-consensus/consensus"
 )
 
 type Output struct {

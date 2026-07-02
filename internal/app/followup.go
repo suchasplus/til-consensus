@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/suchasplus/til-consensus/internal/config"
-	"github.com/suchasplus/til-consensus/internal/consensus"
+	"github.com/suchasplus/til-consensus/config"
+	"github.com/suchasplus/til-consensus/consensus"
+	tilrunner "github.com/suchasplus/til-consensus/runner"
 	"github.com/urfave/cli/v3"
 )
 
@@ -49,9 +50,10 @@ func runFollowUpCommand(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
-	plan, err := config.ResolveRunPlanForRequest(loaded, followup.Request, cmd.Bool("verbose"), cmd.Bool("debug"))
+	executor := tilrunner.NewExecutor(loaded)
+	plan, err := executor.ResolveRequest(followup.Request, cmd.Bool("verbose"), cmd.Bool("debug"))
 	if err != nil {
 		return err
 	}
-	return executeResolvedPlan(ctx, loaded, plan, cmd.Writer)
+	return executeResolvedPlan(ctx, executor, plan, cmd.Writer)
 }

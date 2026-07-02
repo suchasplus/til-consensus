@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/suchasplus/til-consensus/internal/consensus"
+	"github.com/suchasplus/til-consensus/consensus"
 )
 
 func TestE2EResumeSessionFromCheckpoint(t *testing.T) {

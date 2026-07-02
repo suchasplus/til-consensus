@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/suchasplus/til-consensus/internal/config"
-	"github.com/suchasplus/til-consensus/internal/consensus"
+	"github.com/suchasplus/til-consensus/config"
+	"github.com/suchasplus/til-consensus/consensus"
 )
 
 type dryRunPlan struct {

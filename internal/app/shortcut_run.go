@@ -7,8 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/suchasplus/til-consensus/internal/config"
-	"github.com/suchasplus/til-consensus/internal/consensus"
+	"github.com/suchasplus/til-consensus/config"
+	"github.com/suchasplus/til-consensus/consensus"
+	tilrunner "github.com/suchasplus/til-consensus/runner"
 	"github.com/urfave/cli/v3"
 )
 
@@ -69,6 +70,7 @@ func runShortcutCommand(ctx context.Context, cmd *cli.Command, mode consensus.Wo
 	if err != nil {
 		return err
 	}
+	executor := tilrunner.NewExecutor(loaded)
 	input, err := config.LoadRunInput(cmd.String("input"))
 	if err != nil {
 		return err
@@ -104,14 +106,14 @@ func runShortcutCommand(ctx context.Context, cmd *cli.Command, mode consensus.Wo
 		Verbose:              cmd.Bool("verbose"),
 		Debug:                cmd.Bool("debug"),
 	}
-	plan, err := config.ResolveRunPlan(loaded, input, overrides, time.Now().UTC())
+	plan, err := executor.Resolve(input, overrides, time.Now().UTC())
 	if err != nil {
 		return err
 	}
 	if cmd.Bool("dry-run") {
 		return writeDryRunPlan(cmd.Writer, loaded, plan, string(mode), cmd.String("format"))
 	}
-	return executeResolvedPlan(ctx, loaded, plan, cmd.Writer)
+	return executeResolvedPlan(ctx, executor, plan, cmd.Writer)
 }
 
 func resolveShortcutTask(args []string, taskFile string) (string, error) {

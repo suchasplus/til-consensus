@@ -10,12 +10,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/suchasplus/til-consensus/internal/config"
-	"github.com/suchasplus/til-consensus/internal/consensus"
-	tilruntime "github.com/suchasplus/til-consensus/internal/runtime"
-	apirunner "github.com/suchasplus/til-consensus/internal/runtime/api"
-	clirunner "github.com/suchasplus/til-consensus/internal/runtime/cli"
+	"github.com/suchasplus/til-consensus/config"
+	"github.com/suchasplus/til-consensus/consensus"
 	"github.com/suchasplus/til-consensus/internal/telemetry"
+	tilruntime "github.com/suchasplus/til-consensus/runtime"
+	apirunner "github.com/suchasplus/til-consensus/runtime/api"
+	clirunner "github.com/suchasplus/til-consensus/runtime/cli"
 )
 
 const (

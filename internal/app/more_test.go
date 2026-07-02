@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/suchasplus/til-consensus/internal/config"
-	"github.com/suchasplus/til-consensus/internal/consensus"
-	filestore "github.com/suchasplus/til-consensus/internal/store/file"
+	"github.com/suchasplus/til-consensus/config"
+	"github.com/suchasplus/til-consensus/consensus"
+	filestore "github.com/suchasplus/til-consensus/store/file"
 	"github.com/urfave/cli/v3"
 )
 

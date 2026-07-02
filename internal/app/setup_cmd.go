@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/suchasplus/til-consensus/internal/config"
+	"github.com/suchasplus/til-consensus/config"
 	"github.com/urfave/cli/v3"
 	"gopkg.in/yaml.v3"
 )

@@ -8,12 +8,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/suchasplus/til-consensus/config"
+	"github.com/suchasplus/til-consensus/consensus"
 	"github.com/suchasplus/til-consensus/internal/artifact"
-	"github.com/suchasplus/til-consensus/internal/config"
-	"github.com/suchasplus/til-consensus/internal/consensus"
-	"github.com/suchasplus/til-consensus/internal/observer"
-	"github.com/suchasplus/til-consensus/internal/runtime"
-	filestore "github.com/suchasplus/til-consensus/internal/store/file"
+	"github.com/suchasplus/til-consensus/observer"
+	tilrunner "github.com/suchasplus/til-consensus/runner"
 	"github.com/urfave/cli/v3"
 )
 
@@ -69,7 +68,8 @@ func runCommand(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
-	sessionStore := filestore.New(config.ResolveSessionStoreDir(loaded))
+	executor := tilrunner.NewExecutor(loaded)
+	sessionStore := executor.SessionStoreForLoaded()
 	if followupPath := strings.TrimSpace(cmd.String("followup")); followupPath != "" {
 		if hasConflictingRunSource(cmd, "followup") {
 			return fmt.Errorf("--followup 不能与 --input/--task/--task-file/--resume-session/--replay-session 同时使用")
@@ -78,14 +78,14 @@ func runCommand(ctx context.Context, cmd *cli.Command) error {
 		if err != nil {
 			return err
 		}
-		plan, err := config.ResolveRunPlanForRequest(loaded, artifact.Request, cmd.Bool("verbose"), cmd.Bool("debug"))
+		plan, err := executor.ResolveRequest(artifact.Request, cmd.Bool("verbose"), cmd.Bool("debug"))
 		if err != nil {
 			return err
 		}
 		if cmd.Bool("dry-run") {
 			return writeDryRunPlan(cmd.Writer, loaded, plan, "followup", cmd.String("format"))
 		}
-		return executeResolvedPlan(ctx, loaded, plan, cmd.Writer)
+		return executeResolvedPlan(ctx, executor, plan, cmd.Writer)
 	}
 	if sessionID := strings.TrimSpace(cmd.String("resume-session")); sessionID != "" {
 		if hasConflictingRunSource(cmd, "resume-session") {
@@ -98,14 +98,14 @@ func runCommand(ctx context.Context, cmd *cli.Command) error {
 		if snapshot == nil || snapshot.Request == nil {
 			return fmt.Errorf("session %s 没有可恢复的 request", sessionID)
 		}
-		plan, err := config.ResolveRunPlanForRequest(loaded, *snapshot.Request, cmd.Bool("verbose"), cmd.Bool("debug"))
+		plan, err := executor.ResolveRequest(*snapshot.Request, cmd.Bool("verbose"), cmd.Bool("debug"))
 		if err != nil {
 			return err
 		}
 		if cmd.Bool("dry-run") {
 			return writeDryRunPlan(cmd.Writer, loaded, plan, "resume-session", cmd.String("format"))
 		}
-		return executeResumedSession(ctx, loaded, plan, snapshot, cmd.Writer)
+		return executeResumedSession(ctx, executor, plan, snapshot, cmd.Writer)
 	}
 	if sessionID := strings.TrimSpace(cmd.String("replay-session")); sessionID != "" {
 		if hasConflictingRunSource(cmd, "replay-session") {
@@ -118,24 +118,18 @@ func runCommand(ctx context.Context, cmd *cli.Command) error {
 		if snapshot == nil || snapshot.Request == nil {
 			return fmt.Errorf("session %s 没有可重放的 request", sessionID)
 		}
-		replayRequest := *snapshot.Request
-		replayRequest.RequestID = artifact.NewRequestID(time.Now().UTC())
-		replayRequest.Lineage = &consensus.RunLineage{
-			ParentRequestID: snapshot.RequestID,
-			ParentSessionID: snapshot.SessionID,
-			Trigger:         "session_replay",
+		replayRequest, err := tilrunner.ReplayRequest(*snapshot, time.Now().UTC())
+		if err != nil {
+			return err
 		}
-		if snapshot.Result != nil && snapshot.Result.CaseManifest != nil {
-			replayRequest.Lineage.ParentCaseID = snapshot.Result.CaseManifest.CaseID
-		}
-		plan, err := config.ResolveRunPlanForRequest(loaded, replayRequest, cmd.Bool("verbose"), cmd.Bool("debug"))
+		plan, err := executor.ResolveRequest(replayRequest, cmd.Bool("verbose"), cmd.Bool("debug"))
 		if err != nil {
 			return err
 		}
 		if cmd.Bool("dry-run") {
 			return writeDryRunPlan(cmd.Writer, loaded, plan, "replay-session", cmd.String("format"))
 		}
-		return executeResolvedPlan(ctx, loaded, plan, cmd.Writer)
+		return executeResolvedPlan(ctx, executor, plan, cmd.Writer)
 	}
 	input, err := config.LoadRunInput(cmd.String("input"))
 	if err != nil {
@@ -171,14 +165,14 @@ func runCommand(ctx context.Context, cmd *cli.Command) error {
 		Verbose:              cmd.Bool("verbose"),
 		Debug:                cmd.Bool("debug"),
 	}
-	plan, err := config.ResolveRunPlan(loaded, input, overrides, time.Now().UTC())
+	plan, err := executor.Resolve(input, overrides, time.Now().UTC())
 	if err != nil {
 		return err
 	}
 	if cmd.Bool("dry-run") {
 		return writeDryRunPlan(cmd.Writer, loaded, plan, "run", cmd.String("format"))
 	}
-	return executeResolvedPlan(ctx, loaded, plan, cmd.Writer)
+	return executeResolvedPlan(ctx, executor, plan, cmd.Writer)
 }
 
 func hasConflictingRunSource(cmd *cli.Command, active string) bool {
@@ -218,62 +212,41 @@ func resolveTaskOverride(task string, taskFile string) (string, error) {
 	return string(body), nil
 }
 
-func executeResolvedPlan(ctx context.Context, loaded config.LoadedConfig, plan config.ResolvedRunPlan, writer interface{ Write([]byte) (int, error) }) error {
+func executeResolvedPlan(ctx context.Context, executor *tilrunner.Executor, plan config.ResolvedRunPlan, writer interface{ Write([]byte) (int, error) }) error {
 	output := NewOutput(writer, os.Stderr, plan.Verbose, plan.Debug, plan.ArtifactsDir)
 	output.RunStarted(plan.RequestID, plan.Mode, plan.Task, plan.Roles)
-
-	delegate, err := runtime.NewDelegate(loaded.Config, plan.ArtifactsDir)
-	if err != nil {
-		return err
-	}
-	engine := consensus.NewEngine(consensus.EngineDeps{
-		TaskDelegate: delegate,
-		Observer: observer.NewMulti(
-			observer.NewJSONL(plan.EventsPath),
-			output.EventObserver(),
-		),
-		Ledger:       observer.NewLedger(plan.LedgerPath, plan.ManifestPath),
-		SessionStore: filestore.New(plan.SessionStoreDir),
-		ArtifactDir:  plan.ArtifactsDir,
-	})
-	result, runErr := engine.Start(ctx, plan.StartRequest)
+	runExecutor := *executor
+	runExecutor.Observer = observer.NewMulti(
+		observer.NewJSONL(plan.EventsPath),
+		output.EventObserver(),
+	)
+	runExecutor.Ledger = observer.NewLedger(plan.LedgerPath, plan.ManifestPath)
+	result, runErr := runExecutor.RunPlan(ctx, plan)
 	if runErr != nil {
 		_ = artifact.WriteErrorArtifact(plan.RequestID, plan.ErrorPath, runErr)
 		return runErr
 	}
-	if err := artifact.WriteRunArtifacts(result, plan.ResultPath, plan.SummaryPath); err != nil {
-		return err
-	}
-	if err := writeRunTelemetryArtifact(result, plan.ArtifactsDir); err != nil {
-		return err
-	}
-	output.RunCompleted(plan.ResultPath, plan.SummaryPath)
-	return nil
+	return finishCLIResult(output, plan, result)
 }
 
-func executeResumedSession(ctx context.Context, loaded config.LoadedConfig, plan config.ResolvedRunPlan, snapshot *consensus.SessionSnapshot, writer interface{ Write([]byte) (int, error) }) error {
+func executeResumedSession(ctx context.Context, executor *tilrunner.Executor, plan config.ResolvedRunPlan, snapshot *consensus.SessionSnapshot, writer interface{ Write([]byte) (int, error) }) error {
 	output := NewOutput(writer, os.Stderr, plan.Verbose, plan.Debug, plan.ArtifactsDir)
 	output.RunStarted(plan.RequestID, plan.Mode, plan.Task, plan.Roles)
-
-	delegate, err := runtime.NewDelegate(loaded.Config, plan.ArtifactsDir)
-	if err != nil {
-		return err
-	}
-	engine := consensus.NewEngine(consensus.EngineDeps{
-		TaskDelegate: delegate,
-		Observer: observer.NewMulti(
-			observer.NewJSONL(plan.EventsPath),
-			output.EventObserver(),
-		),
-		Ledger:       observer.NewLedger(plan.LedgerPath, plan.ManifestPath),
-		SessionStore: filestore.New(plan.SessionStoreDir),
-		ArtifactDir:  plan.ArtifactsDir,
-	})
-	result, runErr := engine.Resume(ctx, *snapshot)
+	runExecutor := *executor
+	runExecutor.Observer = observer.NewMulti(
+		observer.NewJSONL(plan.EventsPath),
+		output.EventObserver(),
+	)
+	runExecutor.Ledger = observer.NewLedger(plan.LedgerPath, plan.ManifestPath)
+	result, runErr := runExecutor.ResumePlan(ctx, plan, *snapshot)
 	if runErr != nil {
 		_ = artifact.WriteErrorArtifact(plan.RequestID, plan.ErrorPath, runErr)
 		return runErr
 	}
+	return finishCLIResult(output, plan, result)
+}
+
+func finishCLIResult(output *Output, plan config.ResolvedRunPlan, result *consensus.RunResult) error {
 	if err := artifact.WriteRunArtifacts(result, plan.ResultPath, plan.SummaryPath); err != nil {
 		return err
 	}

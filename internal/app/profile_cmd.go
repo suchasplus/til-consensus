@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/suchasplus/til-consensus/config"
+	"github.com/suchasplus/til-consensus/consensus"
 	"github.com/suchasplus/til-consensus/internal/artifact"
-	"github.com/suchasplus/til-consensus/internal/config"
-	"github.com/suchasplus/til-consensus/internal/consensus"
 	"github.com/suchasplus/til-consensus/internal/preflight"
 	"github.com/suchasplus/til-consensus/internal/telemetry"
 	"github.com/suchasplus/til-consensus/internal/viewer"
