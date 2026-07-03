@@ -6,7 +6,7 @@
 
 稳定面向嵌入方的包位于模块根目录：
 
-- `github.com/suchasplus/til-consensus/runner`：推荐入口，负责加载配置、解析 run plan、创建 engine、执行 run/resume/replay/action/classify。
+- `github.com/suchasplus/til-consensus/runner`：推荐入口，负责加载配置、解析 run plan、创建 engine、执行 run/resume/replay/action/classify。嵌入式服务通常优先用 `Executor.RunRequest`；`Executor.Run` 更适合复用 CLI/run YAML 风格输入。
 - `github.com/suchasplus/til-consensus/consensus`：核心 engine、workflow 类型、任务和结果结构。
 - `github.com/suchasplus/til-consensus/config`：YAML 配置类型、include/profile 加载、run plan 解析、render/explain 报告。
 - `github.com/suchasplus/til-consensus/preflight`：provider readiness 预检。
@@ -33,7 +33,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/suchasplus/til-consensus/config"
 	"github.com/suchasplus/til-consensus/consensus"
 	"github.com/suchasplus/til-consensus/runner"
 )
@@ -47,17 +46,15 @@ func main() {
 	}
 	executor := runner.NewExecutor(loaded)
 
-	result, err := executor.Run(
-		ctx,
-		config.RunInput{
-			Mode: consensus.WorkflowModeAdjudication,
-			TaskSpec: config.TaskSpecInput{
-				Goal: "判断这个 patch 是否真正修复了竞态问题",
-			},
+	request := consensus.StartRequest{
+		Mode:      consensus.WorkflowModeAdjudication,
+		RequestID: consensus.NewRequestID(time.Now().UTC()),
+		TaskSpec: consensus.TaskSpec{
+			Goal: "判断这个 patch 是否真正修复了竞态问题",
 		},
-		config.RunOverrides{},
-		time.Now().UTC(),
-	)
+	}
+
+	result, err := executor.RunRequest(ctx, request, false, false)
 	if err != nil {
 		panic(err)
 	}
@@ -162,7 +159,7 @@ report := config.BuildExplainReport(loaded, config.ExplainOptions{
 fmt.Println(config.RenderExplainText(report))
 ```
 
-运行结束后，可以用 `telemetry.BuildRunTelemetry` 构建服务端自己的指标记录；如果沿用文件产物，也可以读取 `provider-readiness.json`、`strict-compliance-summary.json` 和 `run-telemetry.json`。
+运行结束后，可以用 `telemetry.BuildRunTelemetry` 构建服务端自己的指标记录；也可以用 `consensus.BuildRunSummary` 生成和 CLI summary 兼容的 Markdown 摘要。如果沿用文件产物，还可以读取 `provider-readiness.json`、`strict-compliance-summary.json` 和 `run-telemetry.json`。
 
 ## 不使用 YAML
 
@@ -197,4 +194,4 @@ request := consensus.StartRequest{
 - 本地开发可以用 `store/memory` 起步，生产环境按需改成 `store/file` 或自定义 `consensus.SessionStore`。
 - 如果已有事件系统，实现 `consensus.Observer` 即可接收 phase/task/ledger/debug 事件。
 - 如果已有 provider 网关，可以直接实现 `consensus.TaskDelegate`，不必使用 `runtime.NewDelegate`。
-- CLI 产物写入、summary/view/web viewer 属于 `internal/*`，library 嵌入方应自己决定如何展示结果。
+- CLI 产物写入、view/web viewer 属于 `internal/*`，library 嵌入方应自己决定如何展示结果；需要 Markdown 摘要时可调用 `consensus.BuildRunSummary`。

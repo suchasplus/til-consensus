@@ -13,6 +13,8 @@ import (
 	filestore "github.com/suchasplus/til-consensus/store/file"
 )
 
+// Executor 是高层 library 入口，负责解析配置、创建 consensus engine，并通过配置好的 delegate 执行请求。
+// 调用方已经有 consensus.StartRequest 时，优先使用 RunRequest。
 type Executor struct {
 	Loaded       config.LoadedConfig
 	SessionStore consensus.SessionStore
@@ -51,10 +53,12 @@ func LoadConfig(path string, profile string) (config.LoadedConfig, error) {
 	return config.LoadWithProfile(resolvedPath, profile)
 }
 
+// NewExecutor 基于已加载的配置创建 Executor。
 func NewExecutor(loaded config.LoadedConfig) *Executor {
 	return &Executor{Loaded: loaded}
 }
 
+// Resolve 将 CLI 风格 run 输入和 overrides 转成规范化 run plan。
 func (e *Executor) Resolve(input config.RunInput, overrides config.RunOverrides, now time.Time) (config.ResolvedRunPlan, error) {
 	if now.IsZero() {
 		now = time.Now().UTC()
@@ -62,10 +66,12 @@ func (e *Executor) Resolve(input config.RunInput, overrides config.RunOverrides,
 	return config.ResolveRunPlan(e.Loaded, input, overrides, now)
 }
 
+// ResolveRequest 将已构造的 StartRequest 转成规范化 run plan。
 func (e *Executor) ResolveRequest(request consensus.StartRequest, verbose bool, debug bool) (config.ResolvedRunPlan, error) {
 	return config.ResolveRunPlanForRequest(e.Loaded, request, verbose, debug)
 }
 
+// Run 执行 CLI 风格 run 输入。已经有 consensus.StartRequest 的 library 集成应优先使用 RunRequest。
 func (e *Executor) Run(ctx context.Context, input config.RunInput, overrides config.RunOverrides, now time.Time) (Result, error) {
 	plan, err := e.Resolve(input, overrides, now)
 	if err != nil {
@@ -78,6 +84,7 @@ func (e *Executor) Run(ctx context.Context, input config.RunInput, overrides con
 	return Result{Plan: plan, Output: result}, nil
 }
 
+// RunRequest 执行 consensus.StartRequest，是服务从自己的 API 或数据模型构造请求时推荐使用的 library 入口。
 func (e *Executor) RunRequest(ctx context.Context, request consensus.StartRequest, verbose bool, debug bool) (Result, error) {
 	plan, err := e.ResolveRequest(request, verbose, debug)
 	if err != nil {

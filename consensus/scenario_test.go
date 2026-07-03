@@ -13,7 +13,6 @@ import (
 
 	"github.com/suchasplus/til-consensus/config"
 	"github.com/suchasplus/til-consensus/consensus"
-	"github.com/suchasplus/til-consensus/internal/artifact"
 	memorystore "github.com/suchasplus/til-consensus/store/memory"
 )
 
@@ -182,7 +181,7 @@ func TestScenarioFallbackEvidenceReversal(t *testing.T) {
 	if !foundStructuredMetadata {
 		t.Fatalf("expected structured ingest metadata in ledger, got %#v", ledger.entries)
 	}
-	assertSummaryFragments(t, artifact.BuildSummary(result), expected)
+	assertSummaryFragments(t, consensus.BuildRunSummary(result), expected)
 }
 
 func TestScenarioObserveNegatesAction(t *testing.T) {
@@ -229,7 +228,7 @@ func TestScenarioObserveNegatesAction(t *testing.T) {
 	if !foundFollowUp {
 		t.Fatalf("expected contradictory observation with follow-up artifact, got %#v", result.Observations)
 	}
-	assertSummaryFragments(t, artifact.BuildSummary(result), expected)
+	assertSummaryFragments(t, consensus.BuildRunSummary(result), expected)
 }
 
 func TestScenarioCodingCompositeChecks(t *testing.T) {
@@ -277,7 +276,7 @@ func TestScenarioCodingCompositeChecks(t *testing.T) {
 	if !sawDiff || !sawTest || !sawBench {
 		t.Fatalf("expected diff/test/bench checks to pass, got %#v", result.Adjudication.VerificationResults)
 	}
-	assertSummaryFragments(t, artifact.BuildSummary(result), expected)
+	assertSummaryFragments(t, consensus.BuildRunSummary(result), expected)
 }
 
 func TestScenarioFactualConflictAndFreshness(t *testing.T) {
@@ -334,7 +333,7 @@ func TestScenarioFactualConflictAndFreshness(t *testing.T) {
 	if !foundFreshMetadata || !foundConflictFailure {
 		t.Fatalf("expected freshness/conflict metadata in ledger, got %#v", ledger.entries)
 	}
-	assertSummaryFragments(t, artifact.BuildSummary(result), expected)
+	assertSummaryFragments(t, consensus.BuildRunSummary(result), expected)
 }
 
 func loadScenarioRequest(t *testing.T, name string) (consensus.StartRequest, string, []string) {
