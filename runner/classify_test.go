@@ -70,3 +70,12 @@ func TestDecodeClassifyOutputRejectsInvalidRecommendation(t *testing.T) {
 		t.Fatal("expected invalid recommendation to fail")
 	}
 }
+
+func TestClassifyMaxOutputTokensCapsLargeModelBudget(t *testing.T) {
+	if got := classifyMaxOutputTokens(config.ProviderModelConfig{MaxOutputTokens: 65536}); got != 32768 {
+		t.Fatalf("expected classify cap 32768, got %d", got)
+	}
+	if got := classifyMaxOutputTokens(config.ProviderModelConfig{MaxOutputTokens: 512}); got != 512 {
+		t.Fatalf("expected classify to respect smaller model budget, got %d", got)
+	}
+}

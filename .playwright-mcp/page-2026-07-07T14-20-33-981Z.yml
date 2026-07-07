@@ -1,0 +1,12 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e4]:
+    - generic [ref=e5]:
+      - generic [ref=e6]: Welcome back
+      - generic [ref=e7]: Sign in to your account
+    - generic [ref=e8]:
+      - button "Sign in with Google" [ref=e9]:
+        - img
+        - text: Sign in with Google
+      - button "XM OPS Login" [ref=e10]
+  - generic:
+    - region "Notifications"

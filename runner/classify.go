@@ -17,7 +17,7 @@ import (
 const (
 	DefaultClassifyProvider  = "gemini-api"
 	DefaultClassifyModel     = "default"
-	DefaultClassifyMaxTokens = 2048
+	DefaultClassifyMaxTokens = 32768
 )
 
 type ClassifyInput struct {
