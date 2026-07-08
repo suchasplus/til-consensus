@@ -1521,7 +1521,8 @@ func (e *Engine) startFreeDebate(ctx context.Context, request StartRequest) (_ *
 			if strings.TrimSpace(draft.Statement) == "" {
 				continue
 			}
-			if IsDebateProcessMetaClaimDraft(draft) {
+			if isDebateProcessClaim(draft) {
+				participant.ProcessNotes = append(participant.ProcessNotes, debateProcessNote(draft))
 				continue
 			}
 			var claimID string
@@ -1637,7 +1638,8 @@ func (e *Engine) startFreeDebate(ctx context.Context, request StartRequest) (_ *
 				if strings.TrimSpace(draft.Statement) == "" {
 					continue
 				}
-				if IsDebateProcessMetaClaimDraft(draft) {
+				if isDebateProcessClaim(draft) {
+					participant.ProcessNotes = append(participant.ProcessNotes, debateProcessNote(draft))
 					continue
 				}
 				var claimID string

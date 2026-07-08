@@ -20,6 +20,7 @@ type dryRunPlan struct {
 	Roles       consensus.RoleAssignments `json:"roles"`
 	Agents      []dryRunAgent             `json:"agents"`
 	Phases      []string                  `json:"phases"`
+	Notices     []string                  `json:"notices,omitempty"`
 	Output      dryRunOutput              `json:"output"`
 	Policies    dryRunPolicies            `json:"policies"`
 }
@@ -134,6 +135,7 @@ func buildDryRunPlan(loaded config.LoadedConfig, plan config.ResolvedRunPlan, so
 		Roles:       plan.Roles,
 		Agents:      agents,
 		Phases:      phasesForMode(plan.Mode, plan.StartRequest.ActionPolicy != nil),
+		Notices:     plan.Notices,
 		Output: dryRunOutput{
 			RunDir:          filepath.Dir(plan.ResultPath),
 			ResultPath:      plan.ResultPath,
@@ -176,6 +178,9 @@ func renderDryRunText(plan dryRunPlan) string {
 	b.WriteString("  mode: " + string(plan.Mode) + "\n")
 	b.WriteString("  task: " + plan.TaskPreview + "\n")
 	b.WriteString("  phases: " + strings.Join(plan.Phases, " -> ") + "\n")
+	for _, notice := range plan.Notices {
+		b.WriteString("  notice: " + notice + "\n")
+	}
 	b.WriteString("\nroles\n")
 	b.WriteString("  proposers: " + strings.Join(plan.Roles.Proposers, ",") + "\n")
 	b.WriteString("  challengers: " + strings.Join(plan.Roles.Challengers, ",") + "\n")

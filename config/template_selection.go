@@ -166,11 +166,33 @@ func BuildTemplateConfig(selection TemplateSelection) (Config, error) {
 	return cfg, nil
 }
 
-func applyBaseGeneralDefaults(cfg *Config) {
-	cfg.Defaults.SuccessCriteria = []string{
-		"给出 claim 级裁决",
-		"对证据不足部分明确保留 unresolved 或 undetermined",
+// defaultSuccessCriteriaForMode is the built-in per-mode criteria used by
+// templates and by plan-time fallback when profile criteria do not match the
+// resolved run mode.
+func defaultSuccessCriteriaForMode(mode consensus.WorkflowMode) []string {
+	switch mode {
+	case consensus.WorkflowModeFreeDebate:
+		return []string{
+			"让多个 participant 独立提出主张并交叉辩论",
+			"最终通过 final vote 收敛",
+			"没有共识时允许 no_consensus",
+		}
+	case consensus.WorkflowModeDelphi:
+		return []string{
+			"让参与者匿名给出候选结论和评分",
+			"每轮基于匿名汇总修订意见",
+			"输出推荐结论、收敛度和异议摘要",
+		}
+	default:
+		return []string{
+			"给出 claim 级裁决",
+			"对证据不足部分明确保留 unresolved 或 undetermined",
+		}
 	}
+}
+
+func applyBaseGeneralDefaults(cfg *Config) {
+	cfg.Defaults.SuccessCriteria = defaultSuccessCriteriaForMode(consensus.WorkflowModeAdjudication)
 	cfg.Defaults.AllowedTools = []string{"sources", "compare", "cross-check"}
 	cfg.Defaults.PerTaskTimeout = Duration{Duration: 20 * time.Minute}
 	cfg.Defaults.TaskRetryAttempts = consensus.DefaultTaskRetryAttempts
@@ -238,11 +260,7 @@ func applyAdjudicationModeDefaults(cfg *Config) {
 
 func applyFreeDebateModeDefaults(cfg *Config) {
 	cfg.Defaults.Mode = consensus.WorkflowModeFreeDebate
-	cfg.Defaults.SuccessCriteria = []string{
-		"让多个 participant 独立提出主张并交叉辩论",
-		"最终通过 final vote 收敛",
-		"没有共识时允许 no_consensus",
-	}
+	cfg.Defaults.SuccessCriteria = defaultSuccessCriteriaForMode(consensus.WorkflowModeFreeDebate)
 	cfg.Defaults.DebatePolicy = DebatePolicyConfig{
 		MinRounds: 2,
 		MaxRounds: 3,
@@ -260,11 +278,7 @@ func applyFreeDebateModeDefaults(cfg *Config) {
 
 func applyDelphiModeDefaults(cfg *Config) {
 	cfg.Defaults.Mode = consensus.WorkflowModeDelphi
-	cfg.Defaults.SuccessCriteria = []string{
-		"让参与者匿名给出候选结论和评分",
-		"每轮基于匿名汇总修订意见",
-		"输出推荐结论、收敛度和异议摘要",
-	}
+	cfg.Defaults.SuccessCriteria = defaultSuccessCriteriaForMode(consensus.WorkflowModeDelphi)
 	cfg.Defaults.DelphiPolicy = DelphiPolicyConfig{
 		MinRounds:               2,
 		MaxRounds:               3,

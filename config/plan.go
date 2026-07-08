@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -24,7 +25,11 @@ type ResolvedRunPlan struct {
 	ArtifactsDir    string
 	Verbose         bool
 	Debug           bool
-	StartRequest    consensus.StartRequest
+	// Notices are plan-time warnings worth showing to the operator, e.g.
+	// success_criteria swapped because the run mode differs from the mode the
+	// active profile was written for.
+	Notices      []string
+	StartRequest consensus.StartRequest
 }
 
 type RunArtifactPaths struct {
@@ -56,12 +61,13 @@ func ResolveRunPlan(loaded LoadedConfig, input RunInput, overrides RunOverrides,
 	if err := validateAssignedAgents(cfg, roles, mode); err != nil {
 		return ResolvedRunPlan{}, err
 	}
+	successCriteria, criteriaNotice := resolveSuccessCriteria(cfg, mode, overrides.SuccessCriteria, input.TaskSpec.SuccessCriteria)
 	taskSpec := consensus.TaskSpec{
 		Goal:              task,
 		TaskType:          pickTaskType(input.TaskSpec.TaskType, cfg.Defaults.TaskType),
 		Materials:         input.TaskSpec.Materials,
 		Constraints:       mergeConstraints(cfg.Defaults.TaskConstraints, input.TaskSpec.Constraints),
-		SuccessCriteria:   pickStrings(overrides.SuccessCriteria, input.TaskSpec.SuccessCriteria, cfg.Defaults.SuccessCriteria),
+		SuccessCriteria:   successCriteria,
 		OutOfScope:        pickStrings(input.TaskSpec.OutOfScope, cfg.Defaults.OutOfScope),
 		AllowedTools:      pickStrings(nil, input.TaskSpec.AllowedTools, cfg.Defaults.AllowedTools),
 		WorkspaceSnapshot: resolveWorkspaceSnapshot(cfg.Defaults.WorkspaceSnapshot, input.TaskSpec.WorkspaceSnapshot, overrides.WorkspaceSnapshot, loaded.ConfigDir),
@@ -160,7 +166,7 @@ func ResolveRunPlan(loaded LoadedConfig, input RunInput, overrides RunOverrides,
 	if err != nil {
 		return ResolvedRunPlan{}, err
 	}
-	return ResolvedRunPlan{
+	plan := ResolvedRunPlan{
 		RequestID:       requestID,
 		Task:            task,
 		Mode:            mode,
@@ -176,7 +182,55 @@ func ResolveRunPlan(loaded LoadedConfig, input RunInput, overrides RunOverrides,
 		Verbose:         overrides.Verbose || overrides.Debug,
 		Debug:           overrides.Debug,
 		StartRequest:    normalized,
-	}, nil
+	}
+	if criteriaNotice != "" {
+		plan.Notices = append(plan.Notices, criteriaNotice)
+	}
+	return plan, nil
+}
+
+// resolveSuccessCriteria keeps explicit criteria (CLI override or run input)
+// untouched. Criteria inherited from config defaults are only trusted when
+// the defaults were written for the resolved mode: when the run mode is
+// overridden away from the active profile's mode, the profile's criteria
+// would inject another protocol's vocabulary into every prompt (e.g. the
+// adjudication criteria "必须标注 keep、revise、reject" instructing debate
+// participants to embed verdict labels inside claim text). In that case the
+// plan borrows the criteria from a profile that matches the resolved mode,
+// or falls back to the built-in criteria for that mode, and reports a notice.
+func resolveSuccessCriteria(cfg Config, mode consensus.WorkflowMode, override []string, input []string) ([]string, string) {
+	if len(override) > 0 {
+		return cloneStrings(override), ""
+	}
+	if len(input) > 0 {
+		return cloneStrings(input), ""
+	}
+	criteria := cfg.Defaults.SuccessCriteria
+	if len(criteria) == 0 {
+		return nil, ""
+	}
+	if cfg.Defaults.Mode == "" || cfg.Defaults.Mode == mode {
+		return cloneStrings(criteria), ""
+	}
+	if name, profileCriteria := successCriteriaFromProfiles(cfg, mode); len(profileCriteria) > 0 {
+		return profileCriteria, fmt.Sprintf("success_criteria from the active defaults were written for mode %s; run mode is %s, using profile %q criteria instead", cfg.Defaults.Mode, mode, name)
+	}
+	return defaultSuccessCriteriaForMode(mode), fmt.Sprintf("success_criteria from the active defaults were written for mode %s; run mode is %s, using built-in criteria instead", cfg.Defaults.Mode, mode)
+}
+
+func successCriteriaFromProfiles(cfg Config, mode consensus.WorkflowMode) (string, []string) {
+	names := make([]string, 0, len(cfg.Profiles))
+	for name := range cfg.Profiles {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		profile := cfg.Profiles[name]
+		if profile.Defaults.Mode == mode && len(profile.Defaults.SuccessCriteria) > 0 {
+			return name, cloneStrings(profile.Defaults.SuccessCriteria)
+		}
+	}
+	return "", nil
 }
 
 func ResolveRunPlanForRequest(loaded LoadedConfig, request consensus.StartRequest, verbose bool, debug bool) (ResolvedRunPlan, error) {

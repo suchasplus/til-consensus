@@ -117,6 +117,8 @@ profiles:
 - profile overlay 支持覆盖 `defaults`、`output`、`providers`、`agents`、`roles`。
 - overlay 会在最终 normalize/validate 前合并。
 
+**mode 与 profile 错位时的 success_criteria**：如果运行时用 `--mode`（或 `debate`/`delphi` 快捷命令、run 输入文件）把 mode 改成了与 active profile 不同的模式，profile 继承下来的 `success_criteria` 不会被原样注入 prompt——另一个模式的协议词汇会误导参与者（典型案例：adjudication 的"必须标注 keep、revise、reject"会让 debate 参与者把"裁决：keep"写进 claim 正文）。此时 plan 会自动改用 `profiles` 里 mode 匹配的 profile 的 criteria；找不到匹配 profile 就用该 mode 的内置 criteria，并在 `run` 输出和 `--dry-run` 里打一行 `notice:` 说明替换来源。通过 CLI `--success-criteria` 或 run 输入文件显式给出的 criteria 永远原样保留、不做替换。
+
 ## 顶层字段
 
 常用顶层字段：

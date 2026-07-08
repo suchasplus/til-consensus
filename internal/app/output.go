@@ -597,6 +597,14 @@ func (o *Output) RunStarted(requestID string, mode consensus.WorkflowMode, task 
 	}
 }
 
+// PlanNotices surfaces plan-time warnings (e.g. success_criteria swapped
+// because the run mode differs from the active profile's mode).
+func (o *Output) PlanNotices(notices []string) {
+	for _, notice := range notices {
+		o.Printf("  notice: %s\n", notice)
+	}
+}
+
 func (o *Output) RunCompleted(resultPath, summaryPath string) {
 	o.Printf("[til-consensus] run completed\n")
 	o.Printf("  result: %s\n", resultPath)

@@ -568,15 +568,29 @@ func TestNormalizeDebateRoundOutputRejectsRelationshipFieldsInNewClaims(t *testi
 	}
 }
 
-func TestNormalizeDebateRoundOutputRejectsProcessMetaNewClaims(t *testing.T) {
-	_, err := NormalizeTaskOutputFromText(consensus.DebateRoundTask{
+func TestNormalizeDebateRoundOutputAcceptsMetaClaimsForEngineRouting(t *testing.T) {
+	// A process/meta observation must not invalidate the whole (expensive)
+	// response anymore: the engine reroutes it to process notes instead.
+	result, err := NormalizeTaskOutputFromText(consensus.DebateRoundTask{
 		TaskMeta: consensus.TaskMeta{AgentID: "participant-1"},
 	}, `{"summary":"debate","newClaims":[{"title":"43 条 peer claims 可合并为约 12 条独立论点","statement":"本轮 43 条 peer claims 的实际独立论点约 12 个，建议系统层面实施去重，将声明数量控制在 15 条以内。","applicability":"辩论流程优化","claimType":"recommendation","confidence":0.95}],"judgements":[]}`)
-	if err == nil {
-		t.Fatal("expected process/meta newClaims to fail validation")
+	if err != nil {
+		t.Fatalf("expected keyword-flagged meta claim to pass normalize, got %v", err)
 	}
-	if !strings.Contains(err.Error(), "process/meta") {
-		t.Fatalf("expected process/meta validation error, got %v", err)
+	typed, ok := result.(consensus.DebateRoundTaskResult)
+	if !ok || len(typed.Output.NewClaims) != 1 {
+		t.Fatalf("expected the claim to survive for engine routing, got %#v", result)
+	}
+	// The category label itself is validated as an enum.
+	if _, err := NormalizeTaskOutputFromText(consensus.DebateRoundTask{
+		TaskMeta: consensus.TaskMeta{AgentID: "participant-1"},
+	}, `{"summary":"debate","newClaims":[{"statement":"观察","category":"meta"}],"judgements":[]}`); err == nil || !strings.Contains(err.Error(), "category must be domain or process") {
+		t.Fatalf("expected invalid category to fail, got %v", err)
+	}
+	if _, err := NormalizeTaskOutputFromText(consensus.DebateRoundTask{
+		TaskMeta: consensus.TaskMeta{AgentID: "participant-1"},
+	}, `{"summary":"debate","newClaims":[{"statement":"本场辩论观点高度重叠，建议合并","category":"process"}],"judgements":[]}`); err != nil {
+		t.Fatalf("expected category=process to pass normalize, got %v", err)
 	}
 }
 

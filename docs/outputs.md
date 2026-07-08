@@ -71,7 +71,7 @@ out/tc_xxx/
 `freeDebate` 常见重点：
 
 - initial claims。
-- debate rounds。
+- debate rounds。`rounds[].participantOutputs[].processNotes` 保存被分类为 `category=process` 的元观察（或关键词兜底命中的），它们不进入投票。
 - final votes，包括每票的 `confidence` 连续支持分数。
 - `claimResolutions[]`：每条 claim 的判定记录。`supportScore` 是接受判定实际使用的聚合支持分数（即 summary 中的 `support=`）；`supportRatio` 是 accept/reject 标签比例，仅作诊断；`incoherentVotes` 计数被剔除的标签-分数矛盾投票；`abstainingVoters` 记录弃权者。
 - consensus / minority positions。

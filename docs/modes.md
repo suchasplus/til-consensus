@@ -116,6 +116,8 @@ roles:
 
 冗余的另一半来自数量失控：`max_new_claims_per_round`（默认 5）限制每轮每参与者的新 claim，超出即丢弃；`max_active_claims`（默认 30）达到后当轮完全禁止新增。两者配合把投票 ballot 控制在可辨析的规模——ballot 上全是彼此改写的句子时，投票只能沦为橡皮图章。
 
+claim 还必须自带 `category` 自分类：`domain`（针对用户任务的实质主张）或 `process`（对本次辩论运行本身的观察，如"claim 数量过多建议去重"）。`process` 类 claim 会被记录为该参与者的 `processNotes`（保留为协调反馈），但**永远不进入去重和 final vote**——依赖模型自分类而不是关键词黑名单，措辞再有创意的元评论也拦得住；旧的关键词启发式降级为兜底，命中时同样转为 processNotes 而不是静默丢弃。一条元评论也不再作废整个响应：provider 边界只校验 `category` 枚举值本身。
+
 final vote 不是纯二元多数票。每个 participant 会为每个 active claim 输出 `vote` 粗标签和连续 `confidence` 支持分数，且两者必须一致（accept 要求 ≥0.5，reject 要求 ≤0.5，违反会被校验拒绝并进入 repair）。系统把各票支持分数按 `vote_aggregation`（默认 `median`）聚合成 `supportScore`，用 `supportScore >= support_threshold` 判断 claim 是否 accepted；`confidenceVariance` / `confidenceStdDev` 仍然输出，帮助区分“高分低方差的强共识”和“中等分数高方差的真实争议”。summary 里 `support=` 显示的就是判定用的 `supportScore`。
 
 投票是有法定人数的：成功返回 final vote 的参与者比例低于 `vote_quorum` 时，outcome 会被降级为 `quorum_not_met` 而不是伪装成 consensus / no_consensus，同时 result 的 `degradations` 和 summary 的 `## Degradations` 段会记录缺席者。`vote_quorum: 0`（默认）关闭该检查。`freeDebate` section 的 `voters` / `absentVoters` 字段无论是否启用 quorum 都会填充，summary 里对应 `- voters: N/M (absent: ...)` 行。

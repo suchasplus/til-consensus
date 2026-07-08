@@ -32,17 +32,31 @@ type TaskMeta struct {
 	Metadata  map[string]any `json:"metadata,omitempty"`
 }
 
+// DebateClaimCategory is the model's own classification of a debate claim:
+// substantive claims about the user's task (domain) versus observations about
+// the debate run itself (process). Schema-level self-classification replaces
+// keyword guessing as the primary meta-claim filter; process claims are
+// recorded as participant notes and never enter dedup or the final vote.
+type DebateClaimCategory string
+
+const (
+	DebateClaimCategoryDomain  DebateClaimCategory = "domain"
+	DebateClaimCategoryProcess DebateClaimCategory = "process"
+)
+
 type ClaimDraft struct {
-	Title              string         `json:"title,omitempty"`
-	Statement          string         `json:"statement"`
-	ClaimType          ClaimType      `json:"claimType,omitempty"`
-	Scope              string         `json:"scope,omitempty"`
-	Dependencies       []string       `json:"dependencies,omitempty"`
-	ParentClaimIDs     []string       `json:"parentClaimIds,omitempty"`
-	Applicability      string         `json:"applicability,omitempty"`
-	BoundaryConditions []string       `json:"boundaryConditions,omitempty"`
-	Confidence         float64        `json:"confidence,omitempty"`
-	Metadata           map[string]any `json:"metadata,omitempty"`
+	Title     string    `json:"title,omitempty"`
+	Statement string    `json:"statement"`
+	ClaimType ClaimType `json:"claimType,omitempty"`
+	// Category is only meaningful for debate claims; see DebateClaimCategory.
+	Category           DebateClaimCategory `json:"category,omitempty"`
+	Scope              string              `json:"scope,omitempty"`
+	Dependencies       []string            `json:"dependencies,omitempty"`
+	ParentClaimIDs     []string            `json:"parentClaimIds,omitempty"`
+	Applicability      string              `json:"applicability,omitempty"`
+	BoundaryConditions []string            `json:"boundaryConditions,omitempty"`
+	Confidence         float64             `json:"confidence,omitempty"`
+	Metadata           map[string]any      `json:"metadata,omitempty"`
 }
 
 type ProposalTask struct {

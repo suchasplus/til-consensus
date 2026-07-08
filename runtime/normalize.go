@@ -28,7 +28,7 @@ func TaskOutputJSONSchema(task consensus.Task) map[string]any {
 			[]string{"summary", "claims"},
 			map[string]any{
 				"summary": schemaString(),
-				"claims":  arraySchema(proposalClaimDraftSchema()),
+				"claims":  arraySchema(debateClaimDraftSchema()),
 			},
 		)
 	case consensus.ChallengeTask:
@@ -53,7 +53,7 @@ func TaskOutputJSONSchema(task consensus.Task) map[string]any {
 			[]string{"summary", "judgements"},
 			map[string]any{
 				"summary":    schemaString(),
-				"newClaims":  arraySchema(proposalClaimDraftSchema()),
+				"newClaims":  arraySchema(debateClaimDraftSchema()),
 				"judgements": arraySchema(debateJudgementSchema()),
 			},
 		)
@@ -513,6 +513,16 @@ func proposalClaimDraftSchema() map[string]any {
 			"confidence":         schemaNumber(),
 		},
 	)
+}
+
+// debateClaimDraftSchema is the proposal claim schema plus the debate-only
+// category self-classification field.
+func debateClaimDraftSchema() map[string]any {
+	schema := proposalClaimDraftSchema()
+	if properties, ok := schema["properties"].(map[string]any); ok {
+		properties["category"] = enumStringSchema([]string{string(consensus.DebateClaimCategoryDomain), string(consensus.DebateClaimCategoryProcess)})
+	}
+	return schema
 }
 
 func challengeDraftSchema() map[string]any {
@@ -983,10 +993,16 @@ func validateDebateVoteCalibration(votes []consensus.DebateVoteDraft) error {
 	return fmt.Errorf("all %d votes share confidence %.2f; calibrate scores comparatively so stronger claims score higher than weaker ones", len(votes), *first)
 }
 
+// validateDebateNewClaims only checks the category label. Process/meta
+// classification itself is the engine's job: it reroutes process claims to
+// participant process notes, so one meta observation must not invalidate an
+// otherwise good (and expensive) model response with a whole-task retry.
 func validateDebateNewClaims(claims []consensus.ClaimDraft) error {
 	for idx, claim := range claims {
-		if consensus.IsDebateProcessMetaClaimDraft(claim) {
-			return fmt.Errorf("newClaims[%d] is a debate process/meta observation; put it in summary, not newClaims", idx)
+		switch claim.Category {
+		case "", consensus.DebateClaimCategoryDomain, consensus.DebateClaimCategoryProcess:
+		default:
+			return fmt.Errorf("claims[%d].category must be domain or process, got %q", idx, claim.Category)
 		}
 	}
 	return nil

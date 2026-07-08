@@ -85,7 +85,7 @@ func taskPromptHints(task consensus.Task) []string {
 	case consensus.ProposalTask:
 		return proposalPromptHints()
 	case consensus.InitialProposalTask:
-		return proposalPromptHints()
+		return append(proposalPromptHints(), debateClaimCategoryHints()...)
 	case consensus.SemanticVerificationTask:
 		return semanticVerificationPromptHints(typed)
 	case consensus.ReviseTask:
@@ -108,7 +108,7 @@ func taskRepairHints(task consensus.Task) []string {
 	case consensus.ProposalTask:
 		return proposalRepairHints()
 	case consensus.InitialProposalTask:
-		return proposalRepairHints()
+		return append(proposalRepairHints(), debateClaimCategoryRepairHints()...)
 	case consensus.SemanticVerificationTask:
 		return semanticVerificationRepairHints(typed)
 	case consensus.ReviseTask:
@@ -132,7 +132,21 @@ func proposalPromptHints() []string {
 		"- Do not emit dependencies or parentClaimIds in proposal outputs.",
 		"- If a claim only applies under certain assumptions, put those assumptions in applicability or boundaryConditions instead of creating claim graph references.",
 		"- Claims must answer the user's task. Do not create claims about this run's debate process, peer claim counts, dedup hygiene, prompt behavior, or system workflow.",
-		"- Do not prefix claim titles or statements with status labels such as [Status: keep], [Status: revise], or 裁决状态：keep. Status belongs in judgement/action fields, not claim text.",
+		"- Do not prefix or suffix claim titles or statements with status labels such as [Status: keep], 裁决状态：keep, or a trailing 裁决：keep. Status belongs in judgement/action fields, not claim text.",
+	}
+}
+
+func debateClaimCategoryHints() []string {
+	return []string{
+		"- Label every claim with category: domain for substantive claims about the user's task, or process for observations about this debate run itself (peer claim counts, redundancy, dedup or workflow hygiene).",
+		"- category=process entries are recorded as coordination notes and never enter dedup or the final vote, so do not spend claim budget on them.",
+	}
+}
+
+func debateClaimCategoryRepairHints() []string {
+	return []string{
+		"- If a claim is about this run's process (claim counts, dedup, workflow hygiene), set category: process instead of deleting it.",
+		"- If category has an invalid value, replace it with domain or process.",
 	}
 }
 
@@ -141,7 +155,7 @@ func proposalRepairHints() []string {
 		"- If the previous output used dependencies or parentClaimIds, remove those fields.",
 		"- Preserve prerequisites as plain language in applicability or boundaryConditions when they are already stated in the previous output.",
 		"- Remove claims about debate process, peer claim counts, dedup hygiene, prompt behavior, or system workflow. If useful, move them into summary only.",
-		"- Remove status prefixes from claim titles and statements. Keep only the substantive claim text.",
+		"- Remove status labels from both ends of claim titles and statements. Keep only the substantive claim text.",
 	}
 }
 
@@ -378,9 +392,10 @@ func debateRoundPromptHints(task consensus.DebateRoundTask) []string {
 		"- If judgement is revise, revisedStatement is required and must contain the revised claim text.",
 		"- If judgement is not revise, omit revisedStatement entirely.",
 		"- Prefer one judgement entry per peer claim in this round. If you want to keep a peer claim unchanged, use judgement=no_change.",
-		"- newClaims must be substantive claims about the user's task. Do not put process/meta observations about this run, peer claim counts, dedup needs, round hygiene, or system workflow into newClaims; put those observations in summary only.",
+		"- newClaims should be substantive claims about the user's task, labeled category: domain. If you must record a process/meta observation about this run (peer claim counts, dedup needs, round hygiene, system workflow), label it category: process or put it in summary; never leave it as a domain claim.",
+		"- category=process entries are recorded as coordination notes and never enter dedup or the final vote, so do not spend claim budget on them.",
 		"- Never restate an existing claim (yours or a peer's) in different words as a newClaim; use judgements to agree, revise, or merge instead.",
-		"- Do not prefix newClaims titles or statements with status labels such as [Status: keep], [Status: revise], or 裁决状态：keep.",
+		"- Do not prefix or suffix newClaims titles or statements with status labels such as [Status: keep], 裁决状态：keep, or a trailing 裁决：keep.",
 	}
 	switch {
 	case task.MaxNewClaims < 0:
@@ -407,8 +422,8 @@ func debateRoundRepairHints(task consensus.DebateRoundTask) []string {
 		"- Do not invent new claim IDs. If a row is about a peer claim, claimId must be copied verbatim from the valid peer claim IDs listed below.",
 		"- Replace any non-canonical judgement literal with the closest canonical value: agree, disagree, revise, or no_change, while preserving the original stance.",
 		"- If a row intends to propose a textual rewrite, use judgement=revise and move the rewritten text into revisedStatement.",
-		"- Remove any newClaims entries that are about this run's process, peer claim counts, dedup hygiene, round hygiene, or system workflow. Preserve them in summary only if they are useful.",
-		"- Remove status prefixes from newClaims titles, newClaims statements, and revisedStatement. Keep only substantive claim text.",
+		"- Set category: process on any newClaims entries about this run's process, peer claim counts, dedup hygiene, round hygiene, or system workflow instead of deleting them; replace invalid category values with domain or process.",
+		"- Remove status labels from both ends of newClaims titles, newClaims statements, and revisedStatement. Keep only substantive claim text.",
 	}
 	validIDs := debateRoundPeerClaimIDs(task)
 	if len(validIDs) == 0 {

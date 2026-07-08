@@ -215,6 +215,7 @@ func resolveTaskOverride(task string, taskFile string) (string, error) {
 func executeResolvedPlan(ctx context.Context, executor *tilrunner.Executor, plan config.ResolvedRunPlan, writer interface{ Write([]byte) (int, error) }) error {
 	output := NewOutput(writer, os.Stderr, plan.Verbose, plan.Debug, plan.ArtifactsDir)
 	output.RunStarted(plan.RequestID, plan.Mode, plan.Task, plan.Roles)
+	output.PlanNotices(plan.Notices)
 	runExecutor := *executor
 	runExecutor.Observer = observer.NewMulti(
 		observer.NewJSONL(plan.EventsPath),
@@ -232,6 +233,7 @@ func executeResolvedPlan(ctx context.Context, executor *tilrunner.Executor, plan
 func executeResumedSession(ctx context.Context, executor *tilrunner.Executor, plan config.ResolvedRunPlan, snapshot *consensus.SessionSnapshot, writer interface{ Write([]byte) (int, error) }) error {
 	output := NewOutput(writer, os.Stderr, plan.Verbose, plan.Debug, plan.ArtifactsDir)
 	output.RunStarted(plan.RequestID, plan.Mode, plan.Task, plan.Roles)
+	output.PlanNotices(plan.Notices)
 	runExecutor := *executor
 	runExecutor.Observer = observer.NewMulti(
 		observer.NewJSONL(plan.EventsPath),

@@ -5,9 +5,32 @@ import (
 	"unicode/utf8"
 )
 
-// IsDebateProcessMetaClaimDraft identifies operational observations about the
-// debate run itself. Those observations are useful in summaries/debug logs, but
-// they must not become active business claims that enter dedup and final vote.
+// isDebateProcessClaim decides whether a draft is a process/meta observation
+// about the run itself. The model's own category label is the primary signal
+// (schema-level self-classification beats keyword guessing at phrasing
+// diversity); the keyword heuristic below stays as a backstop for unlabeled
+// or mislabeled drafts.
+func isDebateProcessClaim(draft ClaimDraft) bool {
+	if draft.Category == DebateClaimCategoryProcess {
+		return true
+	}
+	return IsDebateProcessMetaClaimDraft(draft)
+}
+
+// debateProcessNote renders a process claim as a one-line coordination note.
+func debateProcessNote(draft ClaimDraft) string {
+	statement := strings.TrimSpace(draft.Statement)
+	if statement != "" {
+		return statement
+	}
+	return strings.TrimSpace(draft.Title)
+}
+
+// IsDebateProcessMetaClaimDraft is the keyword backstop behind the
+// category=process self-classification: it identifies operational
+// observations about the debate run itself. Those observations are useful as
+// process notes, but they must not become active business claims that enter
+// dedup and final vote.
 func IsDebateProcessMetaClaimDraft(draft ClaimDraft) bool {
 	text := strings.ToLower(strings.Join(filterEmpty([]string{
 		draft.Title,
@@ -35,9 +58,55 @@ func IsDebateProcessMetaClaimDraft(draft ClaimDraft) bool {
 }
 
 func canonicalizeDebateClaimDraft(draft ClaimDraft) ClaimDraft {
-	draft.Title = stripDebateClaimStatusPrefix(draft.Title)
-	draft.Statement = stripDebateClaimStatusPrefix(draft.Statement)
+	draft.Title = stripDebateClaimStatusAffixes(draft.Title)
+	draft.Statement = stripDebateClaimStatusAffixes(draft.Statement)
 	return draft
+}
+
+// stripDebateClaimStatusAffixes removes status labels from both ends of a
+// claim text. Models instructed to report verdict states tend to leak them as
+// prefixes ("[Status: keep] ...") and as suffixes ("...。裁决：keep。"); both
+// are protocol residue, not claim content.
+func stripDebateClaimStatusAffixes(value string) string {
+	trimmed := stripDebateClaimStatusPrefix(value)
+	for {
+		next := stripOneDebateClaimStatusSuffix(trimmed)
+		if next == trimmed {
+			return trimmed
+		}
+		trimmed = strings.TrimSpace(next)
+	}
+}
+
+// stripOneDebateClaimStatusSuffix strips one trailing status label such as
+// "裁决：keep。", "[Status: keep]", or "（裁决状态：保留）". It only strips
+// when the text after the marker is exactly a known status word, so sentences
+// that merely mention a status ("最终裁决：保留原方案不变") stay intact.
+func stripOneDebateClaimStatusSuffix(value string) string {
+	trimmed := strings.TrimRight(value, " \t\r\n")
+	tail := strings.TrimRight(trimmed, "。.;；!！?？ \t\r\n]】)）")
+	lowerTail := strings.ToLower(tail)
+	for _, marker := range []string{"裁决状态", "裁决", "状态", "status"} {
+		idx := strings.LastIndex(lowerTail, strings.ToLower(marker))
+		if idx < 0 {
+			continue
+		}
+		rest := trimStatusPrefixSeparator(tail[idx+len(marker):])
+		if rest == "" || !isKnownDebateStatus(rest) {
+			continue
+		}
+		head := strings.TrimRight(tail[:idx], " \t\r\n[【(（:：-—")
+		for _, qualifier := range []string{"最终", "final"} {
+			head = strings.TrimRight(strings.TrimSuffix(head, qualifier), " \t\r\n")
+		}
+		if strings.TrimSpace(head) == "" {
+			// The whole text is just a status marker; leave it for the
+			// prefix/empty-statement handling instead of returning "".
+			return value
+		}
+		return head
+	}
+	return value
 }
 
 func stripDebateClaimStatusPrefix(value string) string {

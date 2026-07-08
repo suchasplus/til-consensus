@@ -520,11 +520,15 @@ type DebateVoteRecord struct {
 }
 
 type DebateParticipantOutput struct {
-	AgentID     string                  `json:"agentId"`
-	Summary     string                  `json:"summary"`
-	NewClaimIDs []string                `json:"newClaimIds,omitempty"`
-	Judgements  []DebateJudgementRecord `json:"judgements,omitempty"`
-	Votes       []DebateVoteRecord      `json:"votes,omitempty"`
+	AgentID     string   `json:"agentId"`
+	Summary     string   `json:"summary"`
+	NewClaimIDs []string `json:"newClaimIds,omitempty"`
+	// ProcessNotes collects claims classified as process/meta observations
+	// about the run itself (category=process or the keyword backstop). They
+	// are preserved as coordination feedback but never voted on.
+	ProcessNotes []string                `json:"processNotes,omitempty"`
+	Judgements   []DebateJudgementRecord `json:"judgements,omitempty"`
+	Votes        []DebateVoteRecord      `json:"votes,omitempty"`
 }
 
 type DebateRoundRecord struct {
