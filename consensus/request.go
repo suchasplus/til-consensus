@@ -9,23 +9,25 @@ import (
 )
 
 const (
-	DefaultPerTaskTimeout           = 20 * time.Minute
-	DefaultTaskRetryAttempts        = 1
-	DefaultProposalPasses           = 1
-	DefaultMaxClaimsPerWorker       = 5
-	DefaultMaxParallelChecks        = 4
-	DefaultMaxRevisionRounds        = 2
-	DefaultMaxVerificationRounds    = 2
-	DefaultConfidenceDeltaEpsilon   = 0.05
-	DefaultMaxAdjudicationFallbacks = 1
-	DefaultDebateMinRounds          = 2
-	DefaultDebateMaxRounds          = 3
-	DefaultVoteThreshold            = 1.0
-	DefaultDelphiMinRounds          = 2
-	DefaultDelphiMaxRounds          = 3
-	DefaultConvergence              = 0.8
-	DefaultRatingScaleMin           = 1
-	DefaultRatingScaleMax           = 5
+	DefaultPerTaskTimeout             = 20 * time.Minute
+	DefaultTaskRetryAttempts          = 1
+	DefaultProposalPasses             = 1
+	DefaultMaxClaimsPerWorker         = 5
+	DefaultMaxParallelChecks          = 4
+	DefaultMaxRevisionRounds          = 2
+	DefaultMaxVerificationRounds      = 2
+	DefaultConfidenceDeltaEpsilon     = 0.05
+	DefaultMaxAdjudicationFallbacks   = 1
+	DefaultDebateMinRounds            = 2
+	DefaultDebateMaxRounds            = 3
+	DefaultVoteThreshold              = 1.0
+	DefaultDebateMaxNewClaimsPerRound = 5
+	DefaultDebateMaxActiveClaims      = 30
+	DefaultDelphiMinRounds            = 2
+	DefaultDelphiMaxRounds            = 3
+	DefaultConvergence                = 0.8
+	DefaultRatingScaleMin             = 1
+	DefaultRatingScaleMax             = 5
 )
 
 type WorkflowMode string
@@ -186,18 +188,63 @@ type ArbiterPolicy struct {
 	BlindReview       bool `json:"blindReview" yaml:"blind_review"`
 }
 
+// DebateVoteAggregation selects how per-voter support scores are aggregated
+// into one claim-level support score for the accept decision.
+type DebateVoteAggregation string
+
+const (
+	// DebateVoteAggregationMedian is the default: robust to a single outlier
+	// voter in the small panels (3-5 voters) typical of free_debate runs.
+	DebateVoteAggregationMedian DebateVoteAggregation = "median"
+	// DebateVoteAggregationMean restores the pre-median arithmetic mean.
+	DebateVoteAggregationMean DebateVoteAggregation = "mean"
+)
+
 type DebatePolicy struct {
-	MinRounds       int                       `json:"minRounds,omitempty" yaml:"min_rounds,omitempty"`
-	MaxRounds       int                       `json:"maxRounds,omitempty" yaml:"max_rounds,omitempty"`
-	VoteThreshold   float64                   `json:"voteThreshold,omitempty" yaml:"vote_threshold,omitempty"`
+	MinRounds int `json:"minRounds,omitempty" yaml:"min_rounds,omitempty"`
+	MaxRounds int `json:"maxRounds,omitempty" yaml:"max_rounds,omitempty"`
+	// VoteThreshold is the support threshold: a claim is accepted when the
+	// aggregated support score (see VoteAggregation) reaches it. The config
+	// layer exposes this as support_threshold (vote_threshold stays as a
+	// legacy alias).
+	VoteThreshold float64 `json:"voteThreshold,omitempty" yaml:"vote_threshold,omitempty"`
+	// VoteAggregation picks the aggregation for the claim-level support
+	// score; empty means median.
+	VoteAggregation DebateVoteAggregation `json:"voteAggregation,omitempty" yaml:"vote_aggregation,omitempty"`
+	// VoteQuorum is the minimum fraction (0..1] of configured participants that
+	// must return a final vote for the computed outcome to stand. 0 disables
+	// the check and keeps the pre-quorum behavior.
+	VoteQuorum float64 `json:"voteQuorum,omitempty" yaml:"vote_quorum,omitempty"`
+	// MaxNewClaimsPerRound caps how many newClaims one participant may add in
+	// one debate round; extras are discarded by the coordinator. 0 means the
+	// default (DefaultDebateMaxNewClaimsPerRound).
+	MaxNewClaimsPerRound int `json:"maxNewClaimsPerRound,omitempty" yaml:"max_new_claims_per_round,omitempty"`
+	// MaxActiveClaims is a ceiling on active claims: once reached, debate
+	// rounds forbid new claims entirely (judgements and merges only). 0 means
+	// the default (DefaultDebateMaxActiveClaims).
+	MaxActiveClaims int                       `json:"maxActiveClaims,omitempty" yaml:"max_active_claims,omitempty"`
 	EnableEarlyStop bool                      `json:"enableEarlyStop" yaml:"enable_early_stop"`
 	PeerContextMode string                    `json:"peerContextMode,omitempty" yaml:"peer_context_mode,omitempty"`
 	SemanticDedup   DebateSemanticDedupPolicy `json:"semanticDedup,omitempty" yaml:"semantic_dedup,omitempty"`
 }
 
+// DebateSemanticDedupCadence selects when the semantic deduper runs.
+type DebateSemanticDedupCadence string
+
+const (
+	// DebateSemanticDedupCadencePerRound is the default: dedup after every
+	// debate round so redundancy never snowballs into the final ballot and a
+	// single failed dedup call only loses one round of consolidation.
+	DebateSemanticDedupCadencePerRound DebateSemanticDedupCadence = "per_round"
+	// DebateSemanticDedupCadenceFinal restores the old behavior: one dedup
+	// pass after all rounds, right before the final vote.
+	DebateSemanticDedupCadenceFinal DebateSemanticDedupCadence = "final"
+)
+
 type DebateSemanticDedupPolicy struct {
-	Enabled             bool    `json:"enabled" yaml:"enabled"`
-	SimilarityThreshold float64 `json:"similarityThreshold,omitempty" yaml:"similarity_threshold,omitempty"`
+	Enabled             bool                       `json:"enabled" yaml:"enabled"`
+	SimilarityThreshold float64                    `json:"similarityThreshold,omitempty" yaml:"similarity_threshold,omitempty"`
+	Cadence             DebateSemanticDedupCadence `json:"cadence,omitempty" yaml:"cadence,omitempty"`
 }
 
 type DelphiPolicy struct {
@@ -393,6 +440,18 @@ func NormalizeStartRequest(in StartRequest) (StartRequest, error) {
 	if out.DebatePolicy.VoteThreshold == 0 {
 		out.DebatePolicy.VoteThreshold = DefaultVoteThreshold
 	}
+	if out.DebatePolicy.VoteAggregation == "" {
+		out.DebatePolicy.VoteAggregation = DebateVoteAggregationMedian
+	}
+	if out.DebatePolicy.MaxNewClaimsPerRound == 0 {
+		out.DebatePolicy.MaxNewClaimsPerRound = DefaultDebateMaxNewClaimsPerRound
+	}
+	if out.DebatePolicy.MaxActiveClaims == 0 {
+		out.DebatePolicy.MaxActiveClaims = DefaultDebateMaxActiveClaims
+	}
+	if out.DebatePolicy.SemanticDedup.Cadence == "" {
+		out.DebatePolicy.SemanticDedup.Cadence = DebateSemanticDedupCadencePerRound
+	}
 	if !out.DebatePolicy.EnableEarlyStop {
 		out.DebatePolicy.EnableEarlyStop = true
 	}
@@ -582,6 +641,22 @@ func ValidateStartRequest(in StartRequest) error {
 	}
 	if in.WaitingPolicy.RetryAttempts < 0 {
 		return fmt.Errorf("waiting_policy.retry_attempts must be >= 0")
+	}
+	switch in.DebatePolicy.VoteAggregation {
+	case "", DebateVoteAggregationMedian, DebateVoteAggregationMean:
+	default:
+		return fmt.Errorf("debate_policy.vote_aggregation is invalid: %s", in.DebatePolicy.VoteAggregation)
+	}
+	switch in.DebatePolicy.SemanticDedup.Cadence {
+	case "", DebateSemanticDedupCadencePerRound, DebateSemanticDedupCadenceFinal:
+	default:
+		return fmt.Errorf("debate_policy.semantic_dedup.cadence is invalid: %s", in.DebatePolicy.SemanticDedup.Cadence)
+	}
+	if in.DebatePolicy.MaxNewClaimsPerRound < 0 {
+		return fmt.Errorf("debate_policy.max_new_claims_per_round must be >= 0")
+	}
+	if in.DebatePolicy.MaxActiveClaims < 0 {
+		return fmt.Errorf("debate_policy.max_active_claims must be >= 0")
 	}
 	if in.WaitingPolicy.GlobalDeadline < 0 {
 		return fmt.Errorf("waiting_policy.global_deadline must be >= 0")

@@ -168,9 +168,26 @@ type ArbiterPolicyConfig struct {
 }
 
 type DebatePolicyConfig struct {
-	MinRounds       int                       `yaml:"min_rounds,omitempty"`
-	MaxRounds       int                       `yaml:"max_rounds,omitempty"`
-	VoteThreshold   float64                   `yaml:"vote_threshold,omitempty"`
+	MinRounds int `yaml:"min_rounds,omitempty"`
+	MaxRounds int `yaml:"max_rounds,omitempty"`
+	// SupportThreshold is the canonical key: a claim is accepted when the
+	// aggregated support score reaches it.
+	SupportThreshold float64 `yaml:"support_threshold,omitempty"`
+	// VoteThreshold is the legacy alias for SupportThreshold; when both are
+	// set, support_threshold wins.
+	VoteThreshold float64 `yaml:"vote_threshold,omitempty"`
+	// VoteAggregation aggregates per-voter support scores into the claim
+	// score: "median" (default) or "mean".
+	VoteAggregation string `yaml:"vote_aggregation,omitempty"`
+	// VoteQuorum is the minimum fraction (0..1] of participants that must
+	// return a final vote; 0 disables the check.
+	VoteQuorum float64 `yaml:"vote_quorum,omitempty"`
+	// MaxNewClaimsPerRound caps how many newClaims one participant may add
+	// per debate round; 0 means the built-in default (5).
+	MaxNewClaimsPerRound int `yaml:"max_new_claims_per_round,omitempty"`
+	// MaxActiveClaims is the active-claim ceiling: once reached, rounds only
+	// allow judgements and merges; 0 means the built-in default (30).
+	MaxActiveClaims int                       `yaml:"max_active_claims,omitempty"`
 	EnableEarlyStop bool                      `yaml:"enable_early_stop"`
 	PeerContextMode string                    `yaml:"peer_context_mode,omitempty"`
 	SemanticDedup   DebateSemanticDedupConfig `yaml:"semantic_dedup,omitempty"`
@@ -179,6 +196,8 @@ type DebatePolicyConfig struct {
 type DebateSemanticDedupConfig struct {
 	Enabled             bool    `yaml:"enabled"`
 	SimilarityThreshold float64 `yaml:"similarity_threshold,omitempty"`
+	// Cadence is per_round (default) or final.
+	Cadence string `yaml:"cadence,omitempty"`
 }
 
 type DelphiPolicyConfig struct {

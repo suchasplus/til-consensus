@@ -155,6 +155,7 @@ type stubDelegate struct {
 	revisionDrafts  []ClaimRevisionDraft
 	debateDrafts    []ClaimDraft
 	failKinds       map[TaskKind]int
+	failAgentKinds  map[string]int // key: agentID+"/"+kind, value: remaining forced failures
 	mergeFirstTwo   bool
 }
 
@@ -183,6 +184,14 @@ func (d *stubDelegate) Await(_ context.Context, taskID string, _ time.Duration) 
 			d.failKinds[task.Kind()] = remaining - 1
 			d.mu.Unlock()
 			return AwaitedTask{OK: false, Error: "forced failure"}, nil
+		}
+	}
+	if d.failAgentKinds != nil {
+		key := task.Meta().AgentID + "/" + string(task.Kind())
+		if remaining := d.failAgentKinds[key]; remaining > 0 {
+			d.failAgentKinds[key] = remaining - 1
+			d.mu.Unlock()
+			return AwaitedTask{OK: false, Error: "forced agent failure"}, nil
 		}
 	}
 	d.mu.Unlock()
@@ -720,7 +729,7 @@ func TestResolveDebateClaimsUsesConfidenceDistribution(t *testing.T) {
 		{ClaimID: "claim-1", AgentID: "voter-2", Vote: DebateVoteAccept, Confidence: 0.52},
 		{ClaimID: "claim-1", AgentID: "voter-3", Vote: DebateVoteReject, Confidence: 0.10},
 	}
-	resolutions, outcome := resolveDebateClaims(claims, claims, votes, 0.67)
+	resolutions, outcome := resolveDebateClaims(claims, claims, votes, DebatePolicy{VoteThreshold: 0.67, VoteAggregation: DebateVoteAggregationMean})
 	if outcome != FreeDebateOutcomeNoConsensus {
 		t.Fatalf("expected no consensus from low confidence mean, got %s", outcome)
 	}

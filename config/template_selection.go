@@ -244,11 +244,17 @@ func applyFreeDebateModeDefaults(cfg *Config) {
 		"没有共识时允许 no_consensus",
 	}
 	cfg.Defaults.DebatePolicy = DebatePolicyConfig{
-		MinRounds:       2,
-		MaxRounds:       3,
-		VoteThreshold:   1.0,
-		EnableEarlyStop: true,
-		PeerContextMode: "summary+active_claims",
+		MinRounds: 2,
+		MaxRounds: 3,
+		// 1.0 became practically unreachable once uniform ballots were
+		// outlawed by vote calibration; 0.67 matches the documented example.
+		SupportThreshold:     0.67,
+		VoteAggregation:      string(consensus.DebateVoteAggregationMedian),
+		VoteQuorum:           0.6,
+		MaxNewClaimsPerRound: consensus.DefaultDebateMaxNewClaimsPerRound,
+		MaxActiveClaims:      consensus.DefaultDebateMaxActiveClaims,
+		EnableEarlyStop:      true,
+		PeerContextMode:      "summary+active_claims",
 	}
 }
 

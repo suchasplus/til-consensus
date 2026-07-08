@@ -58,9 +58,14 @@ type dryRunPolicies struct {
 	AllowSemanticVerifier  bool     `json:"allowSemanticVerifier,omitempty"`
 	DebateMinRounds        int      `json:"debateMinRounds,omitempty"`
 	DebateMaxRounds        int      `json:"debateMaxRounds,omitempty"`
-	VoteThreshold          float64  `json:"voteThreshold,omitempty"`
+	SupportThreshold       float64  `json:"supportThreshold,omitempty"`
+	VoteAggregation        string   `json:"voteAggregation,omitempty"`
+	VoteQuorum             float64  `json:"voteQuorum,omitempty"`
+	MaxNewClaimsPerRound   int      `json:"maxNewClaimsPerRound,omitempty"`
+	MaxActiveClaims        int      `json:"maxActiveClaims,omitempty"`
 	SemanticDedup          bool     `json:"semanticDedup,omitempty"`
 	SemanticDedupThreshold float64  `json:"semanticDedupThreshold,omitempty"`
+	SemanticDedupCadence   string   `json:"semanticDedupCadence,omitempty"`
 	DelphiMinRounds        int      `json:"delphiMinRounds,omitempty"`
 	DelphiMaxRounds        int      `json:"delphiMaxRounds,omitempty"`
 	ConvergenceThreshold   float64  `json:"convergenceThreshold,omitempty"`
@@ -147,9 +152,14 @@ func buildDryRunPlan(loaded config.LoadedConfig, plan config.ResolvedRunPlan, so
 			AllowSemanticVerifier:  plan.StartRequest.VerificationPolicy.AllowSemanticVerifier,
 			DebateMinRounds:        plan.StartRequest.DebatePolicy.MinRounds,
 			DebateMaxRounds:        plan.StartRequest.DebatePolicy.MaxRounds,
-			VoteThreshold:          plan.StartRequest.DebatePolicy.VoteThreshold,
+			SupportThreshold:       plan.StartRequest.DebatePolicy.VoteThreshold,
+			VoteAggregation:        string(plan.StartRequest.DebatePolicy.VoteAggregation),
+			VoteQuorum:             plan.StartRequest.DebatePolicy.VoteQuorum,
+			MaxNewClaimsPerRound:   plan.StartRequest.DebatePolicy.MaxNewClaimsPerRound,
+			MaxActiveClaims:        plan.StartRequest.DebatePolicy.MaxActiveClaims,
 			SemanticDedup:          plan.StartRequest.DebatePolicy.SemanticDedup.Enabled,
 			SemanticDedupThreshold: plan.StartRequest.DebatePolicy.SemanticDedup.SimilarityThreshold,
+			SemanticDedupCadence:   string(plan.StartRequest.DebatePolicy.SemanticDedup.Cadence),
 			DelphiMinRounds:        plan.StartRequest.DelphiPolicy.MinRounds,
 			DelphiMaxRounds:        plan.StartRequest.DelphiPolicy.MaxRounds,
 			ConvergenceThreshold:   plan.StartRequest.DelphiPolicy.ConvergenceThreshold,

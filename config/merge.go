@@ -335,8 +335,23 @@ func mergeDebatePolicy(base DebatePolicyConfig, overlay DebatePolicyConfig) Deba
 	if overlay.MaxRounds != 0 {
 		out.MaxRounds = overlay.MaxRounds
 	}
+	if overlay.SupportThreshold != 0 {
+		out.SupportThreshold = overlay.SupportThreshold
+	}
 	if overlay.VoteThreshold != 0 {
 		out.VoteThreshold = overlay.VoteThreshold
+	}
+	if overlay.VoteAggregation != "" {
+		out.VoteAggregation = overlay.VoteAggregation
+	}
+	if overlay.VoteQuorum != 0 {
+		out.VoteQuorum = overlay.VoteQuorum
+	}
+	if overlay.MaxNewClaimsPerRound != 0 {
+		out.MaxNewClaimsPerRound = overlay.MaxNewClaimsPerRound
+	}
+	if overlay.MaxActiveClaims != 0 {
+		out.MaxActiveClaims = overlay.MaxActiveClaims
 	}
 	if overlay.EnableEarlyStop {
 		out.EnableEarlyStop = true
@@ -347,6 +362,9 @@ func mergeDebatePolicy(base DebatePolicyConfig, overlay DebatePolicyConfig) Deba
 	}
 	if overlay.SemanticDedup.SimilarityThreshold != 0 {
 		out.SemanticDedup.SimilarityThreshold = overlay.SemanticDedup.SimilarityThreshold
+	}
+	if overlay.SemanticDedup.Cadence != "" {
+		out.SemanticDedup.Cadence = overlay.SemanticDedup.Cadence
 	}
 	return out
 }

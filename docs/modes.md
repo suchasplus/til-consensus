@@ -94,11 +94,16 @@ defaults:
   debate_policy:
     min_rounds: 2
     max_rounds: 3
-    vote_threshold: 0.67
+    support_threshold: 0.67
+    vote_aggregation: median
+    vote_quorum: 0.6
+    max_new_claims_per_round: 5
+    max_active_claims: 30
     enable_early_stop: true
     semantic_dedup:
       enabled: true
       similarity_threshold: 0.85
+      cadence: per_round
 
 roles:
   free_debate:
@@ -107,9 +112,13 @@ roles:
     reporter: reporter-a
 ```
 
-`semantic_dedup` 是进入 final vote 前的外部语义去重环节。启用后必须配置 `roles.free_debate.semantic_deduper`，该 agent 可以绑定任意 CLI/API provider。deduper 只输出 `sourceClaimId -> targetClaimId` 合并建议和 `similarity`，低于阈值的合并会被拒绝。合并后的 canonical claim 会保留 `proposedBy` 和 `mergedClaimIds`，例如“此 claim 由 Agent A 和 Agent C 独立提出”。
+`semantic_dedup` 是外部语义去重环节。启用后必须配置 `roles.free_debate.semantic_deduper`，该 agent 可以绑定任意 CLI/API provider。deduper 只输出 `sourceClaimId -> targetClaimId` 合并建议和 `similarity`，低于阈值的合并会被拒绝。合并后的 canonical claim 会保留 `proposedBy` 和 `mergedClaimIds`，例如“此 claim 由 Agent A 和 Agent C 独立提出”。默认 `cadence: per_round`——每轮辩论结束就去重一次，下一轮参与者看到的是合并后的 canonical 集合，冗余不会滚雪球，单轮去重失败也只损失一轮的合并（记入 degradations）；`cadence: final` 恢复旧行为（只在投票前去重一次）。
 
-final vote 不是纯二元多数票。每个 participant 会为每个 active claim 输出 `vote` 和连续 `confidence` 支持分数。系统用 `confidenceMean >= vote_threshold` 判断 claim 是否 accepted，并输出 `confidenceVariance` / `confidenceStdDev` 帮助区分“高均值低方差的强共识”和“中等均值高方差的真实争议”。
+冗余的另一半来自数量失控：`max_new_claims_per_round`（默认 5）限制每轮每参与者的新 claim，超出即丢弃；`max_active_claims`（默认 30）达到后当轮完全禁止新增。两者配合把投票 ballot 控制在可辨析的规模——ballot 上全是彼此改写的句子时，投票只能沦为橡皮图章。
+
+final vote 不是纯二元多数票。每个 participant 会为每个 active claim 输出 `vote` 粗标签和连续 `confidence` 支持分数，且两者必须一致（accept 要求 ≥0.5，reject 要求 ≤0.5，违反会被校验拒绝并进入 repair）。系统把各票支持分数按 `vote_aggregation`（默认 `median`）聚合成 `supportScore`，用 `supportScore >= support_threshold` 判断 claim 是否 accepted；`confidenceVariance` / `confidenceStdDev` 仍然输出，帮助区分“高分低方差的强共识”和“中等分数高方差的真实争议”。summary 里 `support=` 显示的就是判定用的 `supportScore`。
+
+投票是有法定人数的：成功返回 final vote 的参与者比例低于 `vote_quorum` 时，outcome 会被降级为 `quorum_not_met` 而不是伪装成 consensus / no_consensus，同时 result 的 `degradations` 和 summary 的 `## Degradations` 段会记录缺席者。`vote_quorum: 0`（默认）关闭该检查。`freeDebate` section 的 `voters` / `absentVoters` 字段无论是否启用 quorum 都会填充，summary 里对应 `- voters: N/M (absent: ...)` 行。
 
 ## `delphi`
 

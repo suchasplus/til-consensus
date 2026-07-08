@@ -42,7 +42,16 @@ out/tc_xxx/
 - `action`
 - `observations`
 - `metrics`
+- `degradations`
 - `error`
+
+`degradations` 是结果级的降级清单：run 没有失败、但结论的产出基础发生了变化时，每条记录说明哪个环节（`phase`）、哪个 agent、原因（`reason`）以及对结论的影响（`impact`）。`kind` 取值：
+
+- `participant_absent`：某阶段某个 agent 的任务重试耗尽后仍失败，该阶段基于其余 agent 的输出继续。
+- `step_skipped`：可选步骤（semantic dedup、reporter）失败后被跳过或回退到内置实现。
+- `quorum_not_met`：free_debate 的 final vote 投票者比例低于 `debate_policy.vote_quorum`。
+
+原始错误仍在 ledger 和 `artifacts/failure-*` 中；`degradations` 只做人可读的汇总。`summary.md` 会在头部渲染同名 `## Degradations` 段落，free_debate 还会追加 `- voters: N/M (absent: ...)` 行。
 
 然后按 mode 挂载一个 mode-specific section：
 
@@ -64,7 +73,10 @@ out/tc_xxx/
 - initial claims。
 - debate rounds。
 - final votes，包括每票的 `confidence` 连续支持分数。
+- `claimResolutions[]`：每条 claim 的判定记录。`supportScore` 是接受判定实际使用的聚合支持分数（即 summary 中的 `support=`）；`supportRatio` 是 accept/reject 标签比例，仅作诊断；`incoherentVotes` 计数被剔除的标签-分数矛盾投票；`abstainingVoters` 记录弃权者。
 - consensus / minority positions。
+
+`summary.md` 的布局为结论优先：头部元信息（含 `voters: N/M` 与 `accepted claims: X/Y ballot (Z%)`）→ Degradations → Conclusion → Retained/Downgraded Claims（`id — statement` 形式）→ Final Vote 明细。Final Vote 按 `Accepted / Not Accepted / No Votes / Merged` 分组，各组内按 `supportScore` 降序；被合并的 claim 折叠为一行 `id → merged into target`，不再与被否决的 claim 混淆。`freeDebate.ballotSize` 记录进入投票的 active claim 数量——通过率 100% 且 ballot 较大时，通常意味着 ballot 冗余或投票缺乏区分度，值得回看 claim 预算与去重配置。
 
 `freeDebate.claimResolutions[]` 中，`confidenceMean` 用于判定是否达到 `vote_threshold`，`confidenceVariance` / `confidenceStdDev` 用于判断分歧强度。`supportRatio` 是粗粒度 accept/reject 标签比例，保留用于兼容旧视图。
 

@@ -198,11 +198,18 @@ func buildDeterministic(task consensus.Task, agent config.AgentConfig) any {
 		}
 	case consensus.FinalVoteTask:
 		votes := make([]map[string]any, 0, len(value.Claims))
-		for _, claim := range value.Claims {
+		for idx, claim := range value.Claims {
+			// Deterministic but calibrated scores: uniform ballots are
+			// rejected by the vote-calibration contract, and accept labels
+			// must stay coherent (confidence >= 0.5).
+			confidence := 0.95 - 0.03*float64(idx)
+			if confidence < 0.55 {
+				confidence = 0.55
+			}
 			votes = append(votes, map[string]any{
 				"claimId":    claim.ClaimID,
 				"vote":       "accept",
-				"confidence": 1.0,
+				"confidence": confidence,
 				"rationale":  agent.ID + " accepts " + claim.ClaimID,
 			})
 		}

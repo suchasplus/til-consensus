@@ -266,6 +266,7 @@ const (
 	EvidenceKindDebateRoundOutput    EvidenceKind = "debate_round_output"
 	EvidenceKindDebateSemanticDedup  EvidenceKind = "debate_semantic_dedup"
 	EvidenceKindDebateVoteCast       EvidenceKind = "debate_vote_cast"
+	EvidenceKindDebateVoteQuorum     EvidenceKind = "debate_vote_quorum"
 	EvidenceKindDelphiRoundOpened    EvidenceKind = "delphi_round_opened"
 	EvidenceKindDelphiResponse       EvidenceKind = "delphi_response_recorded"
 	EvidenceKindDelphiRoundSummary   EvidenceKind = "delphi_round_summary"
@@ -394,6 +395,32 @@ type FailureInfo struct {
 	Message string `json:"message"`
 }
 
+type DegradationKind string
+
+const (
+	// DegradationParticipantAbsent records an agent whose task failed after all
+	// retries in a phase whose remaining work still completed.
+	DegradationParticipantAbsent DegradationKind = "participant_absent"
+	// DegradationStepSkipped records an optional step (semantic dedup, reporter)
+	// that failed and was skipped or replaced by a builtin fallback.
+	DegradationStepSkipped DegradationKind = "step_skipped"
+	// DegradationQuorumNotMet records a final vote that collected fewer voters
+	// than DebatePolicy.VoteQuorum requires.
+	DegradationQuorumNotMet DegradationKind = "quorum_not_met"
+)
+
+// Degradation is the result-level rollup of a failure that did not abort the
+// run but changed what the conclusion is based on. The raw error stays in the
+// ledger and failure artifacts; this record explains the impact.
+type Degradation struct {
+	Kind    DegradationKind `json:"kind"`
+	Phase   string          `json:"phase"`
+	Round   int             `json:"round,omitempty"`
+	AgentID string          `json:"agentId,omitempty"`
+	Reason  string          `json:"reason,omitempty"`
+	Impact  string          `json:"impact"`
+}
+
 type ClaimRevisionRecord struct {
 	RevisionID         string         `json:"revisionId"`
 	TargetClaimID      string         `json:"targetClaimId"`
@@ -455,6 +482,11 @@ const (
 	FreeDebateOutcomeConsensus        FreeDebateOutcome = "consensus"
 	FreeDebateOutcomePartialConsensus FreeDebateOutcome = "partial_consensus"
 	FreeDebateOutcomeNoConsensus      FreeDebateOutcome = "no_consensus"
+	// FreeDebateOutcomeQuorumNotMet means the final vote did not collect enough
+	// voters to satisfy DebatePolicy.VoteQuorum; it is procedural, distinct from
+	// participants voting and failing to agree (no_consensus). Only produced
+	// when vote_quorum is explicitly enabled.
+	FreeDebateOutcomeQuorumNotMet FreeDebateOutcome = "quorum_not_met"
 )
 
 type DebateClaim struct {
@@ -503,18 +535,29 @@ type DebateRoundRecord struct {
 }
 
 type DebateClaimResolution struct {
-	ClaimID            string   `json:"claimId"`
-	Accepted           bool     `json:"accepted"`
-	SupportRatio       float64  `json:"supportRatio"`
-	ConfidenceMean     float64  `json:"confidenceMean"`
-	ConfidenceVariance float64  `json:"confidenceVariance"`
-	ConfidenceStdDev   float64  `json:"confidenceStdDev"`
-	VoteCount          int      `json:"voteCount"`
-	SupportingVoters   []string `json:"supportingVoters,omitempty"`
-	OpposingVoters     []string `json:"opposingVoters,omitempty"`
-	FinalStatement     string   `json:"finalStatement,omitempty"`
-	MergedInto         string   `json:"mergedInto,omitempty"`
-	ProposedBy         []string `json:"proposedBy,omitempty"`
+	ClaimID  string `json:"claimId"`
+	Accepted bool   `json:"accepted"`
+	// SupportScore is the aggregated continuous support score (per
+	// DebatePolicy.VoteAggregation) that the accept decision is based on.
+	// It is the number rendered as support= in summary.md.
+	SupportScore float64 `json:"supportScore"`
+	// SupportRatio is the coarse accept/(accept+reject) label ratio. It is
+	// diagnostic only and does not participate in the accept decision.
+	SupportRatio       float64 `json:"supportRatio"`
+	ConfidenceMean     float64 `json:"confidenceMean"`
+	ConfidenceVariance float64 `json:"confidenceVariance"`
+	ConfidenceStdDev   float64 `json:"confidenceStdDev"`
+	VoteCount          int     `json:"voteCount"`
+	// IncoherentVotes counts votes whose label contradicts their support
+	// score (accept < 0.5 or reject > 0.5); they are excluded from all
+	// resolution math but remain visible in the raw votes list.
+	IncoherentVotes  int      `json:"incoherentVotes,omitempty"`
+	SupportingVoters []string `json:"supportingVoters,omitempty"`
+	OpposingVoters   []string `json:"opposingVoters,omitempty"`
+	AbstainingVoters []string `json:"abstainingVoters,omitempty"`
+	FinalStatement   string   `json:"finalStatement,omitempty"`
+	MergedInto       string   `json:"mergedInto,omitempty"`
+	ProposedBy       []string `json:"proposedBy,omitempty"`
 }
 
 type FreeDebateResultSection struct {
@@ -523,6 +566,10 @@ type FreeDebateResultSection struct {
 	Claims           []DebateClaim           `json:"claims"`
 	ClaimResolutions []DebateClaimResolution `json:"claimResolutions"`
 	Votes            []DebateVoteRecord      `json:"votes"`
+	Voters           []string                `json:"voters,omitempty"`
+	AbsentVoters     []string                `json:"absentVoters,omitempty"`
+	// BallotSize is the number of active claims put to the final vote.
+	BallotSize int `json:"ballotSize,omitempty"`
 }
 
 type DelphiResponseRecord struct {
@@ -572,6 +619,7 @@ type RunResult struct {
 	Action        *ActionOutput              `json:"action,omitempty"`
 	Observations  []ObservationRecord        `json:"observations,omitempty"`
 	Metrics       Metrics                    `json:"metrics"`
+	Degradations  []Degradation              `json:"degradations,omitempty"`
 	Error         *FailureInfo               `json:"error,omitempty"`
 	Adjudication  *AdjudicationResultSection `json:"adjudication,omitempty"`
 	FreeDebate    *FreeDebateResultSection   `json:"freeDebate,omitempty"`

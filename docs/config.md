@@ -159,15 +159,26 @@ profiles:
 
 - `debate_policy.min_rounds`
 - `debate_policy.max_rounds`
-- `debate_policy.vote_threshold`
+- `debate_policy.support_threshold`（旧名 `vote_threshold` 仍可用；两者同时设置时 `support_threshold` 优先）
+- `debate_policy.vote_aggregation`（`median`（默认）或 `mean`）
+- `debate_policy.vote_quorum`
+- `debate_policy.max_new_claims_per_round`（每轮每参与者的新 claim 上限，默认 5，超出部分被丢弃）
+- `debate_policy.max_active_claims`（active claim 总量上限，默认 30，达到后该轮禁止新增、只允许评判与合并）
 - `debate_policy.enable_early_stop`
 - `debate_policy.peer_context_mode`
 - `debate_policy.semantic_dedup.enabled`
 - `debate_policy.semantic_dedup.similarity_threshold`
+- `debate_policy.semantic_dedup.cadence`（`per_round`（默认，每轮结束去重一次）或 `final`（只在投票前去重一次，即旧行为））
 
 启用 `semantic_dedup` 时，还必须配置 `roles.free_debate.semantic_deduper`。这个 agent 会走正常的 CLI/API provider 调用链路，并输出结构化的 claim merge 建议；系统不会使用本地文本相似度 fallback。如果希望强制外部 API 依赖，把 semantic deduper agent 绑定到 `type: api` provider 即可。
 
-`free_debate` 的 final vote 使用连续 `confidence` 分数聚合：每个 voter 对每个 active claim 输出 `vote` 粗标签和 `confidence` 支持分数。`vote_threshold` 判断的是 `confidenceMean` 是否达标；`supportRatio` 仍保留为 accept/reject 粗标签比例，主要用于兼容旧展示。
+`free_debate` 的 final vote 使用连续 `confidence` 支持分数聚合：每个 voter 对每个 active claim 输出 `vote` 粗标签和 `confidence` 支持分数（0=强烈拒绝，0.5=不确定/弃权，1=强烈支持）。接受判定是 `supportScore >= support_threshold`，其中 `supportScore` 由 `vote_aggregation` 聚合（默认 `median`，对小评审团里的单个极端投票者更稳健；`mean` 恢复旧行为）。标签与分数矛盾的投票（accept<0.5 或 reject>0.5）会在 provider 边界被校验拒绝并进入 repair 流程；万一经由 library 直接注入，计票时也会剔除并计入 `incoherentVotes`。`supportRatio`（accept/reject 标签比例）仅作诊断展示，不参与判定。
+
+`vote_quorum` 是投票法定人数：成功返回 final vote 的参与者比例低于该值时，outcome 会被降级为 `quorum_not_met`（task verdict 记为 `undetermined`），并写入一条 `quorum_not_met` degradation 和 `debate_vote_quorum` ledger 记录。取值范围 `[0, 1]`，`0`（默认）表示关闭检查；`setup`/`config init` 生成的 free-debate 模板默认 `0.6`。已投出的票仍会正常参与每条 claim 的 resolution 计算。
+
+claim 预算控制冗余膨胀：`max_new_claims_per_round` 限制每个参与者每轮的新 claim 数量（超出部分被 coordinator 丢弃，round output 的 ledger metadata 记 `truncatedNewClaims`）；`max_active_claims` 是总量保险丝，达到后当轮所有参与者被告知 claim 预算已满、只能通过 judgements 修订与合并。revise 型 judgement 产生的修订 claim 不计入预算——合并与修订正是预算希望鼓励的行为。
+
+final vote 还有一条校准约束：ballot ≥ 5 条时，如果一个 voter 给所有 claim 打了完全相同的 confidence，该输出会被判为无效并进入 repair（要求把分数按相对强弱铺开）。小 ballot（<5）与至少有两个不同分数的 ballot 不受影响。
 
 `delphi` 常用 policy：
 

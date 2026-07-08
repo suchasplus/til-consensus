@@ -92,14 +92,21 @@ func ResolveRunPlan(loaded LoadedConfig, input RunInput, overrides RunOverrides,
 	globalDeadline := pickDuration(overrides.GlobalDeadline, cfg.Defaults.GlobalDeadline.Duration, 0)
 	actionPrompt := firstNonEmpty(strings.TrimSpace(overrides.Action), strings.TrimSpace(input.Action))
 	debatePolicy := consensus.DebatePolicy{
-		MinRounds:       pickInt(overrides.MinRounds, input.DebatePolicy.MinRounds, cfg.Defaults.DebatePolicy.MinRounds, consensus.DefaultDebateMinRounds),
-		MaxRounds:       pickInt(overrides.MaxRounds, input.DebatePolicy.MaxRounds, cfg.Defaults.DebatePolicy.MaxRounds, consensus.DefaultDebateMaxRounds),
-		VoteThreshold:   pickFloat(overrides.VoteThreshold, input.DebatePolicy.VoteThreshold, cfg.Defaults.DebatePolicy.VoteThreshold, consensus.DefaultVoteThreshold),
-		EnableEarlyStop: cfg.Defaults.DebatePolicy.EnableEarlyStop || input.DebatePolicy.EnableEarlyStop,
-		PeerContextMode: firstNonEmpty(input.DebatePolicy.PeerContextMode, cfg.Defaults.DebatePolicy.PeerContextMode, "summary+active_claims"),
+		MinRounds: pickInt(overrides.MinRounds, input.DebatePolicy.MinRounds, cfg.Defaults.DebatePolicy.MinRounds, consensus.DefaultDebateMinRounds),
+		MaxRounds: pickInt(overrides.MaxRounds, input.DebatePolicy.MaxRounds, cfg.Defaults.DebatePolicy.MaxRounds, consensus.DefaultDebateMaxRounds),
+		// support_threshold is the canonical key; vote_threshold stays as a
+		// legacy alias at each precedence level.
+		VoteThreshold:        pickFloat(overrides.VoteThreshold, input.DebatePolicy.SupportThreshold, input.DebatePolicy.VoteThreshold, cfg.Defaults.DebatePolicy.SupportThreshold, cfg.Defaults.DebatePolicy.VoteThreshold, consensus.DefaultVoteThreshold),
+		VoteAggregation:      consensus.DebateVoteAggregation(firstNonEmpty(input.DebatePolicy.VoteAggregation, cfg.Defaults.DebatePolicy.VoteAggregation)),
+		VoteQuorum:           pickFloat(input.DebatePolicy.VoteQuorum, cfg.Defaults.DebatePolicy.VoteQuorum),
+		MaxNewClaimsPerRound: pickInt(input.DebatePolicy.MaxNewClaimsPerRound, cfg.Defaults.DebatePolicy.MaxNewClaimsPerRound, consensus.DefaultDebateMaxNewClaimsPerRound),
+		MaxActiveClaims:      pickInt(input.DebatePolicy.MaxActiveClaims, cfg.Defaults.DebatePolicy.MaxActiveClaims, consensus.DefaultDebateMaxActiveClaims),
+		EnableEarlyStop:      cfg.Defaults.DebatePolicy.EnableEarlyStop || input.DebatePolicy.EnableEarlyStop,
+		PeerContextMode:      firstNonEmpty(input.DebatePolicy.PeerContextMode, cfg.Defaults.DebatePolicy.PeerContextMode, "summary+active_claims"),
 		SemanticDedup: consensus.DebateSemanticDedupPolicy{
 			Enabled:             cfg.Defaults.DebatePolicy.SemanticDedup.Enabled || input.DebatePolicy.SemanticDedup.Enabled,
 			SimilarityThreshold: pickFloat(input.DebatePolicy.SemanticDedup.SimilarityThreshold, cfg.Defaults.DebatePolicy.SemanticDedup.SimilarityThreshold, 0.85),
+			Cadence:             consensus.DebateSemanticDedupCadence(firstNonEmpty(input.DebatePolicy.SemanticDedup.Cadence, cfg.Defaults.DebatePolicy.SemanticDedup.Cadence)),
 		},
 	}
 	if !debatePolicy.EnableEarlyStop {

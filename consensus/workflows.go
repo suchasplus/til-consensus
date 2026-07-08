@@ -26,6 +26,33 @@ type workflowRun struct {
 	adjudicationRecords []AdjudicationRecord
 	observations        []ObservationRecord
 	metrics             Metrics
+	degradations        []Degradation
+}
+
+// addDegradation collects a result-level record of a non-fatal failure. It is
+// only called from the sequential batch-result loops after executeTaskBatch
+// returns, so no locking is needed.
+func (run *workflowRun) addDegradation(d Degradation) {
+	const maxReasonLen = 300
+	if len(d.Reason) > maxReasonLen {
+		d.Reason = d.Reason[:maxReasonLen] + "..."
+	}
+	run.degradations = append(run.degradations, d)
+}
+
+func participantAbsentDegradation(result taskBatchResult, phase string, round int, impact string) Degradation {
+	reason := ""
+	if result.Err != nil {
+		reason = result.Err.Error()
+	}
+	return Degradation{
+		Kind:    DegradationParticipantAbsent,
+		Phase:   phase,
+		Round:   round,
+		AgentID: result.Task.Meta().AgentID,
+		Reason:  reason,
+		Impact:  impact,
+	}
 }
 
 func (e *Engine) beginWorkflow(ctx context.Context, request StartRequest) (*workflowRun, error) {
@@ -188,6 +215,7 @@ func (e *Engine) startAdjudication(ctx context.Context, request StartRequest) (_
 			Summary:             "未产生任何可裁决 claim",
 			UnresolvedQuestions: append([]string(nil), run.manifest.UnresolvedQuestions...),
 		}, nil, TerminalStateInsufficientEvidence, run.observations, run.metrics, run.startedAt, nil)
+		result.Degradations = run.degradations
 		if err := e.finishSession(ctx, run.sessionID, run.state, result, run.claimGraph, run.challengeTickets, run.ledgerCursor); err != nil {
 			return nil, err
 		}
@@ -413,6 +441,7 @@ adjudicationCycle:
 	}
 
 	result := e.buildAdjudicationResult(request, run.sessionID, run.manifest, run.claimGraph, run.challengeTickets, run.verificationResults, run.revisionRecords, run.adjudicationRecords, arbiterReport, report, nil, terminalState, nil, run.metrics, run.startedAt, nil)
+	result.Degradations = run.degradations
 	if request.ActionPolicy != nil {
 		if err := e.advancePhase(ctx, request, run.sessionID, run.state, SessionPhaseAction, run.claimGraph, run.challengeTickets, run.ledgerCursor); err != nil {
 			return nil, err
@@ -484,6 +513,7 @@ proposalPhase:
 		for _, result := range e.executeTaskBatch(ctx, request, run.sessionID, tasks, run.startedAt, request.WaitingPolicy.PerTaskTimeout, len(tasks)) {
 			recordTaskBatchResultMetrics(&run.metrics, result)
 			if result.Err != nil {
+				run.addDegradation(participantAbsentDegradation(result, "proposal", pass+1, "该 proposer 的提案缺席，claim 图基于其余 proposer 的输出"))
 				continue
 			}
 			proposerID := result.Task.Meta().AgentID
@@ -582,6 +612,7 @@ func (e *Engine) runChallengePhase(ctx context.Context, request StartRequest, ru
 	for _, result := range e.executeTaskBatch(ctx, request, run.sessionID, tasks, run.startedAt, request.WaitingPolicy.PerTaskTimeout, len(tasks)) {
 		recordTaskBatchResultMetrics(&run.metrics, result)
 		if result.Err != nil {
+			run.addDegradation(participantAbsentDegradation(result, "challenge", round, "该 challenger 的质询缺席，claim 未经过其攻击检验"))
 			continue
 		}
 		challengerID := result.Task.Meta().AgentID
@@ -838,6 +869,7 @@ func (e *Engine) runRevisionPhase(ctx context.Context, request StartRequest, run
 		recordTaskBatchResultMetrics(&run.metrics, result)
 		item := taskItems[idx]
 		if result.Err != nil {
+			run.addDegradation(participantAbsentDegradation(result, "revision", round, "该 proposer 的修订缺席，改用内置降级修订"))
 			applied = append(applied, item.builtin...)
 			continue
 		}
@@ -1463,6 +1495,7 @@ func (e *Engine) startFreeDebate(ctx context.Context, request StartRequest) (_ *
 	for _, result := range e.executeTaskBatch(ctx, request, run.sessionID, initialTasks, run.startedAt, request.WaitingPolicy.PerTaskTimeout, len(initialTasks)) {
 		recordTaskBatchResultMetrics(&run.metrics, result)
 		if result.Err != nil {
+			run.addDegradation(participantAbsentDegradation(result, "initial", 0, "该参与者未提交初始提案，辩论基于其余参与者的 claim"))
 			continue
 		}
 		participantID := result.Task.Meta().AgentID
@@ -1514,6 +1547,7 @@ func (e *Engine) startFreeDebate(ctx context.Context, request StartRequest) (_ *
 			TaskSpec:      request.TaskSpec,
 			Report:        report,
 			Metrics:       finalizeMetrics(run.metrics, run.startedAt, e.clock),
+			Degradations:  run.degradations,
 			FreeDebate:    section,
 		}
 		if err := e.finishSession(ctx, run.sessionID, run.state, result, nil, nil, run.ledgerCursor); err != nil {
@@ -1542,6 +1576,12 @@ func (e *Engine) startFreeDebate(ctx context.Context, request StartRequest) (_ *
 		roundRecord := DebateRoundRecord{Round: round, Phase: "debate", ParticipantOutputs: make([]DebateParticipantOutput, 0, len(request.Roles.Participants))}
 		roundNewClaims := 0
 		onlyAgree := true
+		maxNewClaims := request.DebatePolicy.MaxNewClaimsPerRound
+		if ceiling := request.DebatePolicy.MaxActiveClaims; ceiling > 0 && len(activeDebateClaims(claims)) >= ceiling {
+			// Active-claim ceiling reached: this round may only judge, revise,
+			// and merge; MaxNewClaims < 0 marks "no new claims allowed".
+			maxNewClaims = -1
+		}
 		roundTasks := make([]Task, 0, len(request.Roles.Participants))
 		for _, participantID := range request.Roles.Participants {
 			selfClaims, peerClaims := splitDebateClaims(claims, participantID)
@@ -1557,6 +1597,7 @@ func (e *Engine) startFreeDebate(ctx context.Context, request StartRequest) (_ *
 				SelfClaims:      selfClaims,
 				PeerClaims:      peerClaims,
 				RoundSummary:    summarizeDebateClaims(peerClaims),
+				MaxNewClaims:    maxNewClaims,
 				PeerContextMode: request.DebatePolicy.PeerContextMode,
 			})
 		}
@@ -1564,12 +1605,19 @@ func (e *Engine) startFreeDebate(ctx context.Context, request StartRequest) (_ *
 			recordTaskBatchResultMetrics(&run.metrics, result)
 			if result.Err != nil {
 				onlyAgree = false
+				run.addDegradation(participantAbsentDegradation(result, "debate", round, "该参与者缺席本轮辩论，未对 peer claims 给出评判"))
 				continue
 			}
 			participantID := result.Task.Meta().AgentID
 			output, ok := result.Awaited.Output.(DebateRoundTaskResult)
 			if !ok {
 				return nil, fmt.Errorf("debate round task returned unexpected result type")
+			}
+			newClaims, truncatedNewClaims := truncateDebateNewClaims(output.Output.NewClaims, maxNewClaims)
+			metadata := map[string]any{"round": round, "taskId": result.Receipt.TaskID}
+			if truncatedNewClaims > 0 {
+				metadata["truncatedNewClaims"] = truncatedNewClaims
+				metadata["maxNewClaims"] = maxNewClaims
 			}
 			entry, err := e.appendEvidence(ctx, request, run.sessionID, &run.ledgerEntries, &run.ledgerCursor, EvidenceRecord{
 				Kind:         EvidenceKindDebateRoundOutput,
@@ -1578,13 +1626,13 @@ func (e *Engine) startFreeDebate(ctx context.Context, request StartRequest) (_ *
 				ProducerRole: "participant",
 				Summary:      output.Output.Summary,
 				Artifact:     result.Awaited.Artifact,
-				Metadata:     map[string]any{"round": round, "taskId": result.Receipt.TaskID},
+				Metadata:     metadata,
 			})
 			if err != nil {
 				return nil, err
 			}
 			participant := DebateParticipantOutput{AgentID: participantID, Summary: output.Output.Summary}
-			for _, draft := range output.Output.NewClaims {
+			for _, draft := range newClaims {
 				draft = canonicalizeDebateClaimDraft(draft)
 				if strings.TrimSpace(draft.Statement) == "" {
 					continue
@@ -1630,11 +1678,21 @@ func (e *Engine) startFreeDebate(ctx context.Context, request StartRequest) (_ *
 		}
 		roundRecord.Summary = summarizeDebateRound(roundRecord)
 		rounds = append(rounds, roundRecord)
+		if request.DebatePolicy.SemanticDedup.Cadence != DebateSemanticDedupCadenceFinal {
+			// per_round cadence: consolidate right away so the next round's
+			// peer context (and eventually the ballot) stays canonical, and a
+			// single failed dedup call only loses one round of consolidation.
+			claims = e.runDebateSemanticDedup(ctx, request, run, claims, round)
+		}
 		if request.DebatePolicy.EnableEarlyStop && round >= request.DebatePolicy.MinRounds && roundNewClaims == 0 && onlyAgree {
 			break
 		}
 	}
-	claims = e.runDebateSemanticDedup(ctx, request, run, claims, len(rounds))
+	if request.DebatePolicy.SemanticDedup.Cadence == DebateSemanticDedupCadenceFinal || len(rounds) <= 1 {
+		// final cadence keeps the single pre-vote pass; per_round already
+		// deduped after the last executed round unless no debate round ran.
+		claims = e.runDebateSemanticDedup(ctx, request, run, claims, len(rounds))
+	}
 
 	if err := e.advancePhase(ctx, request, run.sessionID, run.state, SessionPhaseFinalVote, nil, nil, run.ledgerCursor); err != nil {
 		return nil, err
@@ -1654,9 +1712,11 @@ func (e *Engine) startFreeDebate(ctx context.Context, request StartRequest) (_ *
 			Claims:   activeClaims,
 		})
 	}
+	voters := make([]string, 0, len(request.Roles.Participants))
 	for _, result := range e.executeTaskBatch(ctx, request, run.sessionID, voteTasks, run.startedAt, request.WaitingPolicy.PerTaskTimeout, len(voteTasks)) {
 		recordTaskBatchResultMetrics(&run.metrics, result)
 		if result.Err != nil {
+			run.addDegradation(participantAbsentDegradation(result, "final_vote", len(rounds), "该参与者未投票，claim 接受判定仅基于成功投票的参与者"))
 			continue
 		}
 		participantID := result.Task.Meta().AgentID
@@ -1664,6 +1724,7 @@ func (e *Engine) startFreeDebate(ctx context.Context, request StartRequest) (_ *
 		if !ok {
 			return nil, fmt.Errorf("final vote task returned unexpected result type")
 		}
+		voters = appendUnique(voters, participantID)
 		participantVotes := make([]DebateVoteRecord, 0, len(output.Output.Votes))
 		for _, draft := range output.Output.Votes {
 			entry, err := e.appendEvidence(ctx, request, run.sessionID, &run.ledgerEntries, &run.ledgerCursor, EvidenceRecord{
@@ -1696,18 +1757,54 @@ func (e *Engine) startFreeDebate(ctx context.Context, request StartRequest) (_ *
 		votes = append(votes, participantVotes...)
 	}
 
-	resolutions, outcome := resolveDebateClaims(activeClaims, claims, votes, request.DebatePolicy.VoteThreshold)
+	resolutions, outcome := resolveDebateClaims(activeClaims, claims, votes, request.DebatePolicy)
+	absentVoters := make([]string, 0)
+	for _, participantID := range request.Roles.Participants {
+		if !slices.Contains(voters, participantID) {
+			absentVoters = append(absentVoters, participantID)
+		}
+	}
+	if quorum := request.DebatePolicy.VoteQuorum; quorum > 0 && len(request.Roles.Participants) > 0 {
+		required := quorum * float64(len(request.Roles.Participants))
+		if float64(len(voters)) < required {
+			impact := fmt.Sprintf("仅 %d/%d 参与者完成投票，低于 quorum %.2f，outcome 由 %s 降级为 %s", len(voters), len(request.Roles.Participants), quorum, outcome, FreeDebateOutcomeQuorumNotMet)
+			outcome = FreeDebateOutcomeQuorumNotMet
+			run.addDegradation(Degradation{
+				Kind:   DegradationQuorumNotMet,
+				Phase:  "final_vote",
+				Round:  len(rounds),
+				Impact: impact,
+			})
+			if _, err := e.appendEvidence(ctx, request, run.sessionID, &run.ledgerEntries, &run.ledgerCursor, EvidenceRecord{
+				Kind:         EvidenceKindDebateVoteQuorum,
+				Source:       EvidenceSourceCoordinator,
+				ProducerRole: "coordinator",
+				Summary:      impact,
+				Metadata: map[string]any{
+					"voteQuorum":   quorum,
+					"voters":       voters,
+					"absentVoters": absentVoters,
+					"participants": len(request.Roles.Participants),
+				},
+			}); err != nil {
+				return nil, err
+			}
+		}
+	}
 	section := &FreeDebateResultSection{
 		Outcome:          outcome,
 		Rounds:           rounds,
 		Claims:           claims,
 		ClaimResolutions: resolutions,
 		Votes:            votes,
+		Voters:           voters,
+		AbsentVoters:     absentVoters,
+		BallotSize:       len(activeClaims),
 	}
 	report := buildFreeDebateReport(request, section)
-	report, reportArtifact, err := e.composeModeReport(ctx, request, run.sessionID, run.startedAt, WorkflowModeFreeDebate, report, TaskVerdictFromDebateOutcome(outcome), map[string]any{
+	report, reportArtifact, err := e.composeModeReport(ctx, request, run, WorkflowModeFreeDebate, report, TaskVerdictFromDebateOutcome(outcome), map[string]any{
 		"freeDebate": section,
-	}, &run.metrics)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -1731,6 +1828,7 @@ func (e *Engine) startFreeDebate(ctx context.Context, request StartRequest) (_ *
 		TaskSpec:      request.TaskSpec,
 		Report:        report,
 		Metrics:       finalizeMetrics(run.metrics, run.startedAt, e.clock),
+		Degradations:  run.degradations,
 		FreeDebate:    section,
 	}
 	if request.ActionPolicy != nil {
@@ -1828,6 +1926,7 @@ func (e *Engine) startDelphi(ctx context.Context, request StartRequest) (_ *RunR
 		for _, result := range e.executeTaskBatch(ctx, request, run.sessionID, tasks, run.startedAt, request.WaitingPolicy.PerTaskTimeout, len(tasks)) {
 			recordTaskBatchResultMetrics(&run.metrics, result)
 			if result.Err != nil {
+				run.addDegradation(participantAbsentDegradation(result, "delphi_round", round, "该参与者本轮未提交评分/修订，共识统计缺少其意见"))
 				continue
 			}
 			var outputResponses []DelphiResponseDraft
@@ -1939,9 +2038,9 @@ func (e *Engine) finishDelphi(ctx context.Context, request StartRequest, run *wo
 		}
 	}
 	report := buildDelphiReport(request, section)
-	report, artifact, err := e.composeModeReport(ctx, request, run.sessionID, run.startedAt, WorkflowModeDelphi, report, TaskVerdictFromDelphi(section), map[string]any{
+	report, artifact, err := e.composeModeReport(ctx, request, run, WorkflowModeDelphi, report, TaskVerdictFromDelphi(section), map[string]any{
 		"delphi": section,
-	}, &run.metrics)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -1964,6 +2063,7 @@ func (e *Engine) finishDelphi(ctx context.Context, request StartRequest, run *wo
 		TaskSpec:      request.TaskSpec,
 		Report:        report,
 		Metrics:       finalizeMetrics(run.metrics, run.startedAt, e.clock),
+		Degradations:  run.degradations,
 		Delphi:        section,
 	}
 	if request.ActionPolicy != nil {
@@ -1986,19 +2086,29 @@ func (e *Engine) finishDelphi(ctx context.Context, request StartRequest, run *wo
 	return result, nil
 }
 
-func (e *Engine) composeModeReport(ctx context.Context, request StartRequest, sessionID string, startedAt time.Time, mode WorkflowMode, builtin AdjudicationReport, verdict TaskVerdict, payload map[string]any, metrics *Metrics) (AdjudicationReport, *ArtifactRef, error) {
+func (e *Engine) composeModeReport(ctx context.Context, request StartRequest, run *workflowRun, mode WorkflowMode, builtin AdjudicationReport, verdict TaskVerdict, payload map[string]any) (AdjudicationReport, *ArtifactRef, error) {
 	if request.Roles.Reporter == "" || e.deps.TaskDelegate == nil {
 		return builtin, nil, nil
 	}
-	reportCtx, cancel, deadlineErr := e.withGlobalDeadline(ctx, request, startedAt)
+	reporterFallback := func(reason string) {
+		run.addDegradation(Degradation{
+			Kind:    DegradationStepSkipped,
+			Phase:   "report",
+			AgentID: request.Roles.Reporter,
+			Reason:  reason,
+			Impact:  "reporter 任务未完成，报告回退为内置模板摘要",
+		})
+	}
+	reportCtx, cancel, deadlineErr := e.withGlobalDeadline(ctx, request, run.startedAt)
 	if deadlineErr != nil {
-		metrics.GlobalDeadlineHit = true
+		run.metrics.GlobalDeadlineHit = true
+		reporterFallback("global deadline exceeded")
 		return builtin, nil, nil
 	}
 	defer cancel()
-	_, awaited, err := e.executeTask(reportCtx, request, sessionID, ReportTask{
+	_, awaited, err := e.executeTask(reportCtx, request, run.sessionID, ReportTask{
 		TaskMeta: TaskMeta{
-			SessionID: sessionID,
+			SessionID: run.sessionID,
 			RequestID: request.RequestID,
 			AgentID:   request.Roles.Reporter,
 			Role:      "reporter",
@@ -2007,16 +2117,18 @@ func (e *Engine) composeModeReport(ctx context.Context, request StartRequest, se
 		TaskVerdict: verdict,
 		Mode:        mode,
 		Payload:     payload,
-	}, startedAt, request.WaitingPolicy.PerTaskTimeout)
-	metrics.TasksDispatched++
+	}, run.startedAt, request.WaitingPolicy.PerTaskTimeout)
+	run.metrics.TasksDispatched++
 	if err != nil {
 		if errors.Is(err, ErrGlobalDeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-			metrics.GlobalDeadlineHit = true
+			run.metrics.GlobalDeadlineHit = true
 		}
+		reporterFallback(err.Error())
 		return builtin, awaited.Artifact, nil
 	}
 	typed, ok := awaited.Output.(ReportTaskResult)
 	if !ok {
+		reporterFallback("report task returned unexpected result type")
 		return builtin, awaited.Artifact, nil
 	}
 	return typed.Output, awaited.Artifact, nil
@@ -2066,6 +2178,14 @@ func (e *Engine) runDebateSemanticDedup(ctx context.Context, request StartReques
 				"status":              "failed",
 			},
 		})
+		run.addDegradation(Degradation{
+			Kind:    DegradationStepSkipped,
+			Phase:   "semantic_dedup",
+			Round:   round,
+			AgentID: request.Roles.SemanticDeduper,
+			Reason:  err.Error(),
+			Impact:  fmt.Sprintf("语义去重未执行，%d 条 active claim 未合并直接进入 final vote", len(activeClaims)),
+		})
 		return claims
 	}
 	output, ok := awaited.Output.(SemanticDedupTaskResult)
@@ -2083,6 +2203,14 @@ func (e *Engine) runDebateSemanticDedup(ctx context.Context, request StartReques
 				"round":    round,
 				"status":   "failed",
 			},
+		})
+		run.addDegradation(Degradation{
+			Kind:    DegradationStepSkipped,
+			Phase:   "semantic_dedup",
+			Round:   round,
+			AgentID: request.Roles.SemanticDeduper,
+			Reason:  "semantic dedup returned unexpected result type",
+			Impact:  fmt.Sprintf("语义去重未执行，%d 条 active claim 未合并直接进入 final vote", len(activeClaims)),
 		})
 		return claims
 	}
@@ -2107,6 +2235,23 @@ func (e *Engine) runDebateSemanticDedup(ctx context.Context, request StartReques
 		evidenceRef = entry.EntryID
 	}
 	return applyDebateSemanticDedup(claims, output.Output.Merges, evidenceRef)
+}
+
+// truncateDebateNewClaims enforces the per-round new-claims budget: limit > 0
+// keeps the first limit drafts, limit < 0 drops all drafts (active-claim
+// ceiling reached), limit == 0 means no budget was set.
+func truncateDebateNewClaims(drafts []ClaimDraft, limit int) ([]ClaimDraft, int) {
+	if limit == 0 || len(drafts) == 0 {
+		return drafts, 0
+	}
+	allowed := limit
+	if allowed < 0 {
+		allowed = 0
+	}
+	if len(drafts) <= allowed {
+		return drafts, 0
+	}
+	return drafts[:allowed], len(drafts) - allowed
 }
 
 func upsertDebateClaim(claims []DebateClaim, draft ClaimDraft, ownerID string, round int, evidenceRef string, ids IDFactory) ([]DebateClaim, string) {
@@ -2235,31 +2380,68 @@ func activeDebateClaims(claims []DebateClaim) []DebateClaim {
 	return out
 }
 
-func resolveDebateClaims(activeClaims []DebateClaim, allClaims []DebateClaim, votes []DebateVoteRecord, threshold float64) ([]DebateClaimResolution, FreeDebateOutcome) {
+// debateVoteCoherent reports whether the coarse vote label agrees with the
+// continuous confidence support score defined by the vote prompt contract:
+// accept requires confidence >= 0.5, reject requires confidence <= 0.5,
+// abstain is unconstrained. Votes that fail this (e.g. reject with 0.9,
+// typically a "confidence in my judgment" misreading) are excluded from
+// resolution math so they cannot flip an accept decision.
+func debateVoteCoherent(vote DebateVoteRecord) bool {
+	switch vote.Vote {
+	case DebateVoteAccept:
+		return vote.Confidence >= 0.5
+	case DebateVoteReject:
+		return vote.Confidence <= 0.5
+	case DebateVoteAbstain:
+		return true
+	default:
+		return false
+	}
+}
+
+func aggregateSupportScore(values []float64, method DebateVoteAggregation) float64 {
+	if len(values) == 0 {
+		return 0
+	}
+	if method == DebateVoteAggregationMean {
+		mean, _ := meanAndVariance(values)
+		return mean
+	}
+	sorted := slices.Clone(values)
+	slices.Sort(sorted)
+	mid := len(sorted) / 2
+	if len(sorted)%2 == 1 {
+		return sorted[mid]
+	}
+	return (sorted[mid-1] + sorted[mid]) / 2
+}
+
+func resolveDebateClaims(activeClaims []DebateClaim, allClaims []DebateClaim, votes []DebateVoteRecord, policy DebatePolicy) ([]DebateClaimResolution, FreeDebateOutcome) {
 	resolutions := make([]DebateClaimResolution, 0, len(allClaims))
 	accepted := 0
 	for _, claim := range allClaims {
 		if !claim.Active {
 			resolutions = append(resolutions, DebateClaimResolution{
-				ClaimID:            claim.ClaimID,
-				Accepted:           false,
-				SupportRatio:       0,
-				ConfidenceMean:     0,
-				ConfidenceVariance: 0,
-				ConfidenceStdDev:   0,
-				VoteCount:          0,
-				FinalStatement:     claim.Statement,
-				MergedInto:         claim.MergedInto,
-				ProposedBy:         slices.Clone(claim.ProposedBy),
+				ClaimID:        claim.ClaimID,
+				Accepted:       false,
+				FinalStatement: claim.Statement,
+				MergedInto:     claim.MergedInto,
+				ProposedBy:     slices.Clone(claim.ProposedBy),
 			})
 			continue
 		}
 		supporters := make([]string, 0)
 		opposers := make([]string, 0)
+		abstainers := make([]string, 0)
 		confidences := make([]float64, 0)
+		incoherent := 0
 		validVotes := 0
 		for _, vote := range votes {
 			if vote.ClaimID != claim.ClaimID {
+				continue
+			}
+			if !debateVoteCoherent(vote) {
+				incoherent++
 				continue
 			}
 			confidences = append(confidences, vote.Confidence)
@@ -2270,27 +2452,33 @@ func resolveDebateClaims(activeClaims []DebateClaim, allClaims []DebateClaim, vo
 			case DebateVoteReject:
 				opposers = append(opposers, vote.AgentID)
 				validVotes++
+			case DebateVoteAbstain:
+				abstainers = append(abstainers, vote.AgentID)
 			}
 		}
 		ratio := 0.0
 		if validVotes > 0 {
 			ratio = float64(len(supporters)) / float64(validVotes)
 		}
+		supportScore := aggregateSupportScore(confidences, policy.VoteAggregation)
 		confidenceMean, confidenceVariance := meanAndVariance(confidences)
-		acceptedClaim := len(confidences) > 0 && confidenceMean >= threshold
+		acceptedClaim := len(confidences) > 0 && supportScore >= policy.VoteThreshold
 		if acceptedClaim {
 			accepted++
 		}
 		resolutions = append(resolutions, DebateClaimResolution{
 			ClaimID:            claim.ClaimID,
 			Accepted:           acceptedClaim,
+			SupportScore:       supportScore,
 			SupportRatio:       ratio,
 			ConfidenceMean:     confidenceMean,
 			ConfidenceVariance: confidenceVariance,
 			ConfidenceStdDev:   math.Sqrt(confidenceVariance),
 			VoteCount:          len(confidences),
+			IncoherentVotes:    incoherent,
 			SupportingVoters:   supporters,
 			OpposingVoters:     opposers,
+			AbstainingVoters:   abstainers,
 			FinalStatement:     claim.Statement,
 			ProposedBy:         slices.Clone(claim.ProposedBy),
 		})
@@ -2328,6 +2516,8 @@ func TaskVerdictFromDebateOutcome(outcome FreeDebateOutcome) TaskVerdict {
 		return TaskVerdictSupported
 	case FreeDebateOutcomePartialConsensus:
 		return TaskVerdictPartiallySupported
+	case FreeDebateOutcomeQuorumNotMet:
+		return TaskVerdictUndetermined
 	default:
 		return TaskVerdictUndetermined
 	}

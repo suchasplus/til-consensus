@@ -402,6 +402,9 @@ func decodeTaskOutputFromJSON(task consensus.Task, payload []byte) (consensus.Ta
 		if err := validateDebateVotes(output.Votes); err != nil {
 			return nil, fmt.Errorf("validate final vote output: %w", err)
 		}
+		if err := validateDebateVoteCalibration(output.Votes); err != nil {
+			return nil, fmt.Errorf("validate final vote output: %w", err)
+		}
 		return consensus.FinalVoteTaskResult{Output: output}, nil
 	case consensus.SemanticVerificationTask:
 		semanticTask := task.(consensus.SemanticVerificationTask)
@@ -946,8 +949,38 @@ func validateDebateVotes(votes []consensus.DebateVoteDraft) error {
 		if *vote.Confidence < 0 || *vote.Confidence > 1 {
 			return fmt.Errorf("votes[%d].confidence must be within [0,1]", idx)
 		}
+		// confidence is the continuous support score (0=strong reject,
+		// 1=strong accept), not certainty in the vote label; a label that
+		// contradicts the score is a contract violation.
+		if vote.Vote == consensus.DebateVoteAccept && *vote.Confidence < 0.5 {
+			return fmt.Errorf("votes[%d]: vote=accept requires confidence >= 0.5 because confidence is the continuous support score, got %.2f", idx, *vote.Confidence)
+		}
+		if vote.Vote == consensus.DebateVoteReject && *vote.Confidence > 0.5 {
+			return fmt.Errorf("votes[%d]: vote=reject requires confidence <= 0.5 because confidence is the continuous support score, got %.2f", idx, *vote.Confidence)
+		}
 	}
 	return nil
+}
+
+// validateDebateVoteCalibration rejects only the laziest ballots: five or
+// more votes that all carry the exact same confidence carry no comparative
+// signal. Smaller ballots and any ballot with at least two distinct scores
+// pass, so an honest uniformly-positive voter is not forced to fake spread.
+func validateDebateVoteCalibration(votes []consensus.DebateVoteDraft) error {
+	const minBallotForCalibration = 5
+	if len(votes) < minBallotForCalibration {
+		return nil
+	}
+	first := votes[0].Confidence
+	if first == nil {
+		return nil
+	}
+	for _, vote := range votes[1:] {
+		if vote.Confidence == nil || *vote.Confidence != *first {
+			return nil
+		}
+	}
+	return fmt.Errorf("all %d votes share confidence %.2f; calibrate scores comparatively so stronger claims score higher than weaker ones", len(votes), *first)
 }
 
 func validateDebateNewClaims(claims []consensus.ClaimDraft) error {

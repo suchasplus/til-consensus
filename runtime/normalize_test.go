@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -253,6 +254,55 @@ func TestNormalizeFinalVoteRequiresNumericConfidence(t *testing.T) {
 	_, err = NormalizeTaskOutputFromText(task, `{"summary":"vote","votes":[{"claimId":"claim-1","vote":"accept","confidence":1.2,"rationale":"out of range"}]}`)
 	if err == nil {
 		t.Fatal("expected out-of-range confidence to fail")
+	}
+}
+
+func TestNormalizeFinalVoteRejectsIncoherentVoteLabels(t *testing.T) {
+	task := consensus.FinalVoteTask{
+		TaskMeta: consensus.TaskMeta{AgentID: "voter-1"},
+		Claims: []consensus.DebateClaim{
+			{ClaimID: "claim-1", Active: true},
+		},
+	}
+	_, err := NormalizeTaskOutputFromText(task, `{"summary":"vote","votes":[{"claimId":"claim-1","vote":"reject","confidence":0.9,"rationale":"very sure it is wrong"}]}`)
+	if err == nil || !strings.Contains(err.Error(), "vote=reject requires confidence <= 0.5") {
+		t.Fatalf("expected incoherent reject vote to fail, got %v", err)
+	}
+	_, err = NormalizeTaskOutputFromText(task, `{"summary":"vote","votes":[{"claimId":"claim-1","vote":"accept","confidence":0.2,"rationale":"weak yes"}]}`)
+	if err == nil || !strings.Contains(err.Error(), "vote=accept requires confidence >= 0.5") {
+		t.Fatalf("expected incoherent accept vote to fail, got %v", err)
+	}
+	// Boundary 0.5 is coherent for both labels, abstain is unconstrained.
+	if _, err := NormalizeTaskOutputFromText(task, `{"summary":"vote","votes":[{"claimId":"claim-1","vote":"reject","confidence":0.5,"rationale":"uncertain lean-no"}]}`); err != nil {
+		t.Fatalf("expected boundary reject vote to pass, got %v", err)
+	}
+	if _, err := NormalizeTaskOutputFromText(task, `{"summary":"vote","votes":[{"claimId":"claim-1","vote":"abstain","confidence":0.8,"rationale":"outside my expertise"}]}`); err != nil {
+		t.Fatalf("expected abstain vote to pass regardless of score, got %v", err)
+	}
+}
+
+func TestNormalizeFinalVoteRejectsUniformBallots(t *testing.T) {
+	buildBallot := func(count int, uniform bool) string {
+		rows := make([]string, 0, count)
+		for idx := 0; idx < count; idx++ {
+			confidence := 0.9
+			if !uniform && idx == count-1 {
+				confidence = 0.7
+			}
+			rows = append(rows, fmt.Sprintf(`{"claimId":"claim-%d","vote":"accept","confidence":%.2f,"rationale":"supported"}`, idx, confidence))
+		}
+		return `{"summary":"vote","votes":[` + strings.Join(rows, ",") + `]}`
+	}
+	task := consensus.FinalVoteTask{TaskMeta: consensus.TaskMeta{AgentID: "voter-1"}}
+	if _, err := NormalizeTaskOutputFromText(task, buildBallot(5, true)); err == nil || !strings.Contains(err.Error(), "calibrate") {
+		t.Fatalf("expected uniform 5-vote ballot to fail calibration, got %v", err)
+	}
+	if _, err := NormalizeTaskOutputFromText(task, buildBallot(5, false)); err != nil {
+		t.Fatalf("expected ballot with one distinct score to pass, got %v", err)
+	}
+	// Small ballots are exempt: honest uniform enthusiasm on 4 claims is fine.
+	if _, err := NormalizeTaskOutputFromText(task, buildBallot(4, true)); err != nil {
+		t.Fatalf("expected uniform 4-vote ballot to pass, got %v", err)
 	}
 }
 

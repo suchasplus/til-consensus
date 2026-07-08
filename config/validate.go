@@ -323,5 +323,27 @@ func validateDefaults(cfg Config) error {
 	if cfg.Defaults.TaskRetryAttempts < 0 {
 		return fmt.Errorf("defaults.task_retry_attempts must be >= 0")
 	}
+	if quorum := cfg.Defaults.DebatePolicy.VoteQuorum; quorum < 0 || quorum > 1 {
+		return fmt.Errorf("defaults.debate_policy.vote_quorum must be within [0, 1]")
+	}
+	if threshold := cfg.Defaults.DebatePolicy.SupportThreshold; threshold < 0 || threshold > 1 {
+		return fmt.Errorf("defaults.debate_policy.support_threshold must be within [0, 1]")
+	}
+	switch cfg.Defaults.DebatePolicy.VoteAggregation {
+	case "", string(consensus.DebateVoteAggregationMedian), string(consensus.DebateVoteAggregationMean):
+	default:
+		return fmt.Errorf("defaults.debate_policy.vote_aggregation must be median or mean, got %q", cfg.Defaults.DebatePolicy.VoteAggregation)
+	}
+	switch cfg.Defaults.DebatePolicy.SemanticDedup.Cadence {
+	case "", string(consensus.DebateSemanticDedupCadencePerRound), string(consensus.DebateSemanticDedupCadenceFinal):
+	default:
+		return fmt.Errorf("defaults.debate_policy.semantic_dedup.cadence must be per_round or final, got %q", cfg.Defaults.DebatePolicy.SemanticDedup.Cadence)
+	}
+	if cfg.Defaults.DebatePolicy.MaxNewClaimsPerRound < 0 {
+		return fmt.Errorf("defaults.debate_policy.max_new_claims_per_round must be >= 0")
+	}
+	if cfg.Defaults.DebatePolicy.MaxActiveClaims < 0 {
+		return fmt.Errorf("defaults.debate_policy.max_active_claims must be >= 0")
+	}
 	return nil
 }

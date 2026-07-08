@@ -182,7 +182,9 @@ func finalVotePromptHints(task consensus.FinalVoteTask) []string {
 		"- Each vote requires claimId, vote, confidence, and rationale.",
 		"- vote is the coarse label: accept, reject, or abstain.",
 		"- confidence is the continuous support score from 0.0 to 1.0: 0.0 strongly rejects the claim, 0.5 is uncertain/abstain, 1.0 strongly accepts the claim.",
+		"- confidence is NOT certainty in your vote label. Keep them coherent: vote=accept requires confidence >= 0.5, vote=reject requires confidence <= 0.5, vote=abstain should sit near 0.5.",
 		"- Use intermediate confidence values to express partial support, caveated support, or live disagreement; do not collapse everything to 0 or 1.",
+		"- Calibrate scores comparatively across the whole ballot: the claims you would actually stake the conclusion on belong near the top of your range, weaker or more redundant ones lower. Giving every claim the same confidence is invalid.",
 		"- confidence must be a JSON number, not a string.",
 	}
 	if len(ids) > 0 {
@@ -199,6 +201,8 @@ func finalVoteRepairHints() []string {
 		"- Add a numeric confidence field to every votes[] row.",
 		"- Repair confidence into the inclusive [0,1] range.",
 		"- Keep vote as accept, reject, or abstain, but use confidence to preserve partial support.",
+		"- If a row's vote label contradicts its confidence (accept with confidence < 0.5, or reject with confidence > 0.5), the confidence was probably meant as certainty in the label. Reconcile using the rationale: keep the vote label and move confidence into the matching band (accept: 0.5-1.0 where higher means stronger support; reject: 0.0-0.5 where lower means stronger rejection).",
+		"- If every vote carries an identical confidence, spread the scores to reflect relative strength while keeping each vote label.",
 		"- Do not quote confidence numbers.",
 	}
 }
@@ -375,7 +379,14 @@ func debateRoundPromptHints(task consensus.DebateRoundTask) []string {
 		"- If judgement is not revise, omit revisedStatement entirely.",
 		"- Prefer one judgement entry per peer claim in this round. If you want to keep a peer claim unchanged, use judgement=no_change.",
 		"- newClaims must be substantive claims about the user's task. Do not put process/meta observations about this run, peer claim counts, dedup needs, round hygiene, or system workflow into newClaims; put those observations in summary only.",
+		"- Never restate an existing claim (yours or a peer's) in different words as a newClaim; use judgements to agree, revise, or merge instead.",
 		"- Do not prefix newClaims titles or statements with status labels such as [Status: keep], [Status: revise], or 裁决状态：keep.",
+	}
+	switch {
+	case task.MaxNewClaims < 0:
+		lines = append(lines, "- The active-claim budget for this debate is full: newClaims must be an empty array this round. Express positions through judgements and merges only.")
+	case task.MaxNewClaims > 0:
+		lines = append(lines, fmt.Sprintf("- Propose at most %d newClaims this round; entries beyond that budget are discarded by the coordinator. Spend the budget only on genuinely new positions.", task.MaxNewClaims))
 	}
 	if len(validIDs) == 0 {
 		lines = append(lines,

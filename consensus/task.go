@@ -248,12 +248,16 @@ func (InitialProposalTaskResult) Kind() TaskKind { return TaskKindInitialProposa
 
 type DebateRoundTask struct {
 	TaskMeta
-	TaskSpec        TaskSpec      `json:"taskSpec"`
-	Round           int           `json:"round"`
-	SelfClaims      []DebateClaim `json:"selfClaims"`
-	PeerClaims      []DebateClaim `json:"peerClaims"`
-	RoundSummary    string        `json:"roundSummary,omitempty"`
-	PeerContextMode string        `json:"peerContextMode,omitempty"`
+	TaskSpec     TaskSpec      `json:"taskSpec"`
+	Round        int           `json:"round"`
+	SelfClaims   []DebateClaim `json:"selfClaims"`
+	PeerClaims   []DebateClaim `json:"peerClaims"`
+	RoundSummary string        `json:"roundSummary,omitempty"`
+	// MaxNewClaims is the per-round budget for newClaims: > 0 caps the count
+	// (extras are discarded by the coordinator), < 0 forbids new claims
+	// entirely (active-claim ceiling reached), 0 means no budget was set.
+	MaxNewClaims    int    `json:"maxNewClaims,omitempty"`
+	PeerContextMode string `json:"peerContextMode,omitempty"`
 }
 
 func (DebateRoundTask) Kind() TaskKind   { return TaskKindDebateRound }

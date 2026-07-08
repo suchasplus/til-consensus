@@ -99,6 +99,7 @@ func (e *Engine) runAdjudicationFromCheckpoint(
 			Summary:             "未产生任何可裁决 claim",
 			UnresolvedQuestions: append([]string(nil), run.manifest.UnresolvedQuestions...),
 		}, nil, TerminalStateInsufficientEvidence, run.observations, run.metrics, run.startedAt, nil)
+		result.Degradations = run.degradations
 		if err := e.finishSession(ctx, run.sessionID, run.state, result, run.claimGraph, run.challengeTickets, run.ledgerCursor); err != nil {
 			return nil, err
 		}
@@ -351,6 +352,7 @@ func (e *Engine) resumeReportPhase(ctx context.Context, request StartRequest, ru
 
 func (e *Engine) resumeActionPhase(ctx context.Context, request StartRequest, run *workflowRun, arbiterReport ArbiterReport, report AdjudicationReport, action *ActionOutput) (*RunResult, error) {
 	result := e.buildAdjudicationResult(request, run.sessionID, run.manifest, run.claimGraph, run.challengeTickets, run.verificationResults, run.revisionRecords, run.adjudicationRecords, arbiterReport, report, action, DetermineTerminalState(run.claimGraph, run.challengeTickets, run.manifest, action), run.observations, run.metrics, run.startedAt, nil)
+	result.Degradations = run.degradations
 	if run.state.Current() != SessionPhaseAction {
 		if err := e.advancePhase(ctx, request, run.sessionID, run.state, SessionPhaseAction, run.claimGraph, run.challengeTickets, run.ledgerCursor); err != nil {
 			return nil, err
@@ -384,6 +386,7 @@ func (e *Engine) resumeActionPhase(ctx context.Context, request StartRequest, ru
 
 func (e *Engine) resumeObservePhase(ctx context.Context, request StartRequest, run *workflowRun, arbiterReport ArbiterReport, report AdjudicationReport, action *ActionOutput) (*RunResult, error) {
 	result := e.buildAdjudicationResult(request, run.sessionID, run.manifest, run.claimGraph, run.challengeTickets, run.verificationResults, run.revisionRecords, run.adjudicationRecords, arbiterReport, report, action, DetermineTerminalState(run.claimGraph, run.challengeTickets, run.manifest, action), run.observations, run.metrics, run.startedAt, nil)
+	result.Degradations = run.degradations
 	if run.state.Current() != SessionPhaseObserve {
 		if err := e.advancePhase(ctx, request, run.sessionID, run.state, SessionPhaseObserve, run.claimGraph, run.challengeTickets, run.ledgerCursor); err != nil {
 			return nil, err
