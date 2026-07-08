@@ -26,6 +26,10 @@ agents:
     provider: gemini-api
     model: default
     role: semantic-deduper
+  - id: synthesizer-deepseek-api
+    provider: deepseek-api
+    model: default
+    role: synthesizer
   - id: reporter-dashscope-api
     provider: dashscope-api
     model: default

@@ -11,8 +11,14 @@ import (
 // diversity); the keyword heuristic below stays as a backstop for unlabeled
 // or mislabeled drafts.
 func isDebateProcessClaim(draft ClaimDraft) bool {
-	if draft.Category == DebateClaimCategoryProcess {
+	switch draft.Category {
+	case DebateClaimCategoryProcess:
 		return true
+	case DebateClaimCategorySynthesis:
+		// Synthesis drafts are raw material for the synthesis phase; the
+		// keyword backstop must not reroute them to process notes even when
+		// they mention claim counts or convergence.
+		return false
 	}
 	return IsDebateProcessMetaClaimDraft(draft)
 }

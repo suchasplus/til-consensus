@@ -1695,6 +1695,7 @@ func (e *Engine) startFreeDebate(ctx context.Context, request StartRequest) (_ *
 		// deduped after the last executed round unless no debate round ran.
 		claims = e.runDebateSemanticDedup(ctx, request, run, claims, len(rounds))
 	}
+	claims = e.runDebateSynthesis(ctx, request, run, claims, &rounds)
 
 	if err := e.advancePhase(ctx, request, run.sessionID, run.state, SessionPhaseFinalVote, nil, nil, run.ledgerCursor); err != nil {
 		return nil, err
@@ -2239,6 +2240,250 @@ func (e *Engine) runDebateSemanticDedup(ctx context.Context, request StartReques
 	return applyDebateSemanticDedup(claims, output.Output.Merges, evidenceRef)
 }
 
+// runDebateSynthesis runs the pre-vote synthesis phase: a designated
+// synthesizer drafts the single canonical integrated-recommendation claim
+// from the atom claims plus the participants' category=synthesis drafts
+// (which are merged into the canonical for provenance), the panel amends the
+// draft for AmendmentRounds passes, and the result joins the ballot. Every
+// failure degrades gracefully back to the pre-synthesis state.
+func (e *Engine) runDebateSynthesis(ctx context.Context, request StartRequest, run *workflowRun, claims []DebateClaim, rounds *[]DebateRoundRecord) []DebateClaim {
+	policy := request.DebatePolicy.Synthesis
+	if !policy.Enabled || request.Roles.Synthesizer == "" {
+		return claims
+	}
+	active := activeDebateClaims(claims)
+	if len(active) == 0 {
+		return claims
+	}
+	atoms := make([]DebateClaim, 0, len(active))
+	drafts := make([]DebateClaim, 0)
+	for _, claim := range active {
+		if claim.Category == DebateClaimCategorySynthesis {
+			drafts = append(drafts, claim)
+		} else {
+			atoms = append(atoms, claim)
+		}
+	}
+	round := len(*rounds)
+	draft, entryID, ok := e.executeSynthesisTask(ctx, request, run, SynthesisTask{
+		TaskMeta: TaskMeta{
+			SessionID: run.sessionID,
+			RequestID: request.RequestID,
+			AgentID:   request.Roles.Synthesizer,
+			Role:      "synthesizer",
+		},
+		TaskSpec: request.TaskSpec,
+		Round:    round,
+		Claims:   atoms,
+		Drafts:   drafts,
+	}, "合成阶段被跳过，参与者的综合稿保留原样进入投票")
+	if !ok {
+		return claims
+	}
+	canonical := DebateClaim{
+		ClaimID:      e.ids.NewEntityID("debate_claim"),
+		Title:        strings.TrimSpace(draft.Title),
+		Statement:    strings.TrimSpace(draft.Statement),
+		Category:     DebateClaimCategorySynthesis,
+		OwnerID:      request.Roles.Synthesizer,
+		ProposedBy:   filterEmpty([]string{request.Roles.Synthesizer}),
+		Round:        round,
+		Active:       true,
+		EvidenceRefs: filterEmpty([]string{entryID}),
+	}
+	claims = append(claims, canonical)
+	for _, consumed := range drafts {
+		claims = mergeDebateClaim(claims, consumed.ClaimID, canonical.ClaimID, entryID)
+	}
+
+	for amend := 1; amend <= policy.AmendmentRounds; amend++ {
+		canonicalIdx := debateClaimIndex(claims, canonical.ClaimID)
+		if canonicalIdx < 0 {
+			break
+		}
+		amendRound := round + amend
+		roundRecord := DebateRoundRecord{Round: amendRound, Phase: "amend", ParticipantOutputs: make([]DebateParticipantOutput, 0, len(request.Roles.Participants))}
+		amendTasks := make([]Task, 0, len(request.Roles.Participants))
+		for _, participantID := range request.Roles.Participants {
+			amendTasks = append(amendTasks, DebateRoundTask{
+				TaskMeta: TaskMeta{
+					SessionID: run.sessionID,
+					RequestID: request.RequestID,
+					AgentID:   participantID,
+					Role:      "participant",
+				},
+				TaskSpec:        request.TaskSpec,
+				Round:           amendRound,
+				PeerClaims:      []DebateClaim{claims[canonicalIdx]},
+				RoundSummary:    "synthesis draft review",
+				MaxNewClaims:    -1,
+				SynthesisReview: true,
+				PeerContextMode: request.DebatePolicy.PeerContextMode,
+			})
+		}
+		revisions := make([]DebateJudgementRecord, 0)
+		for _, result := range e.executeTaskBatch(ctx, request, run.sessionID, amendTasks, run.startedAt, request.WaitingPolicy.PerTaskTimeout, len(amendTasks)) {
+			recordTaskBatchResultMetrics(&run.metrics, result)
+			if result.Err != nil {
+				run.addDegradation(participantAbsentDegradation(result, "amend", amendRound, "该参与者未评审合成稿，修正基于其余参与者的意见"))
+				continue
+			}
+			participantID := result.Task.Meta().AgentID
+			output, typedOK := result.Awaited.Output.(DebateRoundTaskResult)
+			if !typedOK {
+				run.addDegradation(participantAbsentDegradation(result, "amend", amendRound, "该参与者的评审输出类型异常，已忽略"))
+				continue
+			}
+			if _, err := e.appendEvidence(ctx, request, run.sessionID, &run.ledgerEntries, &run.ledgerCursor, EvidenceRecord{
+				Kind:         EvidenceKindDebateRoundOutput,
+				Source:       EvidenceSourceWorker,
+				ProducerID:   participantID,
+				ProducerRole: "participant",
+				Summary:      output.Output.Summary,
+				Artifact:     result.Awaited.Artifact,
+				Metadata:     map[string]any{"round": amendRound, "phase": "amend", "taskId": result.Receipt.TaskID},
+			}); err != nil {
+				continue
+			}
+			participant := DebateParticipantOutput{AgentID: participantID, Summary: output.Output.Summary}
+			for _, judgement := range output.Output.Judgements {
+				if strings.TrimSpace(judgement.ClaimID) != canonical.ClaimID {
+					continue
+				}
+				record := DebateJudgementRecord{
+					ClaimID:          canonical.ClaimID,
+					Judgement:        judgement.Judgement,
+					Rationale:        judgement.Rationale,
+					RevisedStatement: strings.TrimSpace(judgement.RevisedStatement),
+				}
+				participant.Judgements = append(participant.Judgements, record)
+				switch {
+				case judgement.Judgement == DebateJudgementRevise && record.RevisedStatement != "":
+					amendment := record
+					amendment.Rationale = participantID + " | " + judgement.Rationale
+					revisions = append(revisions, amendment)
+				case judgement.Judgement == DebateJudgementDisagree:
+					amendment := record
+					amendment.Rationale = participantID + " | " + judgement.Rationale
+					revisions = append(revisions, amendment)
+				}
+			}
+			roundRecord.ParticipantOutputs = append(roundRecord.ParticipantOutputs, participant)
+		}
+		roundRecord.Summary = summarizeDebateRound(roundRecord)
+		*rounds = append(*rounds, roundRecord)
+		if len(revisions) == 0 {
+			break
+		}
+		current := claims[canonicalIdx]
+		integrated, integratedEntryID, integratedOK := e.executeSynthesisTask(ctx, request, run, SynthesisTask{
+			TaskMeta: TaskMeta{
+				SessionID: run.sessionID,
+				RequestID: request.RequestID,
+				AgentID:   request.Roles.Synthesizer,
+				Role:      "synthesizer",
+			},
+			TaskSpec:   request.TaskSpec,
+			Round:      amendRound,
+			Claims:     atoms,
+			Draft:      &current,
+			Amendments: revisions,
+		}, "修正意见未整合，合成稿以修正前版本进入投票")
+		if !integratedOK {
+			break
+		}
+		statement := strings.TrimSpace(integrated.Statement)
+		if statement == "" {
+			break
+		}
+		claims[canonicalIdx].Statement = statement
+		if title := strings.TrimSpace(integrated.Title); title != "" {
+			claims[canonicalIdx].Title = title
+		}
+		claims[canonicalIdx].EvidenceRefs = appendUnique(claims[canonicalIdx].EvidenceRefs, integratedEntryID)
+	}
+	return claims
+}
+
+// executeSynthesisTask runs one synthesizer call, records ledger evidence,
+// and converts failures into step_skipped degradations with the given impact.
+func (e *Engine) executeSynthesisTask(ctx context.Context, request StartRequest, run *workflowRun, task SynthesisTask, failureImpact string) (ClaimDraft, string, bool) {
+	receipt, awaited, err := e.executeTask(ctx, request, run.sessionID, task, run.startedAt, request.WaitingPolicy.PerTaskTimeout)
+	run.metrics.TasksDispatched++
+	if err != nil {
+		if errors.Is(err, ErrGlobalDeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			run.metrics.GlobalDeadlineHit = true
+		}
+		_, _ = e.appendEvidence(ctx, request, run.sessionID, &run.ledgerEntries, &run.ledgerCursor, EvidenceRecord{
+			Kind:         EvidenceKindDebateSynthesis,
+			Source:       EvidenceSourceWorker,
+			ProducerID:   request.Roles.Synthesizer,
+			ProducerRole: "synthesizer",
+			Summary:      "synthesis failed: " + err.Error(),
+			Artifact:     awaited.Artifact,
+			Metadata:     map[string]any{"taskId": receipt.TaskID, "taskKind": TaskKindSynthesis, "round": task.Round, "status": "failed"},
+		})
+		run.addDegradation(Degradation{
+			Kind:    DegradationStepSkipped,
+			Phase:   "synthesis",
+			Round:   task.Round,
+			AgentID: request.Roles.Synthesizer,
+			Reason:  err.Error(),
+			Impact:  failureImpact,
+		})
+		return ClaimDraft{}, "", false
+	}
+	output, ok := awaited.Output.(SynthesisTaskResult)
+	if !ok || strings.TrimSpace(output.Output.Claim.Statement) == "" {
+		reason := "synthesis returned unexpected result type"
+		if ok {
+			reason = "synthesis returned an empty claim statement"
+		}
+		_, _ = e.appendEvidence(ctx, request, run.sessionID, &run.ledgerEntries, &run.ledgerCursor, EvidenceRecord{
+			Kind:         EvidenceKindDebateSynthesis,
+			Source:       EvidenceSourceWorker,
+			ProducerID:   request.Roles.Synthesizer,
+			ProducerRole: "synthesizer",
+			Summary:      reason,
+			Artifact:     awaited.Artifact,
+			Metadata:     map[string]any{"taskId": receipt.TaskID, "taskKind": TaskKindSynthesis, "round": task.Round, "status": "failed"},
+		})
+		run.addDegradation(Degradation{
+			Kind:    DegradationStepSkipped,
+			Phase:   "synthesis",
+			Round:   task.Round,
+			AgentID: request.Roles.Synthesizer,
+			Reason:  reason,
+			Impact:  failureImpact,
+		})
+		return ClaimDraft{}, "", false
+	}
+	entry, appendErr := e.appendEvidence(ctx, request, run.sessionID, &run.ledgerEntries, &run.ledgerCursor, EvidenceRecord{
+		Kind:         EvidenceKindDebateSynthesis,
+		Source:       EvidenceSourceWorker,
+		ProducerID:   request.Roles.Synthesizer,
+		ProducerRole: "synthesizer",
+		Summary:      output.Output.Summary,
+		Artifact:     awaited.Artifact,
+		Metadata:     map[string]any{"taskId": receipt.TaskID, "taskKind": TaskKindSynthesis, "round": task.Round, "status": "completed", "integration": task.Draft != nil},
+	})
+	entryID := ""
+	if appendErr == nil {
+		entryID = entry.EntryID
+	}
+	draft := canonicalizeDebateClaimDraft(output.Output.Claim)
+	return draft, entryID, true
+}
+
+func debateClaimIndex(claims []DebateClaim, claimID string) int {
+	for idx := range claims {
+		if claims[idx].ClaimID == claimID {
+			return idx
+		}
+	}
+	return -1
+}
+
 // truncateDebateNewClaims enforces the per-round new-claims budget: limit > 0
 // keeps the first limit drafts, limit < 0 drops all drafts (active-claim
 // ceiling reached), limit == 0 means no budget was set.
@@ -2275,6 +2520,7 @@ func upsertDebateClaim(claims []DebateClaim, draft ClaimDraft, ownerID string, r
 		ClaimID:      ids.NewEntityID("debate_claim"),
 		Title:        strings.TrimSpace(draft.Title),
 		Statement:    strings.TrimSpace(draft.Statement),
+		Category:     draft.Category,
 		OwnerID:      ownerID,
 		ProposedBy:   filterEmpty([]string{ownerID}),
 		Round:        round,

@@ -265,6 +265,7 @@ const (
 	EvidenceKindDebateRoundOpened    EvidenceKind = "debate_round_opened"
 	EvidenceKindDebateRoundOutput    EvidenceKind = "debate_round_output"
 	EvidenceKindDebateSemanticDedup  EvidenceKind = "debate_semantic_dedup"
+	EvidenceKindDebateSynthesis      EvidenceKind = "debate_synthesis"
 	EvidenceKindDebateVoteCast       EvidenceKind = "debate_vote_cast"
 	EvidenceKindDebateVoteQuorum     EvidenceKind = "debate_vote_quorum"
 	EvidenceKindDelphiRoundOpened    EvidenceKind = "delphi_round_opened"
@@ -490,24 +491,31 @@ const (
 )
 
 type DebateClaim struct {
-	ClaimID        string   `json:"claimId"`
-	Title          string   `json:"title,omitempty"`
-	Statement      string   `json:"statement"`
-	OwnerID        string   `json:"ownerId"`
-	ProposedBy     []string `json:"proposedBy,omitempty"`
-	Round          int      `json:"round"`
-	Active         bool     `json:"active"`
-	MergedInto     string   `json:"mergedInto,omitempty"`
-	MergedClaimIDs []string `json:"mergedClaimIds,omitempty"`
-	EvidenceRefs   []string `json:"evidenceRefs,omitempty"`
+	ClaimID   string `json:"claimId"`
+	Title     string `json:"title,omitempty"`
+	Statement string `json:"statement"`
+	// Category distinguishes atom claims (domain, the default) from the
+	// canonical synthesis claim produced by the synthesis phase.
+	Category       DebateClaimCategory `json:"category,omitempty"`
+	OwnerID        string              `json:"ownerId"`
+	ProposedBy     []string            `json:"proposedBy,omitempty"`
+	Round          int                 `json:"round"`
+	Active         bool                `json:"active"`
+	MergedInto     string              `json:"mergedInto,omitempty"`
+	MergedClaimIDs []string            `json:"mergedClaimIds,omitempty"`
+	EvidenceRefs   []string            `json:"evidenceRefs,omitempty"`
 }
 
 type DebateJudgementRecord struct {
-	ClaimID         string          `json:"claimId"`
-	Judgement       DebateJudgement `json:"judgement"`
-	Rationale       string          `json:"rationale,omitempty"`
-	RevisedClaimID  string          `json:"revisedClaimId,omitempty"`
-	MergeWithClaims []string        `json:"mergeWithClaims,omitempty"`
+	ClaimID        string          `json:"claimId"`
+	Judgement      DebateJudgement `json:"judgement"`
+	Rationale      string          `json:"rationale,omitempty"`
+	RevisedClaimID string          `json:"revisedClaimId,omitempty"`
+	// RevisedStatement carries the proposed replacement text when the
+	// judgement targets the synthesis draft (amendment rounds), where no new
+	// claim is created for the revision.
+	RevisedStatement string   `json:"revisedStatement,omitempty"`
+	MergeWithClaims  []string `json:"mergeWithClaims,omitempty"`
 }
 
 type DebateVoteRecord struct {

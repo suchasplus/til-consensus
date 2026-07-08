@@ -196,6 +196,18 @@ func buildDeterministic(task consensus.Task, agent config.AgentConfig) any {
 			"summary": "semantic dedup by " + agent.ID,
 			"merges":  []map[string]any{},
 		}
+	case consensus.SynthesisTask:
+		statement := "Synthesized recommendation by " + agent.ID + " covering " + fmt.Sprintf("%d", len(value.Claims)) + " claims."
+		if value.Draft != nil {
+			statement = value.Draft.Statement + " (integrated " + fmt.Sprintf("%d", len(value.Amendments)) + " amendments)"
+		}
+		return map[string]any{
+			"summary": "synthesis by " + agent.ID,
+			"claim": map[string]any{
+				"title":     "Panel synthesis",
+				"statement": statement,
+			},
+		}
 	case consensus.FinalVoteTask:
 		votes := make([]map[string]any, 0, len(value.Claims))
 		for idx, claim := range value.Claims {

@@ -13,6 +13,7 @@ const (
 	TaskKindInitialProposal          TaskKind = "initial_proposal"
 	TaskKindDebateRound              TaskKind = "debate_round"
 	TaskKindSemanticDedup            TaskKind = "semantic_dedup"
+	TaskKindSynthesis                TaskKind = "synthesis"
 	TaskKindFinalVote                TaskKind = "final_vote"
 	TaskKindDelphiQuestionnaire      TaskKind = "delphi_questionnaire"
 	TaskKindDelphiRevision           TaskKind = "delphi_revision"
@@ -33,15 +34,18 @@ type TaskMeta struct {
 }
 
 // DebateClaimCategory is the model's own classification of a debate claim:
-// substantive claims about the user's task (domain) versus observations about
-// the debate run itself (process). Schema-level self-classification replaces
-// keyword guessing as the primary meta-claim filter; process claims are
-// recorded as participant notes and never enter dedup or the final vote.
+// substantive claims about the user's task (domain), observations about the
+// debate run itself (process), or integrated-recommendation drafts
+// (synthesis). Schema-level self-classification replaces keyword guessing as
+// the primary meta-claim filter; process claims are recorded as participant
+// notes and never enter dedup or the final vote, synthesis claims become raw
+// material for the dedicated synthesis phase.
 type DebateClaimCategory string
 
 const (
-	DebateClaimCategoryDomain  DebateClaimCategory = "domain"
-	DebateClaimCategoryProcess DebateClaimCategory = "process"
+	DebateClaimCategoryDomain    DebateClaimCategory = "domain"
+	DebateClaimCategoryProcess   DebateClaimCategory = "process"
+	DebateClaimCategorySynthesis DebateClaimCategory = "synthesis"
 )
 
 type ClaimDraft struct {
@@ -270,12 +274,44 @@ type DebateRoundTask struct {
 	// MaxNewClaims is the per-round budget for newClaims: > 0 caps the count
 	// (extras are discarded by the coordinator), < 0 forbids new claims
 	// entirely (active-claim ceiling reached), 0 means no budget was set.
-	MaxNewClaims    int    `json:"maxNewClaims,omitempty"`
+	MaxNewClaims int `json:"maxNewClaims,omitempty"`
+	// SynthesisReview marks an amendment round on the canonical synthesis
+	// draft: PeerClaims holds only the draft and the expected output is one
+	// agree/revise judgement on it.
+	SynthesisReview bool   `json:"synthesisReview,omitempty"`
 	PeerContextMode string `json:"peerContextMode,omitempty"`
 }
 
 func (DebateRoundTask) Kind() TaskKind   { return TaskKindDebateRound }
 func (t DebateRoundTask) Meta() TaskMeta { return t.TaskMeta }
+
+// SynthesisTask asks the synthesizer to draft (or, when Draft and Amendments
+// are set, to integrate amendments into) the single canonical synthesis claim
+// that goes to the final vote. Claims are the active atom claims; Drafts are
+// the participants' own category=synthesis claims consumed as raw material.
+type SynthesisTask struct {
+	TaskMeta
+	TaskSpec   TaskSpec                `json:"taskSpec"`
+	Round      int                     `json:"round"`
+	Claims     []DebateClaim           `json:"claims"`
+	Drafts     []DebateClaim           `json:"drafts,omitempty"`
+	Draft      *DebateClaim            `json:"draft,omitempty"`
+	Amendments []DebateJudgementRecord `json:"amendments,omitempty"`
+}
+
+func (SynthesisTask) Kind() TaskKind   { return TaskKindSynthesis }
+func (t SynthesisTask) Meta() TaskMeta { return t.TaskMeta }
+
+type SynthesisOutput struct {
+	Summary string     `json:"summary"`
+	Claim   ClaimDraft `json:"claim"`
+}
+
+type SynthesisTaskResult struct {
+	Output SynthesisOutput `json:"output"`
+}
+
+func (SynthesisTaskResult) Kind() TaskKind { return TaskKindSynthesis }
 
 type DebateJudgementDraft struct {
 	ClaimID          string          `json:"claimId"`

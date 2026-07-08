@@ -79,6 +79,35 @@ func TestResolveRunPlanFallsBackToBuiltinCriteria(t *testing.T) {
 	}
 }
 
+func TestResolveRunPlanCarriesSynthesizerAndPolicy(t *testing.T) {
+	loaded := mismatchScaffoldConfig()
+	loaded.Config.Agents = append(loaded.Config.Agents, AgentConfig{ID: "syn-1", Provider: "mock", Model: "default"})
+	loaded.Config.Roles.FreeDebate.Synthesizer = "syn-1"
+	loaded.Config.Defaults.DebatePolicy.Synthesis = DebateSynthesisConfig{Enabled: true, AmendmentRounds: 2}
+	loaded.Config = Normalize(loaded.Config)
+	plan, err := ResolveRunPlan(loaded, RunInput{TaskSpec: TaskSpecInput{Goal: "debate this"}}, RunOverrides{
+		Mode: consensus.WorkflowModeFreeDebate,
+	}, time.Unix(1700000000, 0))
+	if err != nil {
+		t.Fatalf("ResolveRunPlan failed: %v", err)
+	}
+	if plan.StartRequest.Roles.Synthesizer != "syn-1" {
+		t.Fatalf("expected synthesizer role carried, got %#v", plan.StartRequest.Roles)
+	}
+	policy := plan.StartRequest.DebatePolicy.Synthesis
+	if !policy.Enabled || policy.AmendmentRounds != 2 {
+		t.Fatalf("expected synthesis policy carried, got %#v", policy)
+	}
+}
+
+func TestValidateDefaultsSynthesisAmendmentRounds(t *testing.T) {
+	cfg := Config{}
+	cfg.Defaults.DebatePolicy.Synthesis.AmendmentRounds = 4
+	if err := validateDefaults(cfg); err == nil || !strings.Contains(err.Error(), "amendment_rounds") {
+		t.Fatalf("expected amendment_rounds range error, got %v", err)
+	}
+}
+
 func TestResolveRunPlanKeepsExplicitCriteriaAndMatchingMode(t *testing.T) {
 	loaded := mismatchScaffoldConfig()
 	// Explicit input criteria are user intent: never swapped, no notice.

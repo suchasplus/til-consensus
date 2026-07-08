@@ -9,4 +9,5 @@ roles:
       - participant-claude-cli
       - participant-codex-cli
     semantic_deduper: deduper-gemini-api
+    synthesizer: synthesizer-deepseek-api
     reporter: reporter-dashscope-api

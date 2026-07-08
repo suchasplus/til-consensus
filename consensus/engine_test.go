@@ -157,6 +157,9 @@ type stubDelegate struct {
 	failKinds       map[TaskKind]int
 	failAgentKinds  map[string]int // key: agentID+"/"+kind, value: remaining forced failures
 	mergeFirstTwo   bool
+	// reviseSynthesis makes participants propose this replacement text when
+	// reviewing the synthesis draft (amendment rounds).
+	reviseSynthesis string
 }
 
 func (d *stubDelegate) Dispatch(_ context.Context, task Task) (DispatchReceipt, error) {
@@ -260,6 +263,22 @@ func (d *stubDelegate) Await(_ context.Context, taskID string, _ time.Duration) 
 			}},
 		}}}, nil
 	case DebateRoundTask:
+		if value.SynthesisReview {
+			judgement := DebateJudgementDraft{
+				ClaimID:   value.PeerClaims[0].ClaimID,
+				Judgement: DebateJudgementAgree,
+				Rationale: "draft is fair",
+			}
+			if d.reviseSynthesis != "" {
+				judgement.Judgement = DebateJudgementRevise
+				judgement.Rationale = "needs one fix"
+				judgement.RevisedStatement = d.reviseSynthesis
+			}
+			return AwaitedTask{OK: true, Output: DebateRoundTaskResult{Output: DebateRoundOutput{
+				Summary:    "synthesis review",
+				Judgements: []DebateJudgementDraft{judgement},
+			}}}, nil
+		}
 		judgements := make([]DebateJudgementDraft, 0, len(value.PeerClaims))
 		for _, claim := range value.PeerClaims {
 			judgements = append(judgements, DebateJudgementDraft{
@@ -272,6 +291,15 @@ func (d *stubDelegate) Await(_ context.Context, taskID string, _ time.Duration) 
 			Summary:    "debate round",
 			NewClaims:  debateDrafts,
 			Judgements: judgements,
+		}}}, nil
+	case SynthesisTask:
+		statement := fmt.Sprintf("stub synthesis over %d atoms and %d drafts", len(value.Claims), len(value.Drafts))
+		if value.Draft != nil {
+			statement = value.Draft.Statement + " [amended]"
+		}
+		return AwaitedTask{OK: true, Output: SynthesisTaskResult{Output: SynthesisOutput{
+			Summary: "synthesis",
+			Claim:   ClaimDraft{Title: "Panel synthesis", Statement: statement},
 		}}}, nil
 	case SemanticDedupTask:
 		merges := []DebateClaimMergeDraft(nil)

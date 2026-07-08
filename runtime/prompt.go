@@ -96,6 +96,8 @@ func taskPromptHints(task consensus.Task) []string {
 		return debateRoundPromptHints(typed)
 	case consensus.SemanticDedupTask:
 		return semanticDedupPromptHints(typed)
+	case consensus.SynthesisTask:
+		return synthesisPromptHints(typed)
 	case consensus.FinalVoteTask:
 		return finalVotePromptHints(typed)
 	default:
@@ -119,6 +121,8 @@ func taskRepairHints(task consensus.Task) []string {
 		return debateRoundRepairHints(typed)
 	case consensus.SemanticDedupTask:
 		return semanticDedupRepairHints(typed)
+	case consensus.SynthesisTask:
+		return synthesisRepairHints()
 	case consensus.FinalVoteTask:
 		return finalVoteRepairHints()
 	default:
@@ -138,8 +142,9 @@ func proposalPromptHints() []string {
 
 func debateClaimCategoryHints() []string {
 	return []string{
-		"- Label every claim with category: domain for substantive claims about the user's task, or process for observations about this debate run itself (peer claim counts, redundancy, dedup or workflow hygiene).",
+		"- Label every claim with category: domain for substantive claims about the user's task, process for observations about this debate run itself (peer claim counts, redundancy, dedup or workflow hygiene), or synthesis for an integrated overall recommendation that summarizes the emerging consensus.",
 		"- category=process entries are recorded as coordination notes and never enter dedup or the final vote, so do not spend claim budget on them.",
+		"- category=synthesis entries become raw material for the dedicated synthesis phase instead of competing on the ballot. Never write an overall-recommendation claim as category=domain, and if a synthesis claim already exists among the peer claims, revise it via judgements instead of writing your own.",
 	}
 }
 
@@ -165,6 +170,7 @@ func semanticDedupPromptHints(task consensus.SemanticDedupTask) []string {
 		"- Semantic dedup compares only the provided active claims.",
 		"- Return merges only when two claims have the same practical meaning or one is a strict paraphrase of the other.",
 		"- Do not merge claims that are merely related, complementary, or in tension.",
+		"- Exception: claims that advocate the same overall recommendation and differ only in level of detail ARE duplicates; merge them into the most complete statement.",
 		"- Do not create, rewrite, split, or delete claim text. Only emit sourceClaimId -> targetClaimId merge decisions.",
 		"- targetClaimId must be the better canonical claim: clearer, broader provenance, or earlier round if otherwise equal.",
 		"- similarity must be a JSON number and must be >= " + threshold + ".",
@@ -184,6 +190,29 @@ func semanticDedupRepairHints(task consensus.SemanticDedupTask) []string {
 	}
 }
 
+func synthesisPromptHints(task consensus.SynthesisTask) []string {
+	lines := []string{
+		"- You are the panel's rapporteur. Produce exactly ONE claim: the integrated recommendation that answers the user's task, synthesized from the atom claims (claims) and the participants' synthesis drafts (drafts).",
+		"- The claim must be self-contained: the recommendation layers/conditions, when each applies, key caveats, minority positions worth preserving, and unresolved disagreements.",
+		"- Do not invent positions absent from the input claims; do not drop a minority position that at least one participant defended.",
+		"- Return {\"summary\": \"...\", \"claim\": {\"title\": \"...\", \"statement\": \"...\"}} and nothing else.",
+	}
+	if task.Draft != nil {
+		lines = append(lines,
+			"- This is an amendment-integration pass: draft holds the current canonical statement and amendments holds the panel's revise/disagree feedback (each rationale is prefixed by the reviewer's id; revisedStatement carries proposed replacement text).",
+			"- Integrate the amendments faithfully: adopt compatible revisions, reconcile conflicting ones by keeping both positions explicit, and never silently drop a reviewer's objection.",
+		)
+	}
+	return lines
+}
+
+func synthesisRepairHints() []string {
+	return []string{
+		"- Return exactly one claim object with a non-empty statement; move any extra claims' content into that single statement.",
+		"- Keep the same synthesis content; only fix the JSON structure.",
+	}
+}
+
 func finalVotePromptHints(task consensus.FinalVoteTask) []string {
 	ids := make([]string, 0, len(task.Claims))
 	for _, claim := range task.Claims {
@@ -200,6 +229,12 @@ func finalVotePromptHints(task consensus.FinalVoteTask) []string {
 		"- Use intermediate confidence values to express partial support, caveated support, or live disagreement; do not collapse everything to 0 or 1.",
 		"- Calibrate scores comparatively across the whole ballot: the claims you would actually stake the conclusion on belong near the top of your range, weaker or more redundant ones lower. Giving every claim the same confidence is invalid.",
 		"- confidence must be a JSON number, not a string.",
+	}
+	for _, claim := range task.Claims {
+		if claim.Category == consensus.DebateClaimCategorySynthesis {
+			lines = append(lines, "- Claim "+claim.ClaimID+" is the panel's amended synthesis draft (the integrated recommendation). Vote on it like any claim; accepting it ratifies the recommendation.")
+			break
+		}
 	}
 	if len(ids) > 0 {
 		lines = append(lines,
@@ -384,6 +419,9 @@ func arbiterExampleLines(claims []consensus.ClaimNode) []string {
 }
 
 func debateRoundPromptHints(task consensus.DebateRoundTask) []string {
+	if task.SynthesisReview {
+		return synthesisReviewPromptHints(task)
+	}
 	validIDs := debateRoundPeerClaimIDs(task)
 	lines := []string{
 		"- The canonical debate-round fields are: summary, newClaims, judgements[].claimId, judgements[].judgement, judgements[].rationale, judgements[].revisedStatement, judgements[].mergeWithClaims.",
@@ -413,6 +451,20 @@ func debateRoundPromptHints(task consensus.DebateRoundTask) []string {
 	lines = append(lines, fmt.Sprintf("- Valid peer claim IDs for this task: %s.", strings.Join(validIDs, ", ")))
 	lines = append(lines, "- Use only those IDs in judgements[].claimId.")
 	lines = append(lines, debateRoundExampleLines(validIDs)...)
+	return lines
+}
+
+func synthesisReviewPromptHints(task consensus.DebateRoundTask) []string {
+	lines := []string{
+		"- This is an amendment review of the panel's canonical synthesis draft: peerClaims contains exactly that one draft.",
+		"- Return newClaims as an empty array. Your entire output is one judgement on the draft.",
+		"- If the draft fairly represents the debate (including your positions), use judgement=agree.",
+		"- If something important is wrong or missing, use judgement=revise with revisedStatement carrying the complete replacement text (the full statement, not a diff), and explain the change in rationale.",
+		"- Use judgement=disagree only if the draft misrepresents the debate so badly that no revision of yours can fix it; say why in rationale.",
+	}
+	if ids := debateRoundPeerClaimIDs(task); len(ids) > 0 {
+		lines = append(lines, "- The only valid judgements[].claimId is "+ids[0]+".")
+	}
 	return lines
 }
 

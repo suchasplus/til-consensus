@@ -240,6 +240,7 @@ func mergeRoles(base RolesConfig, overlay RolesConfig) RolesConfig {
 		out.FreeDebate.Participants = cloneStrings(overlay.FreeDebate.Participants)
 	}
 	out.FreeDebate.SemanticDeduper = pickString(out.FreeDebate.SemanticDeduper, overlay.FreeDebate.SemanticDeduper)
+	out.FreeDebate.Synthesizer = pickString(out.FreeDebate.Synthesizer, overlay.FreeDebate.Synthesizer)
 	out.FreeDebate.Reporter = pickString(out.FreeDebate.Reporter, overlay.FreeDebate.Reporter)
 	out.FreeDebate.Actor = pickString(out.FreeDebate.Actor, overlay.FreeDebate.Actor)
 	if len(overlay.Delphi.Participants) > 0 {
@@ -365,6 +366,12 @@ func mergeDebatePolicy(base DebatePolicyConfig, overlay DebatePolicyConfig) Deba
 	}
 	if overlay.SemanticDedup.Cadence != "" {
 		out.SemanticDedup.Cadence = overlay.SemanticDedup.Cadence
+	}
+	if overlay.Synthesis.Enabled {
+		out.Synthesis.Enabled = true
+	}
+	if overlay.Synthesis.AmendmentRounds != 0 {
+		out.Synthesis.AmendmentRounds = overlay.Synthesis.AmendmentRounds
 	}
 	return out
 }

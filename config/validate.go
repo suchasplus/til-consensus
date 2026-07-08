@@ -242,6 +242,7 @@ func validateRoles(cfg Config, knownAgents map[string]struct{}) error {
 	}
 	for field, id := range map[string]string{
 		"roles.free_debate.semantic_deduper": roles.FreeDebate.SemanticDeduper,
+		"roles.free_debate.synthesizer":      roles.FreeDebate.Synthesizer,
 		"roles.free_debate.reporter":         roles.FreeDebate.Reporter,
 		"roles.free_debate.actor":            roles.FreeDebate.Actor,
 	} {
@@ -344,6 +345,9 @@ func validateDefaults(cfg Config) error {
 	}
 	if cfg.Defaults.DebatePolicy.MaxActiveClaims < 0 {
 		return fmt.Errorf("defaults.debate_policy.max_active_claims must be >= 0")
+	}
+	if rounds := cfg.Defaults.DebatePolicy.Synthesis.AmendmentRounds; rounds < 0 || rounds > 3 {
+		return fmt.Errorf("defaults.debate_policy.synthesis.amendment_rounds must be within [0, 3]")
 	}
 	return nil
 }

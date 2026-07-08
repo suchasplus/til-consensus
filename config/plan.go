@@ -114,6 +114,10 @@ func ResolveRunPlan(loaded LoadedConfig, input RunInput, overrides RunOverrides,
 			SimilarityThreshold: pickFloat(input.DebatePolicy.SemanticDedup.SimilarityThreshold, cfg.Defaults.DebatePolicy.SemanticDedup.SimilarityThreshold, 0.85),
 			Cadence:             consensus.DebateSemanticDedupCadence(firstNonEmpty(input.DebatePolicy.SemanticDedup.Cadence, cfg.Defaults.DebatePolicy.SemanticDedup.Cadence)),
 		},
+		Synthesis: consensus.DebateSynthesisPolicy{
+			Enabled:         cfg.Defaults.DebatePolicy.Synthesis.Enabled || input.DebatePolicy.Synthesis.Enabled,
+			AmendmentRounds: pickInt(input.DebatePolicy.Synthesis.AmendmentRounds, cfg.Defaults.DebatePolicy.Synthesis.AmendmentRounds),
+		},
 	}
 	if !debatePolicy.EnableEarlyStop {
 		debatePolicy.EnableEarlyStop = true
@@ -325,6 +329,7 @@ func resolveRoles(mode consensus.WorkflowMode, cfg RolesConfig, input RolesConfi
 		Arbiter:          firstNonEmpty(overrides.Arbiter, inputRoles.Arbiter, cfgRoles.Arbiter),
 		SemanticVerifier: firstNonEmpty(overrides.SemanticVerifier, inputRoles.SemanticVerifier, cfgRoles.SemanticVerifier),
 		SemanticDeduper:  firstNonEmpty(overrides.SemanticDeduper, inputRoles.SemanticDeduper, cfgRoles.SemanticDeduper),
+		Synthesizer:      firstNonEmpty(inputRoles.Synthesizer, cfgRoles.Synthesizer),
 		Facilitator:      firstNonEmpty(overrides.Facilitator, inputRoles.Facilitator, cfgRoles.Facilitator),
 		Reporter:         firstNonEmpty(overrides.Reporter, inputRoles.Reporter, cfgRoles.Reporter),
 		Actor:            firstNonEmpty(overrides.Actor, inputRoles.Actor, cfgRoles.Actor),

@@ -171,6 +171,8 @@ profiles:
 - `debate_policy.semantic_dedup.enabled`
 - `debate_policy.semantic_dedup.similarity_threshold`
 - `debate_policy.semantic_dedup.cadence`（`per_round`（默认，每轮结束去重一次）或 `final`（只在投票前去重一次，即旧行为））
+- `debate_policy.synthesis.enabled`（合成阶段开关，需同时配置 `roles.free_debate.synthesizer`）
+- `debate_policy.synthesis.amendment_rounds`（合成稿的修正评审轮数，0–3，0 = 草案直接进投票）
 
 启用 `semantic_dedup` 时，还必须配置 `roles.free_debate.semantic_deduper`。这个 agent 会走正常的 CLI/API provider 调用链路，并输出结构化的 claim merge 建议；系统不会使用本地文本相似度 fallback。如果希望强制外部 API 依赖，把 semantic deduper agent 绑定到 `type: api` provider 即可。
 

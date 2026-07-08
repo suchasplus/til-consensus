@@ -306,6 +306,33 @@ func TestNormalizeFinalVoteRejectsUniformBallots(t *testing.T) {
 	}
 }
 
+func TestNormalizeSynthesisOutput(t *testing.T) {
+	task := consensus.SynthesisTask{TaskMeta: consensus.TaskMeta{AgentID: "synthesizer-1"}}
+	result, err := NormalizeTaskOutputFromText(task, `{"summary":"synthesized","claim":{"title":"Panel synthesis","statement":"the integrated recommendation"}}`)
+	if err != nil {
+		t.Fatalf("NormalizeTaskOutputFromText failed: %v", err)
+	}
+	typed, ok := result.(consensus.SynthesisTaskResult)
+	if !ok || typed.Output.Claim.Statement != "the integrated recommendation" {
+		t.Fatalf("unexpected synthesis output: %#v", result)
+	}
+	if _, err := NormalizeTaskOutputFromText(task, `{"summary":"synthesized","claim":{"title":"no statement"}}`); err == nil {
+		t.Fatal("expected missing claim.statement to fail")
+	}
+	if _, err := NormalizeTaskOutputFromText(task, `{"claim":{"statement":"text"}}`); err == nil {
+		t.Fatal("expected missing summary to fail")
+	}
+}
+
+func TestNormalizeDebateClaimsAcceptSynthesisCategory(t *testing.T) {
+	_, err := NormalizeTaskOutputFromText(consensus.DebateRoundTask{
+		TaskMeta: consensus.TaskMeta{AgentID: "participant-1"},
+	}, `{"summary":"debate","newClaims":[{"statement":"整体推荐分层方案","category":"synthesis"}],"judgements":[]}`)
+	if err != nil {
+		t.Fatalf("expected category=synthesis to pass normalize, got %v", err)
+	}
+}
+
 func TestNormalizeArbiterOutputRejectsMissingVerdict(t *testing.T) {
 	_, err := NormalizeTaskOutput(consensus.ArbiterTask{
 		TaskMeta: consensus.TaskMeta{AgentID: "arbiter-1"},
@@ -584,7 +611,7 @@ func TestNormalizeDebateRoundOutputAcceptsMetaClaimsForEngineRouting(t *testing.
 	// The category label itself is validated as an enum.
 	if _, err := NormalizeTaskOutputFromText(consensus.DebateRoundTask{
 		TaskMeta: consensus.TaskMeta{AgentID: "participant-1"},
-	}, `{"summary":"debate","newClaims":[{"statement":"观察","category":"meta"}],"judgements":[]}`); err == nil || !strings.Contains(err.Error(), "category must be domain or process") {
+	}, `{"summary":"debate","newClaims":[{"statement":"观察","category":"meta"}],"judgements":[]}`); err == nil || !strings.Contains(err.Error(), "category must be domain, process, or synthesis") {
 		t.Fatalf("expected invalid category to fail, got %v", err)
 	}
 	if _, err := NormalizeTaskOutputFromText(consensus.DebateRoundTask{

@@ -250,6 +250,11 @@ func appendFreeDebateVoteSection(lines []string, section *FreeDebateResultSectio
 	if len(section.ClaimResolutions) == 0 {
 		return lines
 	}
+	categories := map[string]DebateClaimCategory{}
+	for _, claim := range section.Claims {
+		categories[claim.ClaimID] = claim.Category
+	}
+	synthesis := make([]DebateClaimResolution, 0)
 	accepted := make([]DebateClaimResolution, 0)
 	notAccepted := make([]DebateClaimResolution, 0)
 	unvoted := make([]DebateClaimResolution, 0)
@@ -258,6 +263,8 @@ func appendFreeDebateVoteSection(lines []string, section *FreeDebateResultSectio
 		switch {
 		case item.MergedInto != "":
 			merged = append(merged, item)
+		case categories[item.ClaimID] == DebateClaimCategorySynthesis:
+			synthesis = append(synthesis, item)
 		case item.Accepted:
 			accepted = append(accepted, item)
 		case item.VoteCount > 0 || item.IncoherentVotes > 0:
@@ -275,6 +282,17 @@ func appendFreeDebateVoteSection(lines []string, section *FreeDebateResultSectio
 	bySupportDesc(notAccepted)
 
 	lines = append(lines, "", "## Final Vote")
+	if len(synthesis) > 0 {
+		lines = append(lines, "", "### Synthesis")
+		for _, item := range synthesis {
+			lines = appendVoteResolutionLines(lines, item)
+			if item.Accepted {
+				lines = append(lines, "  → ratified: 该综合推荐获小组投票批准")
+			} else {
+				lines = append(lines, "  → not ratified: 综合推荐未达支持阈值，见 Conclusion 与少数意见")
+			}
+		}
+	}
 	if len(accepted) > 0 {
 		lines = append(lines, "", fmt.Sprintf("### Accepted (%d)", len(accepted)))
 		for _, item := range accepted {

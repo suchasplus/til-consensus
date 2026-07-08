@@ -27,12 +27,20 @@ defaults:
   debate_policy:
     min_rounds: 2
     max_rounds: 3
-    vote_threshold: 0.67
+    support_threshold: 0.67
+    vote_aggregation: median
+    vote_quorum: 0.6
+    max_new_claims_per_round: 5
+    max_active_claims: 30
     enable_early_stop: true
     peer_context_mode: summary+active_claims
     semantic_dedup:
       enabled: true
       similarity_threshold: 0.85
+      cadence: per_round
+    synthesis:
+      enabled: true
+      amendment_rounds: 1
   delphi_policy:
     min_rounds: 2
     max_rounds: 3

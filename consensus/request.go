@@ -152,6 +152,7 @@ type RoleAssignments struct {
 	Arbiter          string   `json:"arbiter,omitempty" yaml:"arbiter,omitempty"`
 	SemanticVerifier string   `json:"semanticVerifier,omitempty" yaml:"semantic_verifier,omitempty"`
 	SemanticDeduper  string   `json:"semanticDeduper,omitempty" yaml:"semantic_deduper,omitempty"`
+	Synthesizer      string   `json:"synthesizer,omitempty" yaml:"synthesizer,omitempty"`
 	Facilitator      string   `json:"facilitator,omitempty" yaml:"facilitator,omitempty"`
 	Reporter         string   `json:"reporter,omitempty" yaml:"reporter,omitempty"`
 	Actor            string   `json:"actor,omitempty" yaml:"actor,omitempty"`
@@ -226,6 +227,19 @@ type DebatePolicy struct {
 	EnableEarlyStop bool                      `json:"enableEarlyStop" yaml:"enable_early_stop"`
 	PeerContextMode string                    `json:"peerContextMode,omitempty" yaml:"peer_context_mode,omitempty"`
 	SemanticDedup   DebateSemanticDedupPolicy `json:"semanticDedup,omitempty" yaml:"semantic_dedup,omitempty"`
+	Synthesis       DebateSynthesisPolicy     `json:"synthesis,omitempty" yaml:"synthesis,omitempty"`
+}
+
+// DebateSynthesisPolicy controls the pre-vote synthesis phase: a designated
+// synthesizer drafts the single canonical integrated-recommendation claim
+// from the atom claims and the participants' category=synthesis drafts, the
+// panel amends it, and the amended draft joins the final-vote ballot. Enabled
+// requires Roles.Synthesizer; otherwise the phase is skipped.
+type DebateSynthesisPolicy struct {
+	Enabled bool `json:"enabled" yaml:"enabled"`
+	// AmendmentRounds is how many amendment passes the panel gets on the
+	// draft (0 = the draft goes straight to the ballot).
+	AmendmentRounds int `json:"amendmentRounds,omitempty" yaml:"amendment_rounds,omitempty"`
 }
 
 // DebateSemanticDedupCadence selects when the semantic deduper runs.
@@ -657,6 +671,9 @@ func ValidateStartRequest(in StartRequest) error {
 	}
 	if in.DebatePolicy.MaxActiveClaims < 0 {
 		return fmt.Errorf("debate_policy.max_active_claims must be >= 0")
+	}
+	if rounds := in.DebatePolicy.Synthesis.AmendmentRounds; rounds < 0 || rounds > 3 {
+		return fmt.Errorf("debate_policy.synthesis.amendment_rounds must be within [0, 3]")
 	}
 	if in.WaitingPolicy.GlobalDeadline < 0 {
 		return fmt.Errorf("waiting_policy.global_deadline must be >= 0")

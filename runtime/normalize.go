@@ -65,6 +65,20 @@ func TaskOutputJSONSchema(task consensus.Task) map[string]any {
 				"merges":  arraySchema(debateClaimMergeSchema()),
 			},
 		)
+	case consensus.SynthesisTask:
+		return objectSchema(
+			[]string{"summary", "claim"},
+			map[string]any{
+				"summary": schemaString(),
+				"claim": objectSchema(
+					[]string{"statement"},
+					map[string]any{
+						"title":     schemaString(),
+						"statement": schemaString(),
+					},
+				),
+			},
+		)
 	case consensus.FinalVoteTask:
 		return objectSchema(
 			[]string{"summary", "votes"},
@@ -391,6 +405,18 @@ func decodeTaskOutputFromJSON(task consensus.Task, payload []byte) (consensus.Ta
 			return nil, fmt.Errorf("validate semantic dedup output: %w", err)
 		}
 		return consensus.SemanticDedupTaskResult{Output: output}, nil
+	case consensus.SynthesisTask:
+		var output consensus.SynthesisOutput
+		if err := json.Unmarshal(payload, &output); err != nil {
+			return nil, fmt.Errorf("decode synthesis output: %w", err)
+		}
+		if strings.TrimSpace(output.Summary) == "" {
+			return nil, fmt.Errorf("synthesis output missing summary")
+		}
+		if strings.TrimSpace(output.Claim.Statement) == "" {
+			return nil, fmt.Errorf("synthesis output missing claim.statement")
+		}
+		return consensus.SynthesisTaskResult{Output: output}, nil
 	case consensus.FinalVoteTask:
 		var output consensus.FinalVoteOutput
 		if err := json.Unmarshal(payload, &output); err != nil {
@@ -520,7 +546,7 @@ func proposalClaimDraftSchema() map[string]any {
 func debateClaimDraftSchema() map[string]any {
 	schema := proposalClaimDraftSchema()
 	if properties, ok := schema["properties"].(map[string]any); ok {
-		properties["category"] = enumStringSchema([]string{string(consensus.DebateClaimCategoryDomain), string(consensus.DebateClaimCategoryProcess)})
+		properties["category"] = enumStringSchema([]string{string(consensus.DebateClaimCategoryDomain), string(consensus.DebateClaimCategoryProcess), string(consensus.DebateClaimCategorySynthesis)})
 	}
 	return schema
 }
@@ -1000,9 +1026,9 @@ func validateDebateVoteCalibration(votes []consensus.DebateVoteDraft) error {
 func validateDebateNewClaims(claims []consensus.ClaimDraft) error {
 	for idx, claim := range claims {
 		switch claim.Category {
-		case "", consensus.DebateClaimCategoryDomain, consensus.DebateClaimCategoryProcess:
+		case "", consensus.DebateClaimCategoryDomain, consensus.DebateClaimCategoryProcess, consensus.DebateClaimCategorySynthesis:
 		default:
-			return fmt.Errorf("claims[%d].category must be domain or process, got %q", idx, claim.Category)
+			return fmt.Errorf("claims[%d].category must be domain, process, or synthesis, got %q", idx, claim.Category)
 		}
 	}
 	return nil

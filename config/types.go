@@ -112,6 +112,7 @@ type AdjudicationRolesConfig struct {
 type DebateRolesConfig struct {
 	Participants    []string `yaml:"participants,omitempty"`
 	SemanticDeduper string   `yaml:"semantic_deduper,omitempty"`
+	Synthesizer     string   `yaml:"synthesizer,omitempty"`
 	Reporter        string   `yaml:"reporter,omitempty"`
 	Actor           string   `yaml:"actor,omitempty"`
 }
@@ -135,6 +136,7 @@ func (r AdjudicationRolesConfig) IsZero() bool {
 func (r DebateRolesConfig) IsZero() bool {
 	return len(r.Participants) == 0 &&
 		strings.TrimSpace(r.SemanticDeduper) == "" &&
+		strings.TrimSpace(r.Synthesizer) == "" &&
 		strings.TrimSpace(r.Reporter) == "" &&
 		strings.TrimSpace(r.Actor) == ""
 }
@@ -191,6 +193,7 @@ type DebatePolicyConfig struct {
 	EnableEarlyStop bool                      `yaml:"enable_early_stop"`
 	PeerContextMode string                    `yaml:"peer_context_mode,omitempty"`
 	SemanticDedup   DebateSemanticDedupConfig `yaml:"semantic_dedup,omitempty"`
+	Synthesis       DebateSynthesisConfig     `yaml:"synthesis,omitempty"`
 }
 
 type DebateSemanticDedupConfig struct {
@@ -198,6 +201,13 @@ type DebateSemanticDedupConfig struct {
 	SimilarityThreshold float64 `yaml:"similarity_threshold,omitempty"`
 	// Cadence is per_round (default) or final.
 	Cadence string `yaml:"cadence,omitempty"`
+}
+
+// DebateSynthesisConfig enables the pre-vote synthesis phase; it requires
+// roles.free_debate.synthesizer to be configured.
+type DebateSynthesisConfig struct {
+	Enabled         bool `yaml:"enabled"`
+	AmendmentRounds int  `yaml:"amendment_rounds,omitempty"`
 }
 
 type DelphiPolicyConfig struct {

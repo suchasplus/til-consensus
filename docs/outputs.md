@@ -74,6 +74,7 @@ out/tc_xxx/
 - debate rounds。`rounds[].participantOutputs[].processNotes` 保存被分类为 `category=process` 的元观察（或关键词兜底命中的），它们不进入投票。
 - final votes，包括每票的 `confidence` 连续支持分数。
 - `claimResolutions[]`：每条 claim 的判定记录。`supportScore` 是接受判定实际使用的聚合支持分数（即 summary 中的 `support=`）；`supportRatio` 是 accept/reject 标签比例，仅作诊断；`incoherentVotes` 计数被剔除的标签-分数矛盾投票；`abstainingVoters` 记录弃权者。
+- 启用合成阶段时，`claims[]` 中 `category=synthesis` 且 active 的那条是 canonical 综合推荐（owner 为 synthesizer），summary 的 Final Vote 里单列 `### Synthesis` 组并标注 ratified / not ratified；`rounds[]` 中 `phase=amend` 的记录保存各参与者对草案的修正评审。
 - consensus / minority positions。
 
 `summary.md` 的布局为结论优先：头部元信息（含 `voters: N/M` 与 `accepted claims: X/Y ballot (Z%)`）→ Degradations → Conclusion → Retained/Downgraded Claims（`id — statement` 形式）→ Final Vote 明细。Final Vote 按 `Accepted / Not Accepted / No Votes / Merged` 分组，各组内按 `supportScore` 降序；被合并的 claim 折叠为一行 `id → merged into target`，不再与被否决的 claim 混淆。`freeDebate.ballotSize` 记录进入投票的 active claim 数量——通过率 100% 且 ballot 较大时，通常意味着 ballot 冗余或投票缺乏区分度，值得回看 claim 预算与去重配置。

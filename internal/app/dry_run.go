@@ -134,7 +134,7 @@ func buildDryRunPlan(loaded config.LoadedConfig, plan config.ResolvedRunPlan, so
 		TaskPreview: previewRunTask(plan.Task),
 		Roles:       plan.Roles,
 		Agents:      agents,
-		Phases:      phasesForMode(plan.Mode, plan.StartRequest.ActionPolicy != nil),
+		Phases:      phasesForMode(plan.Mode, plan.StartRequest.ActionPolicy != nil, plan.StartRequest.DebatePolicy.Synthesis.Enabled && plan.StartRequest.Roles.Synthesizer != ""),
 		Notices:     plan.Notices,
 		Output: dryRunOutput{
 			RunDir:          filepath.Dir(plan.ResultPath),
@@ -187,6 +187,7 @@ func renderDryRunText(plan dryRunPlan) string {
 	b.WriteString("  participants: " + strings.Join(plan.Roles.Participants, ",") + "\n")
 	b.WriteString("  semantic_verifier: " + plan.Roles.SemanticVerifier + "\n")
 	b.WriteString("  semantic_deduper: " + plan.Roles.SemanticDeduper + "\n")
+	b.WriteString("  synthesizer: " + plan.Roles.Synthesizer + "\n")
 	b.WriteString("  arbiter: " + plan.Roles.Arbiter + "\n")
 	b.WriteString("  facilitator: " + plan.Roles.Facilitator + "\n")
 	b.WriteString("  reporter: " + plan.Roles.Reporter + "\n")
@@ -274,11 +275,15 @@ func assignedRolesByConsensusAgent(roles consensus.RoleAssignments) map[string][
 	return out
 }
 
-func phasesForMode(mode consensus.WorkflowMode, hasAction bool) []string {
+func phasesForMode(mode consensus.WorkflowMode, hasAction bool, synthesis bool) []string {
 	var phases []string
 	switch mode {
 	case consensus.WorkflowModeFreeDebate:
-		phases = []string{"frame", "ingest", "initial", "debate", "final_vote", "report"}
+		phases = []string{"frame", "ingest", "initial", "debate"}
+		if synthesis {
+			phases = append(phases, "synthesis", "amend")
+		}
+		phases = append(phases, "final_vote", "report")
 	case consensus.WorkflowModeDelphi:
 		phases = []string{"frame", "ingest", "questionnaire", "revise", "facilitate", "report"}
 	default:

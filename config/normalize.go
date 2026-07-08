@@ -186,6 +186,7 @@ func RoleAssignmentsForMode(roles RolesConfig, mode consensus.WorkflowMode) cons
 		return consensus.RoleAssignments{
 			Participants:    cloneStrings(roles.FreeDebate.Participants),
 			SemanticDeduper: roles.FreeDebate.SemanticDeduper,
+			Synthesizer:     roles.FreeDebate.Synthesizer,
 			Reporter:        roles.FreeDebate.Reporter,
 			Actor:           roles.FreeDebate.Actor,
 		}
