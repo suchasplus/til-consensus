@@ -79,7 +79,7 @@ out/tc_xxx/
 
 `summary.md` 的布局为结论优先：头部元信息（含 `voters: N/M` 与 `accepted claims: X/Y ballot (Z%)`）→ Degradations → Conclusion → Retained/Downgraded Claims（`id — statement` 形式）→ Final Vote 明细。Final Vote 按 `Accepted / Not Accepted / No Votes / Merged` 分组，各组内按 `supportScore` 降序；被合并的 claim 折叠为一行 `id → merged into target`，不再与被否决的 claim 混淆。`freeDebate.ballotSize` 记录进入投票的 active claim 数量——通过率 100% 且 ballot 较大时，通常意味着 ballot 冗余或投票缺乏区分度，值得回看 claim 预算与去重配置。
 
-`freeDebate.claimResolutions[]` 中，`confidenceMean` 用于判定是否达到 `vote_threshold`，`confidenceVariance` / `confidenceStdDev` 用于判断分歧强度。`supportRatio` 是粗粒度 accept/reject 标签比例，保留用于兼容旧视图。
+`freeDebate.claimResolutions[]` 还保留一组诊断字段：`confidenceMean` 是历史均值口径，不再参与接受判定（判定只看 `supportScore >= support_threshold`）；`confidenceVariance` / `confidenceStdDev` 用于判断分歧强度，帮助区分“高分低方差的强共识”和“中等分数高方差的真实争议”。
 
 `delphi` 常见重点：
 

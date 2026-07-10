@@ -11,7 +11,8 @@ defaults:
   debate_policy:
     min_rounds: 2
     max_rounds: 3
-    vote_threshold: 0.67
+    support_threshold: 0.67
+    vote_quorum: 0.6
     enable_early_stop: true
     peer_context_mode: summary+active_claims
 

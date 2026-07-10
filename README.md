@@ -45,7 +45,7 @@ til-consensus last --config ./til-consensus.yaml
 | Mode | 快捷命令 | 适合场景 |
 | --- | --- | --- |
 | `adjudication` | `til-consensus ask ...` | claim 级裁决、事实核查、patch/benchmark/架构结论是否成立 |
-| `free_debate` | `til-consensus debate ...` | 多参与者充分碰撞观点，最后投票形成多数共识 |
+| `free_debate` | `til-consensus debate ...` | 多参与者充分碰撞观点，可选 rapporteur 合成，最后按支持分数投票形成共识 |
 | `delphi` | `til-consensus delphi ...` | 匿名多轮评分和摘要收敛，降低权威偏见和从众效应 |
 
 选择建议见 [三种讨论模式](docs/modes.md)。
@@ -188,8 +188,8 @@ til-consensus view --config ./til-consensus.yaml
 
 关键文件：
 
-- `result.json`：统一结果壳。
-- `summary.md`：人工阅读摘要。
+- `result.json`：统一结果壳（含 `degradations` 降级清单）。
+- `summary.md`：结论优先的人工阅读摘要。
 - `ledger.jsonl`：append-only 审计账本。
 - `events.jsonl`：运行事件流。
 - `artifacts/`：provider input/raw/failure、readiness、telemetry、manifest。

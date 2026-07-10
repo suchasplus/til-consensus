@@ -246,6 +246,7 @@ Mode 对应 roles：
 - `free_debate`
   - `participants`
   - `semantic_deduper`
+  - `synthesizer`
   - `reporter`
   - `actor`
 - `delphi`

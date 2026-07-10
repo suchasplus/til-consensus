@@ -67,7 +67,7 @@ til-consensus run --config ./til-consensus.yaml --input ./case.run.yaml --dry-ru
 til-consensus ask ./task.md --config ./til-consensus.yaml --dry-run --format json
 ```
 
-`--dry-run` 会展示最终 mode、roles、agent/provider/model 映射、输出路径、phase 顺序和 policy 摘要。
+`--dry-run` 会展示最终 mode、roles、agent/provider/model 映射、输出路径、phase 顺序和 policy 摘要。当 success criteria 因 mode 与 profile 错位被替换时，还会输出一行 `notice:` 说明替换来源（规则见[配置](config.md#profile-overlay)）。
 
 ## 诊断
 

@@ -7,7 +7,7 @@
 | 场景 | 推荐 mode | 原因 |
 | --- | --- | --- |
 | 判断一个 claim、patch、benchmark 或设计结论是否成立 | `adjudication` | claim-centric，有 challenge、verify、revise、arbiter，适合需要审计的裁决 |
-| 希望多个参与者充分碰撞观点，然后投票形成多数共识 | `free_debate` | participant 地位平等，多轮辩论后 final vote |
+| 希望多个参与者充分碰撞观点，然后投票形成共识 | `free_debate` | participant 地位平等，多轮辩论、可选 rapporteur 合成后按支持分数 final vote |
 | 希望减少权威偏见和从众效应，做匿名多轮收敛 | `delphi` | 匿名问卷、聚合摘要、修订评分，直到收敛或达到轮数上限 |
 
 默认使用 `adjudication`。它最稳，也最适合做代码裁决、事实核查和架构决策复核。
@@ -68,12 +68,16 @@ roles:
 固定宏观阶段：
 
 ```text
-frame -> ingest -> initial -> debate* -> final_vote -> report -> action -> observe
+frame -> ingest -> initial -> debate* -> [synthesis -> amend*] -> final_vote -> report -> action -> observe
 ```
+
+`[synthesis -> amend*]` 仅在启用 `debate_policy.synthesis` 时插入，见下文合成阶段。
 
 核心角色：
 
 - `participants`：平等参与者，先独立提出观点，再互相审阅和辩论。
+- `semantic_deduper`：可选；启用 `semantic_dedup` 时必须配置，产出跨参与者的 claim 合并建议。
+- `synthesizer`：可选；启用 `debate_policy.synthesis` 时必须配置，作为 rapporteur 起草唯一的综合推荐。
 - `reporter`：汇总最终共识、分歧和投票结果。
 - `actor`：可选，执行后续 action。
 
@@ -104,11 +108,15 @@ defaults:
       enabled: true
       similarity_threshold: 0.85
       cadence: per_round
+    synthesis:
+      enabled: true
+      amendment_rounds: 1
 
 roles:
   free_debate:
     participants: [participant-a, participant-b, participant-c]
     semantic_deduper: deduper-a
+    synthesizer: synthesizer-a
     reporter: reporter-a
 ```
 
@@ -119,10 +127,6 @@ roles:
 claim 还必须自带 `category` 自分类：`domain`（针对用户任务的实质主张）、`process`（对本次辩论运行本身的观察，如"claim 数量过多建议去重"）或 `synthesis`（总结全场的综合推荐）。`process` 类 claim 会被记录为该参与者的 `processNotes`（保留为协调反馈），但**永远不进入去重和 final vote**——依赖模型自分类而不是关键词黑名单，措辞再有创意的元评论也拦得住；旧的关键词启发式降级为兜底，命中时同样转为 processNotes 而不是静默丢弃。一条元评论也不再作废整个响应：provider 边界只校验 `category` 枚举值本身。
 
 `synthesis` 类 claim 走独立的**合成阶段**（`debate_policy.synthesis`，需配置 `roles.free_debate.synthesizer`）：辩论轮结束后，synthesizer 作为 rapporteur 把原子 claim 和参与者的综合稿改写合成为**唯一一条 canonical 综合推荐**（被消费的综合稿 `mergedInto` 它、保留 provenance），随后进行 `amendment_rounds` 轮修正评审——每个参与者对草案给出 agree / revise（携带完整替换文本）/ disagree，synthesizer 整合修正意见——最终草案与原子 claim 一起进入 final vote。投票通过即"批准"（summary 的 `### Synthesis` 组显示 ratified / not ratified）。这解决了"每个参与者末轮各写一份综合推荐、丢弃式去重无法合并超集"的结构性冗余：改写式合并只发生在这个被授权的角色身上，而它的产物要经过全员修正与投票的双重审计。synthesizer 失败时自动降级回旧行为（参与者综合稿直接进投票）并记入 degradations。
-
-```text
-frame -> ingest -> initial -> debate* -> synthesis -> amend* -> final_vote -> report
-```
 
 final vote 不是纯二元多数票。每个 participant 会为每个 active claim 输出 `vote` 粗标签和连续 `confidence` 支持分数，且两者必须一致（accept 要求 ≥0.5，reject 要求 ≤0.5，违反会被校验拒绝并进入 repair）。系统把各票支持分数按 `vote_aggregation`（默认 `median`）聚合成 `supportScore`，用 `supportScore >= support_threshold` 判断 claim 是否 accepted；`confidenceVariance` / `confidenceStdDev` 仍然输出，帮助区分“高分低方差的强共识”和“中等分数高方差的真实争议”。summary 里 `support=` 显示的就是判定用的 `supportScore`。
 

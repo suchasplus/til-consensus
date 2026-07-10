@@ -55,7 +55,9 @@ Engine 是 workflow dispatcher，不应该把 provider-specific 逻辑写进 wor
   - claim-centric 裁决链路。
   - 支持 verifier、revise、fallback、observe。
 - `free_debate`
-  - participant 平等辩论，最后 final vote。
+  - participant 平等辩论；claim 按 category（domain/process/synthesis）分类路由，process 观察进 processNotes、不进入投票。
+  - per-round 语义去重、claim 预算和可选 synthesis 合成阶段（rapporteur 起草 + 修正评审）控制 ballot 冗余。
+  - final vote 按支持分数聚合（median/mean）判定，支持 vote_quorum；非致命失败记入 result `degradations`。
 - `delphi`
   - 匿名问卷、聚合摘要、评分修订和收敛。
 
