@@ -231,14 +231,6 @@ make release-archive VERSION=v0.1.0 TARGET_GOOS=darwin TARGET_GOARCH=arm64 DIRTY
 - [技术架构](docs/architecture.md)
 - [配置与输入样例](docs/examples.md)
 
-保留的兼容入口：
-
-- [旧版 CI 与发布入口](docs/release.md)
-- [旧版输出产物入口](docs/output.md)
-- [旧版终端 view 入口](docs/view.md)
-- [旧版浏览器 Viewer 入口](docs/viewer.md)
-- [旧版技术设计入口](docs/rewrite.md)
-
 常用样例文件：
 
 - [generic.config.yaml](docs/examples/generic.config.yaml)

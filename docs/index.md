@@ -26,9 +26,4 @@
 这些旧入口仍保留，但只作为跳转页：
 
 - [工作流与状态机](workflow.md)
-- [终端 view 用法](view.md)
-- [浏览器 Viewer](viewer.md)
-- [输出产物说明](output.md)
 - [E2E 测试设计](e2e.md)
-- [CI 与发布](release.md)
-- [多工作流技术设计](rewrite.md)
