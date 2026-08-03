@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -152,4 +153,75 @@ func argumentAfter(args []string, name string) string {
 		}
 	}
 	return ""
+}
+
+// The preview command is what users inspect before spending money on a real
+// run, so its argv structure must be identical to the executed one. Only the
+// prompt directory and file path may differ.
+func TestPreviewPromptTransportMatchesRealArgvStructure(t *testing.T) {
+	const model = "Gemini 3.5 Flash (High)"
+	// Distinctive on purpose: the agy bootstrap text itself talks about "task
+	// instructions", so a natural-language prompt would false-positive the
+	// leak assertion below.
+	const prompt = "PROMPT-BODY-SENTINEL-9f3a"
+
+	real, err := preparePromptTransport(config.CLITypeAntigravity, model, prompt, "medium")
+	if err != nil {
+		t.Fatalf("preparePromptTransport failed: %v", err)
+	}
+	defer func() {
+		if cleanupErr := real.Cleanup(); cleanupErr != nil {
+			t.Errorf("cleanup failed: %v", cleanupErr)
+		}
+	}()
+	preview, err := previewPromptTransport(config.CLITypeAntigravity, model, prompt, "medium")
+	if err != nil {
+		t.Fatalf("previewPromptTransport failed: %v", err)
+	}
+
+	if len(real.Args) != len(preview.Args) {
+		t.Fatalf("argv length differs: real=%d preview=%d", len(real.Args), len(preview.Args))
+	}
+	// Compare the flag skeleton (flag name + position) rather than values, so
+	// the assertion stays meaningful without hardcoding value indices.
+	skeleton := func(args []string) string {
+		var parts []string
+		for idx, arg := range args {
+			if strings.HasPrefix(arg, "-") {
+				parts = append(parts, fmt.Sprintf("%d:%s", idx, arg))
+			}
+		}
+		return strings.Join(parts, " ")
+	}
+	if skeleton(real.Args) != skeleton(preview.Args) {
+		t.Fatalf("argv skeleton differs:\n real=%s\n prev=%s", skeleton(real.Args), skeleton(preview.Args))
+	}
+	if real.Stdin != "" || preview.Stdin != "" {
+		t.Fatal("antigravity must not carry the prompt on stdin")
+	}
+	for _, arg := range real.Args {
+		if strings.Contains(arg, prompt) {
+			t.Fatalf("prompt leaked into real argv: %q", arg)
+		}
+	}
+	// Non-antigravity types must stay byte-identical between preview and real.
+	for _, cliType := range []string{
+		config.CLITypeClaude, config.CLITypeCodex, config.CLITypeGemini,
+		config.CLITypeOpenCode, config.CLITypePi, config.CLITypeGeneric,
+	} {
+		realArgs, err := preparePromptTransport(cliType, "model-x", prompt, "medium")
+		if err != nil {
+			t.Fatalf("%s prepare failed: %v", cliType, err)
+		}
+		previewArgs, err := previewPromptTransport(cliType, "model-x", prompt, "medium")
+		if err != nil {
+			t.Fatalf("%s preview failed: %v", cliType, err)
+		}
+		if strings.Join(realArgs.Args, "\x00") != strings.Join(previewArgs.Args, "\x00") {
+			t.Fatalf("%s argv differs between preview and real: %#v vs %#v", cliType, realArgs.Args, previewArgs.Args)
+		}
+		if realArgs.Stdin != previewArgs.Stdin {
+			t.Fatalf("%s stdin differs between preview and real", cliType)
+		}
+	}
 }

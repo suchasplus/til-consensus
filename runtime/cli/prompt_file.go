@@ -8,7 +8,12 @@ import (
 	"github.com/suchasplus/til-consensus/config"
 )
 
-const maxCLIPromptBytes = 8 * 1024 * 1024
+const (
+	maxCLIPromptBytes = 8 * 1024 * 1024
+
+	promptDirPlaceholder  = "<prompt-dir>"
+	promptFilePlaceholder = "<prompt-file>"
+)
 
 var removePromptDir = os.RemoveAll
 
@@ -18,7 +23,22 @@ type promptTransport struct {
 	Cleanup func() error
 }
 
+// promptFileProvisioner supplies the directory and file path that the argv will
+// reference. Real execution writes an actual private file; preview substitutes
+// placeholders without touching the filesystem. Routing both through
+// buildPromptTransport is what guarantees a preview can never drift from the
+// command that actually runs.
+type promptFileProvisioner func(prompt string) (dir string, path string, cleanup func() error, err error)
+
 func preparePromptTransport(cliType string, providerModel string, prompt string, reasoning string) (promptTransport, error) {
+	return buildPromptTransport(cliType, providerModel, prompt, reasoning, writePrivatePromptFile)
+}
+
+func previewPromptTransport(cliType string, providerModel string, prompt string, reasoning string) (promptTransport, error) {
+	return buildPromptTransport(cliType, providerModel, prompt, reasoning, placeholderPromptFile)
+}
+
+func buildPromptTransport(cliType string, providerModel string, prompt string, reasoning string, provision promptFileProvisioner) (promptTransport, error) {
 	if err := validatePromptSize(prompt); err != nil {
 		return promptTransport{}, err
 	}
@@ -26,42 +46,37 @@ func preparePromptTransport(cliType string, providerModel string, prompt string,
 		return promptTransport{
 			Args:    buildBaseArgs(cliType, providerModel, reasoning),
 			Stdin:   prompt,
-			Cleanup: func() error { return nil },
+			Cleanup: noopPromptCleanup,
 		}, nil
 	}
-	dir, path, cleanup, err := writePrivatePromptFile(prompt)
+	dir, path, cleanup, err := provision(prompt)
 	if err != nil {
 		return promptTransport{}, err
 	}
 	return promptTransport{
-		Args: []string{
-			"--add-dir", dir,
-			"--dangerously-skip-permissions",
-			"--model", providerModel,
-			"-p", agyPromptBootstrap(path),
-		},
+		Args:    agyPromptArgs(providerModel, dir, path),
 		Cleanup: cleanup,
 	}, nil
 }
 
-func previewPromptTransport(cliType string, providerModel string, prompt string, reasoning string) (promptTransport, error) {
-	if err := validatePromptSize(prompt); err != nil {
-		return promptTransport{}, err
+// agyPromptArgs is the single source of truth for antigravity's argv shape.
+func agyPromptArgs(providerModel string, dir string, path string) []string {
+	return []string{
+		"--add-dir", dir,
+		"--dangerously-skip-permissions",
+		"--model", providerModel,
+		"-p", agyPromptBootstrap(path),
 	}
-	if cliType != config.CLITypeAntigravity {
-		return promptTransport{Args: buildBaseArgs(cliType, providerModel, reasoning), Stdin: prompt, Cleanup: func() error { return nil }}, nil
-	}
-	path := filepath.Join("<prompt-dir>", "<prompt-file>")
-	return promptTransport{
-		Args: []string{
-			"--add-dir", "<prompt-dir>",
-			"--dangerously-skip-permissions",
-			"--model", providerModel,
-			"-p", agyPromptBootstrap(path),
-		},
-		Cleanup: func() error { return nil },
-	}, nil
 }
+
+func placeholderPromptFile(string) (string, string, func() error, error) {
+	return promptDirPlaceholder,
+		filepath.Join(promptDirPlaceholder, promptFilePlaceholder),
+		noopPromptCleanup,
+		nil
+}
+
+func noopPromptCleanup() error { return nil }
 
 func validatePromptSize(prompt string) error {
 	if len([]byte(prompt)) > maxCLIPromptBytes {
