@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"os"
@@ -123,6 +124,165 @@ func TestReadmeAndDocsIndexLinks(t *testing.T) {
 			t.Fatalf("docs/index.md missing link to %s", rel)
 		}
 	}
+}
+
+func TestDocumentedMakeTargetsExist(t *testing.T) {
+	root := repoRoot(t)
+	targets := readMakefileTargets(t, filepath.Join(root, "Makefile"))
+	markdownPaths := []string{filepath.Join(root, "README.md")}
+	err := filepath.WalkDir(filepath.Join(root, "docs"), func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !entry.IsDir() && strings.EqualFold(filepath.Ext(path), ".md") {
+			markdownPaths = append(markdownPaths, path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk docs: %v", err)
+	}
+
+	commandCount := 0
+	for _, path := range markdownPaths {
+		file, err := os.Open(path)
+		if err != nil {
+			t.Fatalf("open %s: %v", path, err)
+		}
+		scanner := bufio.NewScanner(file)
+		lineNumber := 0
+		inFence := false
+		shellFence := false
+		for scanner.Scan() {
+			lineNumber++
+			line := strings.TrimSpace(scanner.Text())
+			if strings.HasPrefix(line, "```") {
+				if inFence {
+					inFence = false
+					shellFence = false
+				} else {
+					inFence = true
+					shellFence = isShellFence(strings.TrimSpace(strings.TrimPrefix(line, "```")))
+				}
+				continue
+			}
+			if !inFence || !shellFence {
+				continue
+			}
+			for _, target := range makeTargetsFromShellLine(line) {
+				commandCount++
+				if _, ok := targets[target]; !ok {
+					rel, relErr := filepath.Rel(root, path)
+					if relErr != nil {
+						rel = path
+					}
+					t.Errorf("%s:%d documents unknown make target %q", rel, lineNumber, target)
+				}
+			}
+		}
+		scanErr := scanner.Err()
+		closeErr := file.Close()
+		if scanErr != nil {
+			t.Fatalf("scan %s: %v", path, scanErr)
+		}
+		if closeErr != nil {
+			t.Fatalf("close %s: %v", path, closeErr)
+		}
+	}
+	if commandCount == 0 {
+		t.Fatal("no documented make commands found")
+	}
+}
+
+func readMakefileTargets(t *testing.T, path string) map[string]struct{} {
+	t.Helper()
+	file, err := os.Open(path)
+	if err != nil {
+		t.Fatalf("open Makefile: %v", err)
+	}
+	targets := make(map[string]struct{})
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" || strings.HasPrefix(line, "\t") || strings.HasPrefix(strings.TrimSpace(line), "#") {
+			continue
+		}
+		colon := strings.IndexByte(line, ':')
+		if colon <= 0 || (colon+1 < len(line) && line[colon+1] == '=') {
+			continue
+		}
+		for _, target := range strings.Fields(line[:colon]) {
+			if strings.HasPrefix(target, ".") || strings.ContainsAny(target, "$%") {
+				continue
+			}
+			targets[target] = struct{}{}
+		}
+	}
+	scanErr := scanner.Err()
+	closeErr := file.Close()
+	if scanErr != nil {
+		t.Fatalf("scan Makefile: %v", scanErr)
+	}
+	if closeErr != nil {
+		t.Fatalf("close Makefile: %v", closeErr)
+	}
+	return targets
+}
+
+func isShellFence(language string) bool {
+	switch strings.ToLower(language) {
+	case "bash", "sh", "shell", "console":
+		return true
+	default:
+		return false
+	}
+}
+
+func makeTargetsFromShellLine(line string) []string {
+	fields := strings.Fields(line)
+	if len(fields) > 0 && fields[0] == "$" {
+		fields = fields[1:]
+	}
+	makeIndex := -1
+	for index, field := range fields {
+		if field == "make" {
+			makeIndex = index
+			break
+		}
+		if field != "env" && !isShellAssignment(field) {
+			return nil
+		}
+	}
+	if makeIndex < 0 {
+		return nil
+	}
+
+	var targets []string
+	for _, field := range fields[makeIndex+1:] {
+		field = strings.TrimSuffix(field, "\\")
+		if field == "" || strings.HasPrefix(field, "-") || isShellAssignment(field) {
+			continue
+		}
+		if strings.HasPrefix(field, "#") || strings.ContainsAny(field, ";|&") {
+			break
+		}
+		targets = append(targets, field)
+	}
+	return targets
+}
+
+func isShellAssignment(field string) bool {
+	name, _, ok := strings.Cut(field, "=")
+	if !ok || name == "" {
+		return false
+	}
+	for index, char := range name {
+		if (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || char == '_' || (index > 0 && char >= '0' && char <= '9') {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func repoRoot(t *testing.T) string {

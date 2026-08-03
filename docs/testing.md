@@ -32,15 +32,19 @@ go-cover-treemap -coverprofile ./tmp/coverage/cover.out > ./tmp/coverage/coverag
 
 `tmp/` 默认不提交。
 
+`fmt` 和 `fmt-check` 只处理 Git 已跟踪以及未跟踪但未被忽略的 Go 文件。这样既会检查尚未 `git add` 的新源码，也不会进入 `tmp/` 等忽略目录中的外部项目或临时材料。
+
 ## Git pre-push hook
 
 安装本地 hook：
 
 ```bash
-make install-hooks
+make install-git-hooks
 ```
 
 安装后，`.git/hooks/pre-push` 会在每次 `git push` 前调用 `make pre-push`。这个 hook 只在当前 clone 生效，不会提交到 Git。
+
+`README.md` 和 `docs/**/*.md` 的 shell 代码块中出现的 `make` 命令会由文档 smoke test 自动核对，确保目标在 Makefile 中真实存在。
 
 ## CI 对齐
 

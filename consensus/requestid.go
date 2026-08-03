@@ -28,7 +28,7 @@ func ValidateRequestID(requestID string) error {
 		return fmt.Errorf("request_id is required")
 	}
 	if requestID == "." || strings.Contains(requestID, "..") {
-		return fmt.Errorf("request_id must not contain ..")
+		return fmt.Errorf("request_id must not contain consecutive dots")
 	}
 	if strings.ContainsAny(requestID, `/\\`) {
 		return fmt.Errorf("request_id must not contain path separators")

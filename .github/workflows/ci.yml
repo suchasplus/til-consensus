@@ -24,13 +24,7 @@ jobs:
           cache: true
 
       - name: Check formatting
-        run: |
-          output="$(gofmt -l .)"
-          if [ -n "$output" ]; then
-            echo "以下文件未格式化:"
-            echo "$output"
-            exit 1
-          fi
+        run: make fmt-check
 
       - name: Run unit tests
         run: go test ./...

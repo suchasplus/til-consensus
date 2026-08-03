@@ -333,7 +333,7 @@ func sessionPath(root string, sessionID string) (string, error) {
 		return "", fmt.Errorf("session id is required")
 	}
 	if sessionID == "." || strings.Contains(sessionID, "..") {
-		return "", fmt.Errorf("session id must not contain ..")
+		return "", fmt.Errorf("session id must not contain consecutive dots")
 	}
 	if strings.ContainsAny(sessionID, `/\\`) {
 		return "", fmt.Errorf("session id must not contain path separators")

@@ -1,4 +1,5 @@
 GO ?= go
+GOFMT_FILES_SCRIPT ?= scripts/gofmt-files.sh
 APP ?= til-consensus
 CMD_PKG ?= ./cmd/til-consensus
 BIN_DIR ?= ./bin
@@ -31,10 +32,10 @@ endif
 .PHONY: fmt fmt-check test test-e2e test-e2e-real test-e2e-real-api vet lint pre-push install-git-hooks ci build build-debug build-release release-archive install run cover coverage-treemap clean
 
 fmt:
-	$(GO) fmt ./...
+	@bash "$(GOFMT_FILES_SCRIPT)" write
 
 fmt-check:
-	@output="$$(gofmt -l .)"; \
+	@output="$$(bash "$(GOFMT_FILES_SCRIPT)" check)" || exit $$?; \
 	if [ -n "$$output" ]; then \
 		echo "以下文件未格式化:"; \
 		echo "$$output"; \
