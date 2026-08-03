@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -97,4 +98,29 @@ func waitForProcessGone(pid int, timeout time.Duration) bool {
 		time.Sleep(20 * time.Millisecond)
 	}
 	return errors.Is(syscall.Kill(pid, 0), syscall.ESRCH)
+}
+
+func TestForceKillCmdWithoutSetpgidTargetsOnlyTheChild(t *testing.T) {
+	// A command that never went through prepareCmdForKill must NOT be killed via
+	// the negative-PID group path: -pid would resolve to the test binary's own
+	// process group. Verify the child still dies and this process survives.
+	cmd := exec.Command("sh", "-c", "sleep 30")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	if cmd.SysProcAttr != nil && cmd.SysProcAttr.Setpgid {
+		t.Fatal("test precondition failed: command must not be prepared for group kill")
+	}
+	childPID := cmd.Process.Pid
+	if err := forceKillCmd(cmd); err != nil {
+		t.Fatalf("forceKillCmd failed: %v", err)
+	}
+	_ = cmd.Wait()
+	if !waitForProcessGone(childPID, 2*time.Second) {
+		t.Fatalf("child %d still exists after kill", childPID)
+	}
+	// Still alive: the group signal was not sent to our own process group.
+	if err := syscall.Kill(os.Getpid(), 0); err != nil {
+		t.Fatalf("test process should be unaffected, got %v", err)
+	}
 }

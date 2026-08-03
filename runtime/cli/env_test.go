@@ -133,3 +133,48 @@ func (environmentTestTask) Kind() consensus.TaskKind { return consensus.TaskKind
 func (t environmentTestTask) Meta() consensus.TaskMeta {
 	return t.TaskMeta
 }
+
+func TestBuildEnvironmentRecordsDroppedCredentialKeys(t *testing.T) {
+	host := snapshotHostEnvironment([]string{
+		"PATH=/usr/bin",
+		"MY_CUSTOM_TOKEN=super-secret",
+		"CORP_API_KEY=another-secret",
+		"LEGACY_BASE_URL=https://user:pw@internal.example.com/v1?k=v",
+		"OPENAI_API_KEY=passed-through",
+		"EDITOR=vim",
+	}, false)
+	provider := config.ProviderConfig{
+		Type:           config.ProviderTypeCLI,
+		CLIType:        config.CLITypeGeneric,
+		EnvPassthrough: &[]string{"OPENAI_API_KEY"},
+	}
+	built := BuildEnvironment(host, provider, consensus.ProposalTask{}, "agent-1", "role", "model-x")
+
+	want := []string{"CORP_API_KEY", "LEGACY_BASE_URL", "MY_CUSTOM_TOKEN"}
+	if strings.Join(built.Audit.DroppedCredentialKeys, ",") != strings.Join(want, ",") {
+		t.Fatalf("unexpected dropped credential keys: %#v", built.Audit.DroppedCredentialKeys)
+	}
+	for _, key := range built.Audit.DroppedCredentialKeys {
+		if strings.Contains(key, "=") {
+			t.Fatalf("dropped credential entry must be a bare key name, got %q", key)
+		}
+	}
+	// Values must never leak into the audit record.
+	for _, secret := range []string{"super-secret", "another-secret", "user:pw"} {
+		if strings.Contains(strings.Join(built.Audit.DroppedCredentialKeys, " "), secret) {
+			t.Fatalf("audit leaked secret value %q", secret)
+		}
+	}
+	// Passed-through and non-credential keys must not be reported as dropped.
+	for _, key := range []string{"OPENAI_API_KEY", "EDITOR", "PATH"} {
+		for _, dropped := range built.Audit.DroppedCredentialKeys {
+			if dropped == key {
+				t.Fatalf("key %q should not be reported as dropped", key)
+			}
+		}
+	}
+	// Diagnostic only: a generic provider must still dispatch.
+	if err := EnvironmentMigrationError("generic-local", built.MissingKnownKeys); err != nil {
+		t.Fatalf("dropped credential keys must not block dispatch: %v", err)
+	}
+}

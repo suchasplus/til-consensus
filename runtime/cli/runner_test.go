@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/suchasplus/til-consensus/config"
 	"github.com/suchasplus/til-consensus/consensus"
@@ -347,5 +348,60 @@ func TestHardenPromptForCLIAddsReviseContract(t *testing.T) {
 		if !strings.Contains(revisePrompt, fragment) {
 			t.Fatalf("expected revise hardened prompt to contain %q, got:\n%s", fragment, revisePrompt)
 		}
+	}
+}
+
+func TestRunCommandPreservesOutputOnCancellation(t *testing.T) {
+	tests := []struct {
+		name    string
+		context func() (context.Context, context.CancelFunc)
+		wantErr error
+	}{
+		{
+			name: "deadline",
+			context: func() (context.Context, context.CancelFunc) {
+				return context.WithTimeout(context.Background(), 300*time.Millisecond)
+			},
+			wantErr: context.DeadlineExceeded,
+		},
+		{
+			name: "cancel",
+			context: func() (context.Context, context.CancelFunc) {
+				ctx, cancel := context.WithCancel(context.Background())
+				time.AfterFunc(300*time.Millisecond, cancel)
+				return ctx, cancel
+			},
+			wantErr: context.Canceled,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := tt.context()
+			defer cancel()
+			_, err := runCommand(ctx, "generic", "sh",
+				[]string{"-c", `printf 'partial-stdout\n'; printf 'partial-stderr\n' >&2; sleep 30`}, nil, "")
+			if err == nil {
+				t.Fatal("expected cancelled command to fail")
+			}
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("expected error chain to keep %v, got %v", tt.wantErr, err)
+			}
+			var commandErr *CommandError
+			if !errors.As(err, &commandErr) {
+				t.Fatalf("expected *CommandError, got %T: %v", err, err)
+			}
+			if commandErr.Stdout != "partial-stdout" {
+				t.Fatalf("stdout not preserved, got %q", commandErr.Stdout)
+			}
+			if commandErr.Stderr != "partial-stderr" {
+				t.Fatalf("stderr not preserved, got %q", commandErr.Stderr)
+			}
+			if commandErr.ExitCode >= 0 {
+				t.Fatalf("expected negative exit code for terminated process, got %d", commandErr.ExitCode)
+			}
+			if strings.Contains(commandErr.Error(), "exited with code") {
+				t.Fatalf("terminated process must not be reported as an exit status: %s", commandErr.Error())
+			}
+		})
 	}
 }

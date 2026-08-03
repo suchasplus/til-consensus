@@ -48,6 +48,13 @@ type EnvironmentAudit struct {
 	ConfiguredKeys  []string          `json:"configuredKeys,omitempty"`
 	MetadataKeys    []string          `json:"metadataKeys,omitempty"`
 	Endpoints       map[string]string `json:"endpoints,omitempty"`
+	// DroppedCredentialKeys names host variables that look like credentials or
+	// endpoint overrides and were NOT passed to the CLI. It is diagnostic only
+	// and never blocks a run: MissingKnownKeys is the curated, high-precision
+	// check that fails dispatch, while this is the low-precision catch-all that
+	// covers cli types we cannot enumerate keys for (generic, opencode).
+	// Only key names are recorded — values never reach disk.
+	DroppedCredentialKeys []string `json:"droppedCredentialKeys,omitempty"`
 }
 
 type BuiltEnvironment struct {
@@ -170,6 +177,15 @@ func BuildEnvironment(host HostEnvironment, provider config.ProviderConfig, task
 	if len(result.Audit.Endpoints) == 0 {
 		result.Audit.Endpoints = nil
 	}
+	for canonical, hostValue := range host.values {
+		if _, included := values[canonical]; included {
+			continue
+		}
+		if looksLikeCredentialKey(hostValue.Key) {
+			result.Audit.DroppedCredentialKeys = append(result.Audit.DroppedCredentialKeys, hostValue.Key)
+		}
+	}
+	sort.Strings(result.Audit.DroppedCredentialKeys)
 	for _, key := range knownEnvironmentKeys(provider) {
 		if _, existsOnHost := host.lookup(key); !existsOnHost {
 			continue
@@ -193,6 +209,24 @@ func knownEnvironmentKeys(provider config.ProviderConfig) []string {
 		}
 	}
 	return []string{"GEMINI_API_KEY"}
+}
+
+// credentialKeyFragments are matched against the upper-cased variable name.
+// The list is deliberately loose: a false positive only adds a name to the
+// audit record, while a false negative hides a silently dropped credential.
+var credentialKeyFragments = []string{
+	"API_KEY", "_KEY", "_TOKEN", "_SECRET", "SECRET_", "_CREDENTIAL", "_PASSWORD",
+	"_BASE_URL", "_ENDPOINT",
+}
+
+func looksLikeCredentialKey(key string) bool {
+	upper := strings.ToUpper(key)
+	for _, fragment := range credentialKeyFragments {
+		if strings.Contains(upper, fragment) {
+			return true
+		}
+	}
+	return false
 }
 
 func EnvironmentMigrationError(providerID string, missing []string) error {

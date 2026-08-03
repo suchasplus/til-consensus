@@ -22,7 +22,16 @@ func (e *CommandError) Error() string {
 	if command == "" {
 		command = e.CLIType
 	}
+	// ExitCode < 0 means the process never reported an exit status: it was
+	// terminated by cancellation or timeout. Reporting "exited with code -1"
+	// would be misleading, so name the actual cause instead.
 	message := fmt.Sprintf("cli command %s exited with code %d", command, e.ExitCode)
+	if e.ExitCode < 0 {
+		message = fmt.Sprintf("cli command %s terminated before exit", command)
+		if e.Err != nil {
+			message += ": " + e.Err.Error()
+		}
+	}
 	if strings.TrimSpace(e.Stderr) != "" {
 		message += " stderr=" + strings.TrimSpace(e.Stderr)
 	}

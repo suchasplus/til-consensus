@@ -518,7 +518,19 @@ func runCommand(ctx context.Context, cliType string, command string, args []stri
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			return "", ctxErr
+			// Preserve whatever the CLI managed to emit before it was killed.
+			// Timeouts are the most common batch failure and the partial output
+			// is usually the only clue about where the agent got stuck.
+			// Err wraps ctxErr so classifyProviderError still sees
+			// DeadlineExceeded / Canceled through errors.Is.
+			return "", &CommandError{
+				CLIType:  cliType,
+				Command:  append([]string{command}, args...),
+				ExitCode: -1,
+				Stderr:   strings.TrimSpace(stderr.String()),
+				Stdout:   strings.TrimSpace(stdout.String()),
+				Err:      ctxErr,
+			}
 		}
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
