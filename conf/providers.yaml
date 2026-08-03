@@ -11,6 +11,7 @@ providers:
     type: cli
     cli_type: codex
     command: codex
+    env_passthrough: [OPENAI_API_KEY, OPENAI_BASE_URL]
     models:
       default:
         enabled: true
@@ -22,6 +23,7 @@ providers:
     type: cli
     cli_type: claude
     command: claude
+    env_passthrough: [ANTHROPIC_API_KEY, ANTHROPIC_BASE_URL]
     models:
       default:
         enabled: true
@@ -33,6 +35,7 @@ providers:
     type: cli
     cli_type: gemini
     command: gemini
+    env_passthrough: [GEMINI_API_KEY]
     models:
       default:
         enabled: true
@@ -44,11 +47,27 @@ providers:
     type: cli
     cli_type: antigravity
     command: agy
+    env_passthrough: [GEMINI_API_KEY]
     models:
       default:
         enabled: true
         # `agy models` shows model list.
         provider_model: Gemini 3.1 Pro (High)
+        reasoning: medium
+
+  pi-cli:
+    enabled: true
+    type: cli
+    cli_type: pi
+    command: pi
+    args: [--provider, google-vertex]
+    env_passthrough: [GOOGLE_APPLICATION_CREDENTIALS, GOOGLE_CLOUD_PROJECT]
+    env:
+      GOOGLE_CLOUD_LOCATION: global
+    models:
+      default:
+        enabled: true
+        provider_model: gemini-3.6-flash
         reasoning: medium
 
   # ------------------------------

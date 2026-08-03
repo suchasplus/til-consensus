@@ -25,6 +25,7 @@ providers:
     type: cli
     cli_type: generic
     command: python3
+    env_passthrough: []
     args:
       - ./scripts/generic_adapter.py
     env:

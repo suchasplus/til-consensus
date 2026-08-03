@@ -99,6 +99,21 @@ func TestRenderTemplatePresetsAreValidYAML(t *testing.T) {
 				"provider_model: Gemini 3.5 Flash (High)",
 			},
 		},
+		{
+			name:   "pi",
+			preset: TemplatePresetPi,
+			needles: []string{
+				"cli_type: pi",
+				"command: pi",
+				"env_passthrough:",
+				"- GOOGLE_APPLICATION_CREDENTIALS",
+				"- GOOGLE_CLOUD_PROJECT",
+				"GOOGLE_CLOUD_LOCATION: global",
+				"provider_model: gemini-3.6-flash",
+				"- --provider",
+				"- google-vertex",
+			},
+		},
 	}
 
 	for _, tc := range tests {

@@ -19,6 +19,7 @@ const (
 	TemplateProviderProfileClaude      = "claude"
 	TemplateProviderProfileGemini      = "gemini"
 	TemplateProviderProfileAntigravity = "antigravity"
+	TemplateProviderProfilePi          = "pi"
 
 	TemplateTaskProfileGeneral = "general"
 	TemplateTaskProfileCoding  = "coding"
@@ -320,10 +321,11 @@ func buildTemplateProvider(profile string) (string, string, ProviderConfig, erro
 		}, nil
 	case TemplateProviderProfileGeneric:
 		return "generic-local", "default", ProviderConfig{
-			Type:    ProviderTypeCLI,
-			CLIType: "generic",
-			Command: "python3",
-			Args:    []string{"./scripts/generic_adapter.py"},
+			Type:           ProviderTypeCLI,
+			CLIType:        "generic",
+			Command:        "python3",
+			Args:           []string{"./scripts/generic_adapter.py"},
+			EnvPassthrough: stringSlicePtr(),
 			Env: map[string]string{
 				"ADAPTER_MODEL":      "{providerModel}",
 				"ADAPTER_ROLE":       "{role}",
@@ -339,9 +341,10 @@ func buildTemplateProvider(profile string) (string, string, ProviderConfig, erro
 		}, nil
 	case TemplateProviderProfileCodex:
 		return "codex-cli", "default", ProviderConfig{
-			Type:    ProviderTypeCLI,
-			CLIType: "codex",
-			Command: "codex",
+			Type:           ProviderTypeCLI,
+			CLIType:        CLITypeCodex,
+			Command:        "codex",
+			EnvPassthrough: stringSlicePtr("OPENAI_API_KEY", "OPENAI_BASE_URL"),
 			Models: map[string]ProviderModelConfig{
 				"default": {
 					ProviderModel: "gpt-5.4",
@@ -351,9 +354,10 @@ func buildTemplateProvider(profile string) (string, string, ProviderConfig, erro
 		}, nil
 	case TemplateProviderProfileClaude:
 		return "claude-cli", "default", ProviderConfig{
-			Type:    ProviderTypeCLI,
-			CLIType: "claude",
-			Command: "claude",
+			Type:           ProviderTypeCLI,
+			CLIType:        CLITypeClaude,
+			Command:        "claude",
+			EnvPassthrough: stringSlicePtr("ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"),
 			Models: map[string]ProviderModelConfig{
 				"default": {
 					ProviderModel: "claude-opus-4-6",
@@ -363,9 +367,10 @@ func buildTemplateProvider(profile string) (string, string, ProviderConfig, erro
 		}, nil
 	case TemplateProviderProfileGemini:
 		return "gemini-cli", "default", ProviderConfig{
-			Type:    ProviderTypeCLI,
-			CLIType: "gemini",
-			Command: "gemini",
+			Type:           ProviderTypeCLI,
+			CLIType:        CLITypeGemini,
+			Command:        "gemini",
+			EnvPassthrough: stringSlicePtr("GEMINI_API_KEY"),
 			Models: map[string]ProviderModelConfig{
 				"default": {
 					ProviderModel: "gemini-3.1-pro-preview",
@@ -375,12 +380,28 @@ func buildTemplateProvider(profile string) (string, string, ProviderConfig, erro
 		}, nil
 	case TemplateProviderProfileAntigravity:
 		return "antigravity-cli", "default", ProviderConfig{
-			Type:    ProviderTypeCLI,
-			CLIType: CLITypeAntigravity,
-			Command: "agy",
+			Type:           ProviderTypeCLI,
+			CLIType:        CLITypeAntigravity,
+			Command:        "agy",
+			EnvPassthrough: stringSlicePtr("GEMINI_API_KEY"),
 			Models: map[string]ProviderModelConfig{
 				"default": {
 					ProviderModel: "Gemini 3.5 Flash (High)",
+					Reasoning:     "medium",
+				},
+			},
+		}, nil
+	case TemplateProviderProfilePi:
+		return "pi-cli", "default", ProviderConfig{
+			Type:           ProviderTypeCLI,
+			CLIType:        CLITypePi,
+			Command:        "pi",
+			Args:           []string{"--provider", "google-vertex"},
+			EnvPassthrough: stringSlicePtr("GOOGLE_APPLICATION_CREDENTIALS", "GOOGLE_CLOUD_PROJECT"),
+			Env:            map[string]string{"GOOGLE_CLOUD_LOCATION": "global"},
+			Models: map[string]ProviderModelConfig{
+				"default": {
+					ProviderModel: "gemini-3.6-flash",
 					Reasoning:     "medium",
 				},
 			},
@@ -507,6 +528,13 @@ func resolvePresetAlias(preset string) (TemplateSelection, error) {
 			TaskProfile:     TemplateTaskProfileGeneral,
 			Alias:           TemplatePresetAntigravity,
 		}, nil
+	case TemplatePresetPi:
+		return TemplateSelection{
+			Mode:            consensus.WorkflowModeAdjudication,
+			ProviderProfile: TemplateProviderProfilePi,
+			TaskProfile:     TemplateTaskProfileGeneral,
+			Alias:           TemplatePresetPi,
+		}, nil
 	default:
 		return TemplateSelection{}, fmt.Errorf("unsupported config preset: %s", preset)
 	}
@@ -534,6 +562,8 @@ func canonicalTemplateAlias(selection TemplateSelection) string {
 		return TemplatePresetGemini
 	case selection.Mode == consensus.WorkflowModeAdjudication && selection.ProviderProfile == TemplateProviderProfileAntigravity && selection.TaskProfile == TemplateTaskProfileGeneral:
 		return TemplatePresetAntigravity
+	case selection.Mode == consensus.WorkflowModeAdjudication && selection.ProviderProfile == TemplateProviderProfilePi && selection.TaskProfile == TemplateTaskProfileGeneral:
+		return TemplatePresetPi
 	default:
 		return ""
 	}
@@ -567,7 +597,8 @@ func normalizeProviderProfile(profile string) (string, error) {
 		TemplateProviderProfileCodex,
 		TemplateProviderProfileClaude,
 		TemplateProviderProfileGemini,
-		TemplateProviderProfileAntigravity:
+		TemplateProviderProfileAntigravity,
+		TemplateProviderProfilePi:
 		return value, nil
 	default:
 		return "", fmt.Errorf("unsupported provider profile: %s", profile)

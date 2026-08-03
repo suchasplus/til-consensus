@@ -7,7 +7,7 @@
 当前支持：
 
 - `mock`：本地测试用，不访问外部模型。
-- `cli`：调用本机 CLI，例如 Codex、Claude Code、Gemini CLI、Antigravity CLI。
+- `cli`：调用本机 CLI，例如 Codex、Claude Code、Gemini CLI、Antigravity CLI、Pi。
 - `api`：调用 HTTP/API provider，例如 OpenAI-compatible、OpenAI Responses、Anthropic-compatible、Gemini API。
 - `sdk`：给 SDK 型运行时预留。
 
@@ -31,6 +31,35 @@ Provider 只描述“怎么调用模型”。Agent 描述“用哪个 provider/m
 - `antigravity`
   - 通过 `agy -p` 非交互调用，并用 `--model` 指定模型。
   - thinking level 通常体现在 Antigravity 的模型名或 CLI 自身配置中。
+- `pi`
+  - 通过 `pi --mode json --print --no-session` 做一次性调用，prompt 从 stdin 传入。
+  - JSONL 只提取 assistant `text_delta`；assistant `errorMessage`、空文本或损坏事件流都会失败。
+  - 内置模板使用 `--provider google-vertex` 和 `gemini-3.6-flash`，通过 ADC/服务账号 JSON 认证，location 固定为 `global`。
+
+CLI 环境默认采用 allowlist，而不是完整继承 `os.Environ()`：
+
+- `PATH`、`HOME`、临时目录、locale、证书路径和代理等运行基础变量默认保留。
+- 凭据和自定义 endpoint 必须通过 `env_passthrough` 精确列出，不支持 `*`。
+- `provider.env` 可显式设置固定值或 `{requestId}` 等模板值，并覆盖 passthrough。
+- `TIL_CONSENSUS_*` 任务 metadata 最后写入，不能被 provider 配置覆盖。
+- `CLAUDECODE` 永久拒绝；`CLAUDE_CODE_*` 只有显式声明才会透传。
+- input artifact 只记录实际使用的环境变量名和脱敏 endpoint，不保存 key、token 或 secret 值。
+
+例如：
+
+```yaml
+providers:
+  pi-cli:
+    type: cli
+    cli_type: pi
+    command: pi
+    args: [--provider, google-vertex]
+    env_passthrough: [GOOGLE_APPLICATION_CREDENTIALS, GOOGLE_CLOUD_PROJECT]
+    env:
+      GOOGLE_CLOUD_LOCATION: global
+```
+
+CLI 非零退出会记录为结构化的 `command_exit`，failure artifact 同时保留实际 `exitCode`。仅对已知 CLI 的 stderr 做保守分类：明确的认证、限流或服务不可用错误会分别归类为 `auth`、`rate_limited` 或 `unavailable`；stdout 不参与错误分类，无法确定时保持 `command_exit`。
 
 CLI provider 当前没有稳定的一等 output-token 参数。不要在 CLI provider 中配置：
 
@@ -211,6 +240,7 @@ til-consensus profile preflight --config ./til-consensus.yaml --agent arbiter-ge
 - [claude.config.yaml](examples/claude.config.yaml)
 - [gemini.config.yaml](examples/gemini.config.yaml)
 - [antigravity.config.yaml](examples/antigravity.config.yaml)
+- [pi.config.yaml](examples/pi.config.yaml)
 - [deepseek.config.yaml](examples/deepseek.config.yaml)
 - [qwen-max.config.yaml](examples/qwen-max.config.yaml)
 - [gemini-api.config.yaml](examples/gemini-api.config.yaml)

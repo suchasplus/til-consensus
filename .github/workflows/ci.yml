@@ -69,6 +69,22 @@ jobs:
       - name: Smoke version output
         run: ./bin/til-consensus --version
 
+  process-windows:
+    name: process-windows
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run Windows process-control tests
+        run: go test runtime/cli/proc_windows.go runtime/cli/proc_windows_test.go
+
   cli-smoke:
     name: cli-smoke
     runs-on: ubuntu-latest

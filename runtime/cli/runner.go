@@ -4,17 +4,20 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/suchasplus/til-consensus/config"
 	"github.com/suchasplus/til-consensus/consensus"
 )
 
 type Runner struct {
-	provider config.ProviderConfig
+	provider        config.ProviderConfig
+	hostEnvironment HostEnvironment
 }
 
 type RunTaskResult struct {
@@ -23,7 +26,11 @@ type RunTaskResult struct {
 }
 
 func NewRunner(provider config.ProviderConfig) *Runner {
-	return &Runner{provider: provider}
+	return NewRunnerWithHostEnvironment(provider, SnapshotHostEnvironment(os.Environ()))
+}
+
+func NewRunnerWithHostEnvironment(provider config.ProviderConfig, hostEnvironment HostEnvironment) *Runner {
+	return &Runner{provider: provider, hostEnvironment: hostEnvironment}
 }
 
 func PreviewCommand(
@@ -49,7 +56,11 @@ func PreviewCommand(
 	if commandName == "" {
 		commandName = cliType
 	}
-	args, _ := buildBaseArgs(cliType, providerModel, finalPrompt, reasoning)
+	transport, err := previewPromptTransport(cliType, providerModel, finalPrompt, reasoning)
+	if err != nil {
+		return nil, err
+	}
+	args := transport.Args
 	schemaArgs, err := buildStructuredOutputArgsPreview(cliType, outputSchema)
 	if err != nil {
 		return nil, err
@@ -88,7 +99,7 @@ func (r *Runner) RunTaskDetailed(
 	reasoning string,
 	temperature *float64,
 	outputSchema map[string]any,
-) (RunTaskResult, error) {
+) (result RunTaskResult, resultErr error) {
 	cliType := r.provider.CLIType
 	if cliType == "" {
 		cliType = config.CLITypeGeneric
@@ -101,7 +112,16 @@ func (r *Runner) RunTaskDetailed(
 	if commandName == "" {
 		commandName = cliType
 	}
-	args, stdin := buildBaseArgs(cliType, providerModel, finalPrompt, reasoning)
+	transport, err := preparePromptTransport(cliType, providerModel, finalPrompt, reasoning)
+	if err != nil {
+		return RunTaskResult{}, err
+	}
+	defer func() {
+		if cleanupErr := transport.Cleanup(); cleanupErr != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("cleanup cli prompt transport: %w", cleanupErr))
+		}
+	}()
+	args := transport.Args
 	schemaArgs, cleanup, err := buildStructuredOutputArgs(cliType, outputSchema)
 	if err != nil {
 		return RunTaskResult{}, err
@@ -116,8 +136,8 @@ func (r *Runner) RunTaskDetailed(
 	args = append(args, captureArgs...)
 	args = append(args, renderArgs(r.provider.Args, task, agentID, role, providerModel)...)
 	command := append([]string{commandName}, args...)
-	env := append(os.Environ(), renderEnv(r.provider.Env, task, agentID, role, providerModel)...)
-	raw, err := runCommand(ctx, commandName, args, env, stdin)
+	env := BuildEnvironment(r.hostEnvironment, r.provider, task, agentID, role, providerModel).Values
+	raw, err := runCommand(ctx, cliType, commandName, args, env, transport.Stdin)
 	if err != nil {
 		return RunTaskResult{Command: command}, err
 	}
@@ -161,13 +181,13 @@ func buildStructuredOutputArgs(cliType string, outputSchema map[string]any) ([]s
 		return nil, func() {}, nil
 	}
 	switch cliType {
-	case "claude":
+	case config.CLITypeClaude:
 		body, err := json.Marshal(outputSchema)
 		if err != nil {
 			return nil, nil, fmt.Errorf("marshal claude json schema: %w", err)
 		}
 		return []string{"--json-schema", string(body), "--output-format", "json"}, func() {}, nil
-	case "codex":
+	case config.CLITypeCodex:
 		body, err := json.MarshalIndent(outputSchema, "", "  ")
 		if err != nil {
 			return nil, nil, fmt.Errorf("marshal codex output schema: %w", err)
@@ -196,13 +216,13 @@ func buildStructuredOutputArgsPreview(cliType string, outputSchema map[string]an
 		return nil, nil
 	}
 	switch cliType {
-	case "claude":
+	case config.CLITypeClaude:
 		body, err := json.Marshal(outputSchema)
 		if err != nil {
 			return nil, fmt.Errorf("marshal claude json schema preview: %w", err)
 		}
 		return []string{"--json-schema", string(body), "--output-format", "json"}, nil
-	case "codex":
+	case config.CLITypeCodex:
 		return []string{"--output-schema", "<schema-file>"}, nil
 	default:
 		return nil, nil
@@ -210,7 +230,7 @@ func buildStructuredOutputArgsPreview(cliType string, outputSchema map[string]an
 }
 
 func buildFinalOutputCaptureArgs(cliType string) ([]string, func() (string, error), func(), error) {
-	if cliType != "codex" {
+	if cliType != config.CLITypeCodex {
 		return nil, func() (string, error) { return "", nil }, func() {}, nil
 	}
 	file, err := os.CreateTemp("", "til-consensus-codex-last-message-*.txt")
@@ -236,14 +256,21 @@ func buildFinalOutputCaptureArgs(cliType string) ([]string, func() (string, erro
 }
 
 func buildFinalOutputCaptureArgsPreview(cliType string) []string {
-	if cliType != "codex" {
+	if cliType != config.CLITypeCodex {
 		return nil
 	}
 	return []string{"--output-last-message", "<last-message-file>"}
 }
 
 func normalizeStructuredCLIOutput(cliType string, outputSchema map[string]any, raw string) (string, error) {
-	if cliType != "claude" || len(outputSchema) == 0 {
+	switch cliType {
+	case config.CLITypePi:
+		return reducePiJSONLOutput(raw)
+	case config.CLITypeClaude:
+	default:
+		return raw, nil
+	}
+	if len(outputSchema) == 0 {
 		return raw, nil
 	}
 	trimmed := strings.TrimSpace(raw)
@@ -267,28 +294,34 @@ func normalizeStructuredCLIOutput(cliType string, outputSchema map[string]any, r
 	return raw, nil
 }
 
-func buildBaseArgs(cliType string, providerModel string, prompt string, reasoning string) ([]string, string) {
+func buildBaseArgs(cliType string, providerModel string, reasoning string) []string {
 	switch cliType {
-	case "claude":
+	case config.CLITypeClaude:
 		args := []string{"--print", "--model", providerModel}
 		if reasoning != "" {
 			args = append(args, "--effort", reasoning)
 		}
-		return args, prompt
-	case "codex":
-		args := []string{"exec", "-m", providerModel, "--full-auto", "--color", "never", "--skip-git-repo-check"}
+		return args
+	case config.CLITypeCodex:
+		args := []string{"exec", "-m", providerModel, "--sandbox", "workspace-write", "-c", `approval_policy="never"`, "--color", "never", "--skip-git-repo-check"}
 		if reasoning != "" {
-			args = []string{"exec", "-m", providerModel, "-c", "model_reasoning_effort=" + reasoning, "--full-auto", "--color", "never", "--skip-git-repo-check"}
+			args = []string{"exec", "-m", providerModel, "-c", "model_reasoning_effort=" + reasoning, "--sandbox", "workspace-write", "-c", `approval_policy="never"`, "--color", "never", "--skip-git-repo-check"}
 		}
-		return args, prompt
-	case "gemini":
-		return []string{"--approval-mode", "yolo", "-m", providerModel, "-p", prompt}, ""
+		return args
+	case config.CLITypeGemini:
+		return []string{"--approval-mode", "yolo", "-m", providerModel}
 	case config.CLITypeAntigravity:
-		return []string{"--model", providerModel, "-p", prompt}, ""
-	case "opencode":
-		return []string{"run", prompt, "--dangerously-skip-permissions", "-m", providerModel}, ""
+		return nil
+	case config.CLITypeOpenCode:
+		return []string{"run", "--yolo", "-m", providerModel}
+	case config.CLITypePi:
+		args := []string{"--mode", "json", "--print", "--no-session", "--model", providerModel}
+		if reasoning != "" {
+			args = append(args, "--thinking", reasoning)
+		}
+		return args
 	default:
-		return nil, prompt
+		return nil
 	}
 }
 
@@ -302,7 +335,7 @@ func hardenPromptForCLI(cliType string, task consensus.Task, prompt string) stri
 
 func buildCLIOutputContract(cliType string, task consensus.Task) string {
 	switch cliType {
-	case "codex", "claude", "gemini", config.CLITypeAntigravity:
+	case config.CLITypeCodex, config.CLITypeClaude, config.CLITypeGemini, config.CLITypeAntigravity, config.CLITypePi:
 	default:
 		return ""
 	}
@@ -316,22 +349,26 @@ func buildCLIOutputContract(cliType string, task consensus.Task) string {
 	}
 	lines = append(lines, taskSpecificContract(task)...)
 	switch cliType {
-	case "codex":
+	case config.CLITypeCodex:
 		lines = append(lines,
 			"- Codex-specific: suppress all preambles, reflections, and trailing notes. Output JSON only.",
 			"- Codex-specific: when a schema field exists, include it explicitly. Use empty strings, empty arrays, 0, or false for not-applicable optional values instead of omitting the field.",
 		)
-	case "claude":
+	case config.CLITypeClaude:
 		lines = append(lines,
 			"- Claude-specific: do not wrap the answer in prose or explanatory paragraphs. Output JSON only.",
 		)
-	case "gemini":
+	case config.CLITypeGemini:
 		lines = append(lines,
 			"- Gemini-specific: do not replace canonical fields with aliases like verificationStatus/claim/text/accepted/verified.",
 		)
 	case config.CLITypeAntigravity:
 		lines = append(lines,
 			"- Antigravity-specific: non-interactive output is parsed from stdout. Do not emit TUI notes, plans, tool logs, or artifact summaries; output JSON only.",
+		)
+	case config.CLITypePi:
+		lines = append(lines,
+			"- Pi-specific: the final assistant text must contain exactly one JSON object and no surrounding prose.",
 		)
 	}
 	return strings.Join(lines, "\n")
@@ -455,25 +492,6 @@ func renderArgs(args []string, task consensus.Task, agentID string, role string,
 	return out
 }
 
-func renderEnv(env map[string]string, task consensus.Task, agentID string, role string, providerModel string) []string {
-	out := make([]string, 0, len(env)+6)
-	for key, value := range env {
-		out = append(out, key+"="+renderTemplate(value, task, agentID, role, providerModel))
-	}
-	meta := task.Meta()
-	out = append(out,
-		"TIL_CONSENSUS_TASK_KIND="+string(task.Kind()),
-		"TIL_CONSENSUS_REQUEST_ID="+meta.RequestID,
-		"TIL_CONSENSUS_SESSION_ID="+meta.SessionID,
-		"TIL_CONSENSUS_AGENT_ID="+meta.AgentID,
-		"TIL_CONSENSUS_PROVIDER_MODEL="+providerModel,
-	)
-	if role != "" {
-		out = append(out, "TIL_CONSENSUS_ROLE="+role)
-	}
-	return out
-}
-
 func renderTemplate(value string, task consensus.Task, agentID string, role string, providerModel string) string {
 	meta := task.Meta()
 	value = strings.ReplaceAll(value, "{requestId}", meta.RequestID)
@@ -485,8 +503,13 @@ func renderTemplate(value string, task consensus.Task, agentID string, role stri
 	return value
 }
 
-func runCommand(ctx context.Context, command string, args []string, env []string, stdin string) (string, error) {
+func runCommand(ctx context.Context, cliType string, command string, args []string, env []string, stdin string) (string, error) {
 	cmd := exec.CommandContext(ctx, command, args...)
+	prepareCmdForKill(cmd)
+	cmd.Cancel = func() error {
+		return forceKillCmd(cmd)
+	}
+	cmd.WaitDelay = 2 * time.Second
 	cmd.Env = env
 	cmd.Stdin = strings.NewReader(stdin)
 	var stdout bytes.Buffer
@@ -494,7 +517,21 @@ func runCommand(ctx context.Context, command string, args []string, env []string
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("cli provider failed: %w stderr=%s stdout=%s", err, strings.TrimSpace(stderr.String()), strings.TrimSpace(stdout.String()))
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return "", ctxErr
+		}
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return "", &CommandError{
+				CLIType:  cliType,
+				Command:  append([]string{command}, args...),
+				ExitCode: exitErr.ExitCode(),
+				Stderr:   strings.TrimSpace(stderr.String()),
+				Stdout:   strings.TrimSpace(stdout.String()),
+				Err:      exitErr,
+			}
+		}
+		return "", fmt.Errorf("start cli command %s: %w", command, err)
 	}
 	return stdout.String(), nil
 }

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -9,6 +10,26 @@ import (
 	"github.com/suchasplus/til-consensus/config"
 	"github.com/suchasplus/til-consensus/consensus"
 )
+
+func TestRunCommandReturnsStructuredCommandError(t *testing.T) {
+	_, err := runCommand(context.Background(), config.CLITypeCodex, "sh", []string{"-c", "printf 'stdout 429'; printf 'ordinary failure' >&2; exit 7"}, nil, "")
+	if err == nil {
+		t.Fatal("expected command failure")
+	}
+	var commandErr *CommandError
+	if !errors.As(err, &commandErr) {
+		t.Fatalf("expected CommandError, got %T: %v", err, err)
+	}
+	if commandErr.CLIType != config.CLITypeCodex || commandErr.ExitCode != 7 {
+		t.Fatalf("unexpected command metadata: %#v", commandErr)
+	}
+	if commandErr.Stderr != "ordinary failure" || commandErr.Stdout != "stdout 429" {
+		t.Fatalf("unexpected output capture: %#v", commandErr)
+	}
+	if len(commandErr.Command) < 1 || commandErr.Command[0] != "sh" {
+		t.Fatalf("unexpected command: %#v", commandErr.Command)
+	}
+}
 
 func TestGenericCLIRunnerPassesPromptViaStdin(t *testing.T) {
 	runner := NewRunner(config.ProviderConfig{
@@ -29,51 +50,93 @@ func TestGenericCLIRunnerPassesPromptViaStdin(t *testing.T) {
 }
 
 func TestBuildBaseArgsClaudeMapsReasoningToEffort(t *testing.T) {
-	args, stdin := buildBaseArgs("claude", "claude-opus-4-6", "prompt", "max")
-	if stdin != "prompt" {
-		t.Fatalf("unexpected claude stdin: %q", stdin)
-	}
+	args := buildBaseArgs("claude", "claude-opus-4-6", "max")
 	want := []string{"--print", "--model", "claude-opus-4-6", "--effort", "max"}
 	if strings.Join(args, "\x00") != strings.Join(want, "\x00") {
 		t.Fatalf("unexpected claude args: %#v", args)
 	}
 }
 
-func TestBuildBaseArgsCodexMapsReasoningToConfigOverride(t *testing.T) {
-	args, stdin := buildBaseArgs("codex", "gpt-5", "prompt", "xhigh")
-	if len(args) == 0 || stdin != "prompt" {
-		t.Fatalf("unexpected codex args/stdin: %#v %q", args, stdin)
+func TestBuildBaseArgsCodexUsesCanonicalSandboxFlags(t *testing.T) {
+	tests := []struct {
+		name      string
+		reasoning string
+		want      []string
+	}{
+		{
+			name: "without reasoning",
+			want: []string{"exec", "-m", "gpt-5", "--sandbox", "workspace-write", "-c", `approval_policy="never"`, "--color", "never", "--skip-git-repo-check"},
+		},
+		{
+			name:      "with reasoning",
+			reasoning: "xhigh",
+			want:      []string{"exec", "-m", "gpt-5", "-c", "model_reasoning_effort=xhigh", "--sandbox", "workspace-write", "-c", `approval_policy="never"`, "--color", "never", "--skip-git-repo-check"},
+		},
 	}
-	want := []string{"exec", "-m", "gpt-5", "-c", "model_reasoning_effort=xhigh", "--full-auto", "--color", "never", "--skip-git-repo-check"}
-	if strings.Join(args, "\x00") != strings.Join(want, "\x00") {
-		t.Fatalf("unexpected codex args: %#v", args)
-	}
-	for _, arg := range args {
-		if strings.Contains(arg, "resume") || strings.Contains(arg, "session") {
-			t.Fatalf("expected one-shot args, got %#v", args)
-		}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			args := buildBaseArgs("codex", "gpt-5", tt.reasoning)
+			if strings.Join(args, "\x00") != strings.Join(tt.want, "\x00") {
+				t.Fatalf("unexpected codex args: %#v", args)
+			}
+			for _, arg := range args {
+				if arg == "--full-auto" || strings.Contains(arg, "resume") || strings.Contains(arg, "session") {
+					t.Fatalf("expected canonical one-shot args, got %#v", args)
+				}
+			}
+		})
 	}
 }
 
-func TestBuildBaseArgsAntigravityUsesPrintPrompt(t *testing.T) {
-	args, stdin := buildBaseArgs(config.CLITypeAntigravity, "Gemini 3.5 Flash (High)", "prompt", "medium")
-	if stdin != "" {
-		t.Fatalf("expected antigravity prompt in args, got stdin %q", stdin)
+func TestPromptTransportKeepsPromptOutOfArgv(t *testing.T) {
+	tests := []struct {
+		name    string
+		cliType string
+		model   string
+		want    []string
+	}{
+		{name: "generic", cliType: config.CLITypeGeneric, model: "local", want: nil},
+		{name: "claude", cliType: "claude", model: "claude-opus-4-6", want: []string{"--print", "--model", "claude-opus-4-6", "--effort", "medium"}},
+		{name: "codex", cliType: "codex", model: "gpt-5", want: []string{"exec", "-m", "gpt-5", "-c", "model_reasoning_effort=medium", "--sandbox", "workspace-write", "-c", `approval_policy="never"`, "--color", "never", "--skip-git-repo-check"}},
+		{name: "gemini", cliType: "gemini", model: "gemini-3.1-pro-preview", want: []string{"--approval-mode", "yolo", "-m", "gemini-3.1-pro-preview"}},
+		{name: "opencode", cliType: "opencode", model: "google/gemini", want: []string{"run", "--yolo", "-m", "google/gemini"}},
+		{name: "pi", cliType: config.CLITypePi, model: "gemini-3.6-flash", want: []string{"--mode", "json", "--print", "--no-session", "--model", "gemini-3.6-flash", "--thinking", "medium"}},
 	}
-	want := []string{"--model", "Gemini 3.5 Flash (High)", "-p", "prompt"}
-	if strings.Join(args, "\x00") != strings.Join(want, "\x00") {
-		t.Fatalf("unexpected antigravity args: %#v", args)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			transport, err := preparePromptTransport(tt.cliType, tt.model, "unique-secret-prompt", "medium")
+			if err != nil {
+				t.Fatalf("preparePromptTransport failed: %v", err)
+			}
+			defer func() { _ = transport.Cleanup() }()
+			if transport.Stdin != "unique-secret-prompt" {
+				t.Fatalf("unexpected stdin: %q", transport.Stdin)
+			}
+			if strings.Join(transport.Args, "\x00") != strings.Join(tt.want, "\x00") {
+				t.Fatalf("unexpected args: %#v", transport.Args)
+			}
+			if strings.Contains(strings.Join(transport.Args, " "), "unique-secret-prompt") {
+				t.Fatalf("prompt leaked into argv: %#v", transport.Args)
+			}
+		})
 	}
 }
 
-func TestBuildBaseArgsGeminiUsesPromptFlag(t *testing.T) {
-	args, stdin := buildBaseArgs("gemini", "gemini-3.1-pro-preview", "prompt", "medium")
-	if stdin != "" {
-		t.Fatalf("expected gemini prompt in args, got stdin %q", stdin)
+func TestPiDoesNotGenerateSchemaFlags(t *testing.T) {
+	args, cleanup, err := buildStructuredOutputArgs(config.CLITypePi, map[string]any{"type": "object"})
+	if err != nil {
+		t.Fatalf("buildStructuredOutputArgs failed: %v", err)
 	}
-	want := []string{"--approval-mode", "yolo", "-m", "gemini-3.1-pro-preview", "-p", "prompt"}
-	if strings.Join(args, "\x00") != strings.Join(want, "\x00") {
-		t.Fatalf("unexpected gemini args: %#v", args)
+	defer cleanup()
+	if len(args) != 0 {
+		t.Fatalf("expected no Pi schema args, got %#v", args)
+	}
+}
+
+func TestPiOutputContractRequiresSingleJSONObject(t *testing.T) {
+	contract := buildCLIOutputContract(config.CLITypePi, realPromptTransportTestTask{})
+	if !strings.Contains(contract, "Pi-specific") || !strings.Contains(contract, "exactly one JSON object") {
+		t.Fatalf("unexpected Pi output contract: %s", contract)
 	}
 }
 

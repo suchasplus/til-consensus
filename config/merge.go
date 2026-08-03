@@ -135,6 +135,9 @@ func mergeProvider(base ProviderConfig, overlay ProviderConfig) ProviderConfig {
 		out.Args = cloneStrings(overlay.Args)
 	}
 	out.Env = mergeStringMap(out.Env, overlay.Env)
+	if overlay.EnvPassthrough != nil {
+		out.EnvPassthrough = cloneStringSlicePtr(overlay.EnvPassthrough)
+	}
 	out.Adapter = pickString(out.Adapter, overlay.Adapter)
 	out.Options = mergeAnyMap(out.Options, overlay.Options)
 	out.Behavior = pickString(out.Behavior, overlay.Behavior)
@@ -508,6 +511,7 @@ func cloneProvider(provider ProviderConfig) ProviderConfig {
 	out.Models = mergeProviderModels(nil, provider.Models)
 	out.Args = cloneStrings(provider.Args)
 	out.Env = cloneStringMap(provider.Env)
+	out.EnvPassthrough = cloneStringSlicePtr(provider.EnvPassthrough)
 	out.Options = cloneDeepAnyMap(provider.Options)
 	out.Participants = mergeMockParticipants(nil, provider.Participants)
 	return out
@@ -538,6 +542,14 @@ func cloneBoolPtr(value *bool) *bool {
 		return nil
 	}
 	cloned := *value
+	return &cloned
+}
+
+func cloneStringSlicePtr(value *[]string) *[]string {
+	if value == nil {
+		return nil
+	}
+	cloned := append([]string{}, (*value)...)
 	return &cloned
 }
 

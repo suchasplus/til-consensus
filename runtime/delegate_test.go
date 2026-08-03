@@ -100,6 +100,56 @@ func TestDelegateTimeoutReturnsTimeoutMarker(t *testing.T) {
 	}
 }
 
+func TestDelegateCancelDoesNotHoldMutexWhileCanceling(t *testing.T) {
+	cancelStarted := make(chan struct{})
+	releaseCancel := make(chan struct{})
+	delegate := &Delegate{
+		tasks: map[string]*taskEntry{
+			"task-1": {
+				cancel: func() {
+					close(cancelStarted)
+					<-releaseCancel
+				},
+				done: make(chan taskOutcome),
+			},
+		},
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- delegate.Cancel(context.Background(), "task-1")
+	}()
+	<-cancelStarted
+
+	lockAcquired := make(chan struct{})
+	go func() {
+		delegate.mu.Lock()
+		_ = len(delegate.tasks)
+		delegate.mu.Unlock()
+		close(lockAcquired)
+	}()
+	select {
+	case <-lockAcquired:
+	case <-time.After(time.Second):
+		close(releaseCancel)
+		t.Fatal("Delegate.Cancel held mutex while invoking cancel")
+	}
+	close(releaseCancel)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Cancel failed: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Cancel did not finish")
+	}
+	delegate.mu.Lock()
+	_, exists := delegate.tasks["task-1"]
+	delegate.mu.Unlock()
+	if exists {
+		t.Fatal("expected canceled task to be deleted")
+	}
+}
+
 func TestDelegatePersistsInputAndFailureArtifacts(t *testing.T) {
 	tmp := t.TempDir()
 	delegate, err := NewDelegate(config.Normalize(config.Config{
@@ -162,6 +212,85 @@ func TestDelegatePersistsInputAndFailureArtifacts(t *testing.T) {
 	}
 	if !strings.Contains(string(body), `"class": "command_exit"`) {
 		t.Fatalf("expected command_exit classification, got %s", string(body))
+	}
+	if !strings.Contains(string(body), `"exitCode": 7`) {
+		t.Fatalf("expected exit code in failure artifact, got %s", string(body))
+	}
+}
+
+func TestDelegateRejectsMissingCLIEnvironmentPassthroughWithoutLeakingValue(t *testing.T) {
+	t.Setenv("GEMINI_API_KEY", "top-secret-value")
+	delegate, err := NewDelegate(config.Config{
+		SchemaVersion: 1,
+		Providers: map[string]config.ProviderConfig{
+			"pi-cli": {
+				Type:    config.ProviderTypeCLI,
+				CLIType: config.CLITypePi,
+				Command: "pi",
+				Models:  map[string]config.ProviderModelConfig{"default": {ProviderModel: "gemini-3.6-flash"}},
+			},
+		},
+		Agents: []config.AgentConfig{{ID: "proposer-pi", Provider: "pi-cli", Model: "default"}},
+	}, t.TempDir())
+	if err != nil {
+		t.Fatalf("NewDelegate failed: %v", err)
+	}
+	_, err = delegate.Dispatch(context.Background(), consensus.ProposalTask{TaskMeta: consensus.TaskMeta{AgentID: "proposer-pi"}})
+	if err == nil || !strings.Contains(err.Error(), "pi-cli") || !strings.Contains(err.Error(), "GEMINI_API_KEY") {
+		t.Fatalf("expected migration error, got %v", err)
+	}
+	if strings.Contains(err.Error(), "top-secret-value") {
+		t.Fatalf("migration error leaked credential: %v", err)
+	}
+}
+
+func TestDelegateInputArtifactAuditsCLIEnvironmentWithoutSecrets(t *testing.T) {
+	t.Setenv("CUSTOM_TOKEN", "host-secret")
+	passthrough := []string{"CUSTOM_TOKEN"}
+	tmp := t.TempDir()
+	delegate, err := NewDelegate(config.Config{
+		SchemaVersion: 1,
+		Providers: map[string]config.ProviderConfig{
+			"cli": {
+				Type:           config.ProviderTypeCLI,
+				CLIType:        config.CLITypeGeneric,
+				Command:        "sh",
+				Args:           []string{"-c", `printf '{"summary":"ok","claims":[{"statement":"claim"}]}'`},
+				EnvPassthrough: &passthrough,
+				Env: map[string]string{
+					"CUSTOM_ENDPOINT": "https://user:password@example.com/v1?token=secret#fragment",
+				},
+				Models: map[string]config.ProviderModelConfig{"default": {ProviderModel: "local"}},
+			},
+		},
+		Agents: []config.AgentConfig{{ID: "proposer-a", Provider: "cli", Model: "default"}},
+	}, tmp)
+	if err != nil {
+		t.Fatalf("NewDelegate failed: %v", err)
+	}
+	receipt, err := delegate.Dispatch(context.Background(), consensus.ProposalTask{TaskMeta: consensus.TaskMeta{
+		RequestID: "req-1", SessionID: "session-1", AgentID: "proposer-a",
+	}})
+	if err != nil {
+		t.Fatalf("Dispatch failed: %v", err)
+	}
+	awaited, err := delegate.Await(context.Background(), receipt.TaskID, time.Second)
+	if err != nil || !awaited.OK {
+		t.Fatalf("Await failed: awaited=%#v err=%v", awaited, err)
+	}
+	body, err := os.ReadFile(filepath.Join(tmp, "input-proposer-a-propose-"+receipt.TaskID+".json"))
+	if err != nil {
+		t.Fatalf("read input artifact: %v", err)
+	}
+	for _, want := range []string{`"cliEnvironment"`, `"CUSTOM_TOKEN"`, `"CUSTOM_ENDPOINT"`, `"https://example.com/v1"`} {
+		if !strings.Contains(string(body), want) {
+			t.Fatalf("input artifact missing %q: %s", want, body)
+		}
+	}
+	for _, secret := range []string{"host-secret", "password", "token=secret"} {
+		if strings.Contains(string(body), secret) {
+			t.Fatalf("input artifact leaked %q: %s", secret, body)
+		}
 	}
 }
 

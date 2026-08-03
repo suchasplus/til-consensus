@@ -160,7 +160,7 @@ func TaskOutputJSONSchemaForAgent(task consensus.Task, agent ResolvedAgentRuntim
 }
 
 func usesCodexStructuredSchema(agent ResolvedAgentRuntime) bool {
-	return agent.Provider.Type == config.ProviderTypeCLI && agent.Provider.CLIType == "codex"
+	return agent.Provider.Type == config.ProviderTypeCLI && agent.Provider.CLIType == config.CLITypeCodex
 }
 
 func objectSchema(required []string, properties map[string]any) map[string]any {

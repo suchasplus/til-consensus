@@ -14,6 +14,7 @@ CLI provider：
 - [claude.config.yaml](examples/claude.config.yaml)
 - [gemini.config.yaml](examples/gemini.config.yaml)
 - [antigravity.config.yaml](examples/antigravity.config.yaml)
+- [pi.config.yaml](examples/pi.config.yaml)
 - [generic.config.yaml](examples/generic.config.yaml)
 
 API provider：
@@ -45,6 +46,7 @@ API provider：
 - [claude.run.yaml](examples/claude.run.yaml)
 - [gemini.run.yaml](examples/gemini.run.yaml)
 - [antigravity.run.yaml](examples/antigravity.run.yaml)
+- [pi.run.yaml](examples/pi.run.yaml)
 
 ## 复制后先做什么
 

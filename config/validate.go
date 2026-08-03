@@ -61,6 +61,9 @@ func validateProviderProfiles(cfg Config) error {
 			if err := validateCLIProviderDoesNotDeclareTokenBudget(name, provider); err != nil {
 				return err
 			}
+			if err := validateCLIEnvironment(name, provider); err != nil {
+				return err
+			}
 		case ProviderTypeSDK:
 			if strings.TrimSpace(provider.Adapter) == "" {
 				return fmt.Errorf("provider %s: adapter is required", name)
@@ -84,6 +87,47 @@ func validateProviderProfiles(cfg Config) error {
 		}
 	}
 	return nil
+}
+
+func validateCLIEnvironment(name string, provider ProviderConfig) error {
+	seen := map[string]struct{}{}
+	if provider.EnvPassthrough != nil {
+		for idx, key := range *provider.EnvPassthrough {
+			if !validEnvironmentKey(key) {
+				return fmt.Errorf("provider %s env_passthrough[%d]=%q is not a valid environment variable name", name, idx, key)
+			}
+			canonical := strings.ToUpper(key)
+			if canonical == "CLAUDECODE" {
+				return fmt.Errorf("provider %s env_passthrough[%d]: CLAUDECODE is permanently denied", name, idx)
+			}
+			if _, ok := seen[canonical]; ok {
+				return fmt.Errorf("provider %s env_passthrough contains duplicate key %q", name, key)
+			}
+			seen[canonical] = struct{}{}
+		}
+	}
+	for key := range provider.Env {
+		if !validEnvironmentKey(key) {
+			return fmt.Errorf("provider %s env key %q is not a valid environment variable name", name, key)
+		}
+		if strings.EqualFold(key, "CLAUDECODE") {
+			return fmt.Errorf("provider %s env.%s: CLAUDECODE is permanently denied", name, key)
+		}
+	}
+	return nil
+}
+
+func validEnvironmentKey(key string) bool {
+	if key == "" {
+		return false
+	}
+	for idx, r := range key {
+		if r == '_' || r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || idx > 0 && r >= '0' && r <= '9' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func validateCLIProviderDoesNotDeclareTokenBudget(name string, provider ProviderConfig) error {

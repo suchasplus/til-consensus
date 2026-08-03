@@ -1,7 +1,7 @@
 schema_version: 1
 
 # 这是一个“多 provider 总模板”：
-# - 4 个 CLI：codex / claude / gemini / antigravity
+# - 5 个 CLI：codex / claude / gemini / antigravity / pi
 # - 4 类 API：openai-compatible / openai-responses / anthropic-compatible / gemini-api
 #
 # 设计目标：
@@ -68,6 +68,7 @@ providers:
     type: cli
     cli_type: codex
     command: codex
+    env_passthrough: [OPENAI_API_KEY, OPENAI_BASE_URL]
     # 如需额外参数，可在这里补：
     # args:
     #   - --your-arg
@@ -83,6 +84,7 @@ providers:
     type: cli
     cli_type: claude
     command: claude
+    env_passthrough: [ANTHROPIC_API_KEY, ANTHROPIC_BASE_URL]
     # args / env 可按你本地 Claude Code 的习惯补充
     models:
       default:
@@ -93,6 +95,7 @@ providers:
     type: cli
     cli_type: gemini
     command: gemini
+    env_passthrough: [GEMINI_API_KEY]
     # args / env 可按你本地 Gemini CLI 的习惯补充
     models:
       default:
@@ -103,11 +106,25 @@ providers:
     type: cli
     cli_type: antigravity
     command: agy
+    env_passthrough: [GEMINI_API_KEY]
     # Antigravity CLI 当前推荐用 agy -p 做非交互调用，用 --model 临时指定模型。
     # Gemini CLI 仍保留在上方，方便过渡期并行验证。
     models:
       default:
         provider_model: Gemini 3.5 Flash (High)
+        reasoning: medium
+
+  pi-cli:
+    type: cli
+    cli_type: pi
+    command: pi
+    args: [--provider, google-vertex]
+    env_passthrough: [GOOGLE_APPLICATION_CREDENTIALS, GOOGLE_CLOUD_PROJECT]
+    env:
+      GOOGLE_CLOUD_LOCATION: global
+    models:
+      default:
+        provider_model: gemini-3.6-flash
         reasoning: medium
 
   # ------------------------------

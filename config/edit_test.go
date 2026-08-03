@@ -145,6 +145,26 @@ func TestBuildProviderVariants(t *testing.T) {
 	}
 }
 
+func TestBuildProviderPreservesEnvironmentPassthrough(t *testing.T) {
+	input := []string{"GEMINI_API_KEY"}
+	provider, err := BuildProvider(AddProviderInput{
+		ID:             "pi-cli",
+		Type:           ProviderTypeCLI,
+		CLIType:        CLITypePi,
+		Command:        "pi",
+		ModelID:        "default",
+		ProviderModel:  "gemini-3.6-flash",
+		EnvPassthrough: input,
+	})
+	if err != nil {
+		t.Fatalf("BuildProvider failed: %v", err)
+	}
+	input[0] = "MUTATED"
+	if provider.EnvPassthrough == nil || len(*provider.EnvPassthrough) != 1 || (*provider.EnvPassthrough)[0] != "GEMINI_API_KEY" {
+		t.Fatalf("unexpected env passthrough: %#v", provider.EnvPassthrough)
+	}
+}
+
 func TestApplyAddAgentAndProviderErrors(t *testing.T) {
 	cfg := Normalize(InitTemplate())
 	if _, err := ApplyAddProvider(cfg, AddProviderInput{ID: "mock", Type: ProviderTypeMock}); err == nil {

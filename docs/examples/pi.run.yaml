@@ -1,0 +1,24 @@
+# 搭配 pi.config.yaml；需要本机 Pi 已配置 Google provider。
+request_id: pi-architecture-001
+
+task_spec:
+  goal: 判断是否应把现有服务拆分为独立部署单元
+  task_type: architecture_decision
+  success_criteria:
+    - 明确收益、成本和迁移前提
+    - 区分已验证事实与推断
+    - 给出可回滚的实施建议
+  materials:
+    - id: current-state
+      title: 当前状态
+      kind: text
+      content: |
+        当前服务共享数据库和发布流水线，团队希望降低相互阻塞，但尚未建立跨服务追踪和独立值班机制。
+
+roles:
+  adjudication:
+    proposers: [proposer-pi]
+    challengers: [challenger-pi]
+    semantic_verifier: verifier-pi
+    arbiter: arbiter-pi
+    reporter: reporter-pi

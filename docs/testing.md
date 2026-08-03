@@ -115,6 +115,15 @@ make test-e2e
 TIL_CONSENSUS_E2E_REAL_CLI=1 make test-e2e-real
 ```
 
+真实 CLI fixture 的三个 mode 默认各有 `25m` 的外层运行预算，单个 CLI task 的超时为 `5m`。可通过以下环境变量覆盖外层预算：
+
+- `TIL_CONSENSUS_E2E_REAL_TIMEOUT`：统一覆盖所有 mode。
+- `TIL_CONSENSUS_E2E_REAL_TIMEOUT_ADJUDICATION`：只覆盖 `adjudication`。
+- `TIL_CONSENSUS_E2E_REAL_TIMEOUT_FREE_DEBATE`：只覆盖 `free_debate`。
+- `TIL_CONSENSUS_E2E_REAL_TIMEOUT_DELPHI`：只覆盖 `delphi`。
+
+变量值使用 Go duration 格式，例如 `30m`、`1h15m`。通用覆盖优先于 mode 专用覆盖；无法解析、为零或为负数的值会被忽略并继续回退到下一层，最终使用 `25m` 默认值。
+
 真实 API provider：
 
 ```bash
@@ -141,6 +150,8 @@ go test ./...
 - `OPENAI_API_KEY`
 - `ANTHROPIC_API_KEY`
 - `GEMINI_API_KEY`
+- `GOOGLE_APPLICATION_CREDENTIALS`
+- `GOOGLE_CLOUD_PROJECT`（Pi Vertex；location 由测试固定为 `global`）
 - `DEEPSEEK_API_KEY`
 - `BAILIAN_API_KEY`
 - `KIMI_API_KEY`

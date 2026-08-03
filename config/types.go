@@ -244,24 +244,25 @@ type ProviderModelConfig struct {
 }
 
 type ProviderConfig struct {
-	Enabled      *bool                              `yaml:"enabled,omitempty"`
-	Type         string                             `yaml:"type"`
-	Protocol     string                             `yaml:"protocol,omitempty"`
-	CLIType      string                             `yaml:"cli_type,omitempty"`
-	BaseURL      string                             `yaml:"base_url,omitempty"`
-	APIKeyEnv    string                             `yaml:"api_key_env,omitempty"`
-	Headers      map[string]string                  `yaml:"headers,omitempty"`
-	Model        string                             `yaml:"model,omitempty"`
-	Models       map[string]ProviderModelConfig     `yaml:"models,omitempty"`
-	Command      string                             `yaml:"command,omitempty"`
-	Args         []string                           `yaml:"args,omitempty"`
-	Env          map[string]string                  `yaml:"env,omitempty"`
-	Adapter      string                             `yaml:"adapter,omitempty"`
-	Options      map[string]any                     `yaml:"options,omitempty"`
-	Behavior     string                             `yaml:"behavior,omitempty"`
-	Delay        Duration                           `yaml:"delay,omitempty"`
-	Error        string                             `yaml:"error,omitempty"`
-	Participants map[string]MockParticipantScenario `yaml:"participants,omitempty"`
+	Enabled        *bool                              `yaml:"enabled,omitempty"`
+	Type           string                             `yaml:"type"`
+	Protocol       string                             `yaml:"protocol,omitempty"`
+	CLIType        string                             `yaml:"cli_type,omitempty"`
+	BaseURL        string                             `yaml:"base_url,omitempty"`
+	APIKeyEnv      string                             `yaml:"api_key_env,omitempty"`
+	Headers        map[string]string                  `yaml:"headers,omitempty"`
+	Model          string                             `yaml:"model,omitempty"`
+	Models         map[string]ProviderModelConfig     `yaml:"models,omitempty"`
+	Command        string                             `yaml:"command,omitempty"`
+	Args           []string                           `yaml:"args,omitempty"`
+	Env            map[string]string                  `yaml:"env,omitempty"`
+	EnvPassthrough *[]string                          `yaml:"env_passthrough,omitempty"`
+	Adapter        string                             `yaml:"adapter,omitempty"`
+	Options        map[string]any                     `yaml:"options,omitempty"`
+	Behavior       string                             `yaml:"behavior,omitempty"`
+	Delay          Duration                           `yaml:"delay,omitempty"`
+	Error          string                             `yaml:"error,omitempty"`
+	Participants   map[string]MockParticipantScenario `yaml:"participants,omitempty"`
 }
 
 type MockParticipantScenario struct {

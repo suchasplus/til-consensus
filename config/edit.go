@@ -24,6 +24,7 @@ type AddProviderInput struct {
 	Command         string
 	Args            []string
 	Env             map[string]string
+	EnvPassthrough  []string
 	Adapter         string
 	Options         map[string]any
 	Behavior        string
@@ -184,6 +185,10 @@ func BuildProvider(input AddProviderInput) (ProviderConfig, error) {
 		Behavior:  input.Behavior,
 		Delay:     input.Delay,
 		Error:     input.Error,
+	}
+	if input.EnvPassthrough != nil {
+		values := append([]string{}, input.EnvPassthrough...)
+		provider.EnvPassthrough = &values
 	}
 	modelID := strings.TrimSpace(input.ModelID)
 	if providerType == ProviderTypeMock && modelID == "" {

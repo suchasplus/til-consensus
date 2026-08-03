@@ -244,6 +244,12 @@ func probeCandidate(ctx context.Context, item candidate, opts Options, sink Arti
 	}
 	schema := readinessSchema()
 	maxOutputTokens := effectiveMaxOutputTokens(item)
+	hostEnvironment := clirunner.SnapshotHostEnvironment(os.Environ())
+	var cliEnvironment any
+	if item.ProviderType == config.ProviderTypeCLI {
+		agentID, role, task := cliPreflightTask(item)
+		cliEnvironment = clirunner.BuildEnvironment(hostEnvironment, item.Provider, task, agentID, role, item.ProviderModel).Audit
+	}
 	if item.ProviderType == config.ProviderTypeAPI {
 		requestContext, err := apirunner.PreviewRequestContext(
 			item.Provider,
@@ -262,7 +268,7 @@ func probeCandidate(ctx context.Context, item candidate, opts Options, sink Arti
 		entry.RequestContext = requestContext
 	}
 	if sink != nil {
-		entry.InputArtifact = sink.WriteInput(item.ID, map[string]any{
+		payload := map[string]any{
 			"provider":       item.ProviderID,
 			"providerType":   item.ProviderType,
 			"protocol":       item.Protocol,
@@ -275,7 +281,11 @@ func probeCandidate(ctx context.Context, item candidate, opts Options, sink Arti
 			"prompt":         prompt,
 			"schema":         schema,
 			"requestContext": entry.RequestContext,
-		})
+		}
+		if cliEnvironment != nil {
+			payload["cliEnvironment"] = cliEnvironment
+		}
+		entry.InputArtifact = sink.WriteInput(item.ID, payload)
 	}
 	if item.ProviderType == config.ProviderTypeCLI {
 		preview, err := previewCLICommand(item, prompt, schema)
@@ -296,7 +306,7 @@ func probeCandidate(ctx context.Context, item candidate, opts Options, sink Arti
 	probeCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	result, err := runCandidate(probeCtx, item, prompt, schema)
+	result, err := runCandidate(probeCtx, item, prompt, schema, hostEnvironment)
 	entry.DurationMs = time.Since(startedAt).Milliseconds()
 	if len(result.command) > 0 {
 		entry.Command = result.command
@@ -364,7 +374,7 @@ func previewCLICommand(item candidate, prompt string, schema map[string]any) ([]
 	return clirunner.PreviewCommand(item.Provider, task, prompt, agentID, role, item.ProviderModel, effectiveReasoning(item), effectiveTemperature(item), schema)
 }
 
-func runCandidate(ctx context.Context, item candidate, prompt string, schema map[string]any) (candidateRunResult, error) {
+func runCandidate(ctx context.Context, item candidate, prompt string, schema map[string]any, hostEnvironment clirunner.HostEnvironment) (candidateRunResult, error) {
 	switch item.ProviderType {
 	case config.ProviderTypeAPI:
 		if strings.TrimSpace(item.Provider.APIKeyEnv) != "" && strings.TrimSpace(os.Getenv(item.Provider.APIKeyEnv)) == "" {
@@ -380,18 +390,12 @@ func runCandidate(ctx context.Context, item candidate, prompt string, schema map
 		}
 		return candidateRunResult{raw: raw}, err
 	case config.ProviderTypeCLI:
-		runner := clirunner.NewRunner(item.Provider)
-		agentID := firstNonEmpty(item.AgentID, "preflight-"+sanitizeID(item.ProviderID))
-		role := "preflight"
-		if item.Agent != nil && strings.TrimSpace(item.Agent.Role) != "" {
-			role = item.Agent.Role
+		agentID, role, task := cliPreflightTask(item)
+		builtEnvironment := clirunner.BuildEnvironment(hostEnvironment, item.Provider, task, agentID, role, item.ProviderModel)
+		if migrationErr := clirunner.EnvironmentMigrationError(item.ProviderID, builtEnvironment.MissingKnownKeys); migrationErr != nil {
+			return candidateRunResult{}, migrationErr
 		}
-		task := preflightTask{TaskMeta: consensus.TaskMeta{
-			RequestID: "preflight",
-			SessionID: "preflight",
-			AgentID:   agentID,
-			Role:      role,
-		}}
+		runner := clirunner.NewRunnerWithHostEnvironment(item.Provider, hostEnvironment)
 		result, err := runner.RunTaskDetailed(ctx, task, prompt, agentID, role, item.ProviderModel, effectiveReasoning(item), effectiveTemperature(item), schema)
 		return candidateRunResult{raw: result.Output, command: result.Command}, err
 	case config.ProviderTypeMock:
@@ -400,6 +404,21 @@ func runCandidate(ctx context.Context, item candidate, prompt string, schema map
 	default:
 		return candidateRunResult{}, fmt.Errorf("provider type %s is not supported by preflight", item.ProviderType)
 	}
+}
+
+func cliPreflightTask(item candidate) (string, string, preflightTask) {
+	agentID := firstNonEmpty(item.AgentID, "preflight-"+sanitizeID(item.ProviderID))
+	role := "preflight"
+	if item.Agent != nil && strings.TrimSpace(item.Agent.Role) != "" {
+		role = item.Agent.Role
+	}
+	task := preflightTask{TaskMeta: consensus.TaskMeta{
+		RequestID: "preflight",
+		SessionID: "preflight",
+		AgentID:   agentID,
+		Role:      role,
+	}}
+	return agentID, role, task
 }
 
 func responseContextForCandidate(item candidate, raw string) map[string]any {

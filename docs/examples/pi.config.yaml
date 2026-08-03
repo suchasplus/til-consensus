@@ -1,0 +1,66 @@
+schema_version: 1
+
+defaults:
+  mode: adjudication
+  success_criteria:
+    - 给出 claim 级裁决
+    - 对证据不足的部分明确标成 undetermined
+  per_task_timeout: 20m
+  task_retry_attempts: 1
+  proposal_policy:
+    max_passes: 1
+    max_claims_per_worker: 4
+    dedupe_strategy: normalized-statement
+  verification_policy:
+    allow_semantic_verifier: true
+    max_parallel_checks: 2
+  arbiter_policy:
+    allow_undetermined: true
+    blind_review: true
+
+output:
+  directory: ./out/{requestId}
+
+providers:
+  pi-cli:
+    type: cli
+    cli_type: pi
+    command: pi
+    args: [--provider, google-vertex]
+    env_passthrough: [GOOGLE_APPLICATION_CREDENTIALS, GOOGLE_CLOUD_PROJECT]
+    env:
+      GOOGLE_CLOUD_LOCATION: global
+    models:
+      default:
+        provider_model: gemini-3.6-flash
+        reasoning: medium
+
+agents:
+  - id: proposer-pi
+    provider: pi-cli
+    model: default
+    role: proposer
+  - id: challenger-pi
+    provider: pi-cli
+    model: default
+    role: challenger
+  - id: verifier-pi
+    provider: pi-cli
+    model: default
+    role: semantic-verifier
+  - id: arbiter-pi
+    provider: pi-cli
+    model: default
+    role: arbiter
+  - id: reporter-pi
+    provider: pi-cli
+    model: default
+    role: reporter
+
+roles:
+  adjudication:
+    proposers: [proposer-pi]
+    challengers: [challenger-pi]
+    semantic_verifier: verifier-pi
+    arbiter: arbiter-pi
+    reporter: reporter-pi

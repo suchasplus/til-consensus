@@ -236,6 +236,25 @@ providers:
         provider_model: gemini-3.5-flash
 ```
 
+CLI provider 默认只继承运行命令所需的基础环境，不会继承整个宿主环境。需要使用宿主凭据或自定义 endpoint 时必须精确声明：
+
+```yaml
+providers:
+  pi-cli:
+    type: cli
+    cli_type: pi
+    command: pi
+    args: [--provider, google-vertex]
+    env_passthrough: [GOOGLE_APPLICATION_CREDENTIALS, GOOGLE_CLOUD_PROJECT]
+    env:
+      GOOGLE_CLOUD_LOCATION: global
+    models:
+      default:
+        provider_model: gemini-3.6-flash
+```
+
+`env_passthrough` 不支持 glob；profile overlay 未写该字段时继承父配置，显式 `[]` 表示清空。`provider.env` 继续用于显式设置或模板化变量，优先级高于 passthrough。`CLAUDECODE` 永久禁止注入 CLI 子进程。
+
 Agent 引用 provider/model：
 
 ```yaml

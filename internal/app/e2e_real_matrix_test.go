@@ -22,6 +22,7 @@ import (
 	"github.com/suchasplus/til-consensus/consensus"
 	tilruntime "github.com/suchasplus/til-consensus/runtime"
 	apiruntime "github.com/suchasplus/til-consensus/runtime/api"
+	cliruntime "github.com/suchasplus/til-consensus/runtime/cli"
 	"github.com/suchasplus/til-consensus/telemetry"
 	"github.com/urfave/cli/v3"
 	"gopkg.in/yaml.v3"
@@ -101,6 +102,15 @@ type e2eAPIProviderLayout struct {
 	UnavailableProviders []string
 }
 
+type realCLIPreflightTask struct {
+	consensus.TaskMeta
+}
+
+func (realCLIPreflightTask) Kind() consensus.TaskKind { return consensus.TaskKind("preflight") }
+func (t realCLIPreflightTask) Meta() consensus.TaskMeta {
+	return t.TaskMeta
+}
+
 var (
 	realCLIPreflightOnce    sync.Once
 	realCLIPreflightResults []cliProviderPreflightResult
@@ -132,6 +142,77 @@ func TestE2EFixtureCatalog(t *testing.T) {
 	slices.Sort(expectedModes)
 	if !slices.Equal(actualModes, expectedModes) {
 		t.Fatalf("unexpected fixture modes: got=%v want=%v", actualModes, expectedModes)
+	}
+}
+
+func TestRealE2ETimeoutForMode(t *testing.T) {
+	const (
+		allModesKey     = "TIL_CONSENSUS_E2E_REAL_TIMEOUT"
+		adjudicationKey = "TIL_CONSENSUS_E2E_REAL_TIMEOUT_ADJUDICATION"
+		freeDebateKey   = "TIL_CONSENSUS_E2E_REAL_TIMEOUT_FREE_DEBATE"
+		delphiKey       = "TIL_CONSENSUS_E2E_REAL_TIMEOUT_DELPHI"
+		defaultTimeout  = 25 * time.Minute
+	)
+	keys := []string{allModesKey, adjudicationKey, freeDebateKey, delphiKey}
+	tests := []struct {
+		name string
+		mode consensus.WorkflowMode
+		env  map[string]string
+		want time.Duration
+	}{
+		{name: "adjudication default", mode: consensus.WorkflowModeAdjudication, want: defaultTimeout},
+		{name: "free debate default", mode: consensus.WorkflowModeFreeDebate, want: defaultTimeout},
+		{name: "delphi default", mode: consensus.WorkflowModeDelphi, want: defaultTimeout},
+		{name: "all modes override", mode: consensus.WorkflowModeAdjudication, env: map[string]string{allModesKey: "41m"}, want: 41 * time.Minute},
+		{name: "adjudication override", mode: consensus.WorkflowModeAdjudication, env: map[string]string{adjudicationKey: "31m"}, want: 31 * time.Minute},
+		{name: "free debate override", mode: consensus.WorkflowModeFreeDebate, env: map[string]string{freeDebateKey: "32m"}, want: 32 * time.Minute},
+		{name: "delphi override", mode: consensus.WorkflowModeDelphi, env: map[string]string{delphiKey: "33m"}, want: 33 * time.Minute},
+		{
+			name: "all modes override takes precedence",
+			mode: consensus.WorkflowModeDelphi,
+			env:  map[string]string{allModesKey: "40m", delphiKey: "35m"},
+			want: 40 * time.Minute,
+		},
+		{name: "malformed override falls back", mode: consensus.WorkflowModeAdjudication, env: map[string]string{adjudicationKey: "invalid"}, want: defaultTimeout},
+		{name: "zero override falls back", mode: consensus.WorkflowModeFreeDebate, env: map[string]string{freeDebateKey: "0s"}, want: defaultTimeout},
+		{name: "negative override falls back", mode: consensus.WorkflowModeDelphi, env: map[string]string{delphiKey: "-1m"}, want: defaultTimeout},
+		{
+			name: "malformed all modes override falls through to mode override",
+			mode: consensus.WorkflowModeAdjudication,
+			env:  map[string]string{allModesKey: "invalid", adjudicationKey: "34m"},
+			want: 34 * time.Minute,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, key := range keys {
+				t.Setenv(key, "")
+			}
+			for key, value := range tt.env {
+				t.Setenv(key, value)
+			}
+			if got := realE2ETimeoutForMode(tt.mode); got != tt.want {
+				t.Fatalf("realE2ETimeoutForMode(%q) = %s, want %s", tt.mode, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestWriteE2EProviderConfigRealCLIPerTaskTimeout(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "til-consensus.yaml")
+	writeE2EProviderConfig(t, e2eConfigParams{
+		Path:         path,
+		OutputDir:    filepath.Join(t.TempDir(), "out", "{requestId}"),
+		Mode:         consensus.WorkflowModeAdjudication,
+		ProviderKind: "cli",
+	})
+
+	loaded, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("load real CLI e2e config: %v", err)
+	}
+	if got, want := loaded.Config.Defaults.PerTaskTimeout.Duration, 5*time.Minute; got != want {
+		t.Fatalf("real CLI per_task_timeout = %s, want %s", got, want)
 	}
 }
 
@@ -280,11 +361,14 @@ func TestE2ERealAPIFixtureMatrix(t *testing.T) {
 }
 
 func TestE2ERealCLIFixtureMatrix(t *testing.T) {
-	if strings.TrimSpace(os.Getenv("TIL_CONSENSUS_E2E_REAL")) == "" {
-		t.Skip("set TIL_CONSENSUS_E2E_REAL=1 to run real CLI e2e matrix")
+	if !realCLIE2EEnabled() {
+		t.Skip("set TIL_CONSENSUS_E2E_REAL_CLI=1 to run real CLI e2e matrix")
 	}
 	readiness := loadRealCLIProviderReadiness(t)
 	logRealCLIProviderReadiness(t, readiness)
+	if err := requiredCLIReadinessError(readiness, os.Getenv, fileExists); err != nil {
+		t.Fatal(err)
+	}
 	if countReadyCLIProviders(readiness) == 0 {
 		t.Fatalf("no real CLI providers are ready in current test context")
 	}
@@ -369,11 +453,14 @@ func TestE2ERealCLIFixtureMatrix(t *testing.T) {
 }
 
 func TestE2ERealCLIProviderReadinessPreflight(t *testing.T) {
-	if strings.TrimSpace(os.Getenv("TIL_CONSENSUS_E2E_REAL")) == "" {
-		t.Skip("set TIL_CONSENSUS_E2E_REAL=1 to run real CLI readiness preflight")
+	if !realCLIE2EEnabled() {
+		t.Skip("set TIL_CONSENSUS_E2E_REAL_CLI=1 to run real CLI readiness preflight")
 	}
 	readiness := loadRealCLIProviderReadiness(t)
 	logRealCLIProviderReadiness(t, readiness)
+	if err := requiredCLIReadinessError(readiness, os.Getenv, fileExists); err != nil {
+		t.Fatal(err)
+	}
 	readyCount := 0
 	for _, result := range readiness {
 		t.Run(result.Provider, func(t *testing.T) {
@@ -462,10 +549,114 @@ func TestBuildCLIE2EProviderLayoutCanDegradeToAntigravityOnly(t *testing.T) {
 	}
 }
 
+func TestBuildCLIE2EProviderLayoutIncludesPiInEveryMode(t *testing.T) {
+	readiness := []cliProviderPreflightResult{
+		{Provider: "claude", Ready: true},
+		{Provider: "gemini", Ready: true},
+		{Provider: "antigravity", Ready: true},
+		{Provider: "codex", Ready: true},
+		{Provider: "pi", Ready: true},
+	}
+	for _, mode := range []consensus.WorkflowMode{
+		consensus.WorkflowModeAdjudication,
+		consensus.WorkflowModeFreeDebate,
+		consensus.WorkflowModeDelphi,
+	} {
+		t.Run(string(mode), func(t *testing.T) {
+			layout := buildCLIE2EProviderLayout(mode, readiness)
+			if !slices.Contains(layout.ExpectedProviders, "pi-cli") {
+				t.Fatalf("expected Pi in %s layout: %#v", mode, layout)
+			}
+			used := false
+			for _, agent := range layout.Agents {
+				if agent.Provider == "pi-cli" {
+					used = true
+					break
+				}
+			}
+			if !used {
+				t.Fatalf("expected a Pi role assignment in %s layout: %#v", mode, layout.Agents)
+			}
+		})
+	}
+}
+
+func TestRequiredCLIReadinessErrorFailsClosedForConfiguredPi(t *testing.T) {
+	tests := []struct {
+		name           string
+		project        string
+		credentialPath string
+		home           string
+		existing       map[string]bool
+		readiness      []cliProviderPreflightResult
+		wantErr        bool
+	}{
+		{name: "credential absent", project: "project", readiness: []cliProviderPreflightResult{{Provider: "pi", Error: "env missing"}}},
+		{name: "explicit credential ready", project: "project", credentialPath: "/credentials.json", existing: map[string]bool{"/credentials.json": true}, readiness: []cliProviderPreflightResult{{Provider: "pi", Ready: true}}},
+		{name: "default adc ready", project: "project", home: "/home/test", existing: map[string]bool{"/home/test/.config/gcloud/application_default_credentials.json": true}, readiness: []cliProviderPreflightResult{{Provider: "pi", Ready: true}}},
+		{name: "configured and failed", project: "project", credentialPath: "/credentials.json", existing: map[string]bool{"/credentials.json": true}, readiness: []cliProviderPreflightResult{{Provider: "pi", Error: "bad jsonl"}}, wantErr: true},
+		{name: "configured and missing result", project: "project", credentialPath: "/credentials.json", existing: map[string]bool{"/credentials.json": true}, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			getenv := func(key string) string {
+				switch key {
+				case "GOOGLE_CLOUD_PROJECT":
+					return tt.project
+				case "GOOGLE_APPLICATION_CREDENTIALS":
+					return tt.credentialPath
+				case "HOME":
+					return tt.home
+				}
+				return ""
+			}
+			err := requiredCLIReadinessError(tt.readiness, getenv, func(path string) bool { return tt.existing[path] })
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("error mismatch: err=%v wantErr=%v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestNormalizePreflightOutputExtractsClaudeStructuredOutput(t *testing.T) {
 	got := normalizePreflightOutput("claude", `{"type":"result","structured_output":{"ok":true}}`)
 	if got != `{"ok":true}` {
 		t.Fatalf("unexpected normalized preflight output: %s", got)
+	}
+}
+
+func TestBuildCLIProviderPreflightArgsCodexUsesCanonicalSandboxFlags(t *testing.T) {
+	args, stdin, cleanup, err := buildCLIProviderPreflightArgs("codex", "prompt")
+	if err != nil {
+		t.Fatalf("buildCLIProviderPreflightArgs failed: %v", err)
+	}
+	defer cleanup()
+	if stdin != "prompt" {
+		t.Fatalf("unexpected codex preflight stdin: %q", stdin)
+	}
+	joined := strings.Join(args, "\x00")
+	for _, want := range []string{"--sandbox\x00workspace-write", `approval_policy="never"`, "--output-schema", "--output-last-message"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("expected %q in codex preflight args: %#v", want, args)
+		}
+	}
+	if strings.Contains(joined, "--full-auto") {
+		t.Fatalf("deprecated --full-auto present in codex preflight args: %#v", args)
+	}
+}
+
+func TestBuildCLIProviderPreflightArgsGeminiUsesStdin(t *testing.T) {
+	args, stdin, cleanup, err := buildCLIProviderPreflightArgs("gemini", "private prompt")
+	if err != nil {
+		t.Fatalf("buildCLIProviderPreflightArgs failed: %v", err)
+	}
+	defer cleanup()
+	if stdin != "private prompt" {
+		t.Fatalf("unexpected gemini stdin: %q", stdin)
+	}
+	joined := strings.Join(args, " ")
+	if strings.Contains(joined, "private prompt") || strings.Contains(joined, " -p ") {
+		t.Fatalf("gemini prompt leaked into argv: %#v", args)
 	}
 }
 
@@ -567,37 +758,53 @@ func writeE2EProviderConfig(t *testing.T, params e2eConfigParams) {
 
 	switch params.ProviderKind {
 	case "cli":
+		cfg.Defaults.PerTaskTimeout = config.Duration{Duration: 5 * time.Minute}
 		cfg.Providers = map[string]config.ProviderConfig{
 			"claude-cli": {
-				Type:    config.ProviderTypeCLI,
-				CLIType: "claude",
-				Command: "claude",
+				Type:           config.ProviderTypeCLI,
+				CLIType:        config.CLITypeClaude,
+				Command:        "claude",
+				EnvPassthrough: e2eStringSlicePtr("ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"),
 				Models: map[string]config.ProviderModelConfig{
 					"default": {ProviderModel: "claude-opus-4-6", Reasoning: "medium"},
 				},
 			},
 			"gemini-cli": {
-				Type:    config.ProviderTypeCLI,
-				CLIType: "gemini",
-				Command: "gemini",
+				Type:           config.ProviderTypeCLI,
+				CLIType:        config.CLITypeGemini,
+				Command:        "gemini",
+				EnvPassthrough: e2eStringSlicePtr("GEMINI_API_KEY"),
 				Models: map[string]config.ProviderModelConfig{
 					"default": {ProviderModel: "gemini-3.1-pro-preview", Reasoning: "medium"},
 				},
 			},
 			"antigravity-cli": {
-				Type:    config.ProviderTypeCLI,
-				CLIType: config.CLITypeAntigravity,
-				Command: "agy",
+				Type:           config.ProviderTypeCLI,
+				CLIType:        config.CLITypeAntigravity,
+				Command:        "agy",
+				EnvPassthrough: e2eStringSlicePtr("GEMINI_API_KEY"),
 				Models: map[string]config.ProviderModelConfig{
 					"default": {ProviderModel: "Gemini 3.5 Flash (High)", Reasoning: "medium"},
 				},
 			},
 			"codex-cli": {
-				Type:    config.ProviderTypeCLI,
-				CLIType: "codex",
-				Command: "codex",
+				Type:           config.ProviderTypeCLI,
+				CLIType:        config.CLITypeCodex,
+				Command:        "codex",
+				EnvPassthrough: e2eStringSlicePtr("OPENAI_API_KEY", "OPENAI_BASE_URL"),
 				Models: map[string]config.ProviderModelConfig{
 					"default": {ProviderModel: "gpt-5.4", Reasoning: "medium"},
+				},
+			},
+			"pi-cli": {
+				Type:           config.ProviderTypeCLI,
+				CLIType:        config.CLITypePi,
+				Command:        "pi",
+				Args:           []string{"--provider", "google-vertex"},
+				EnvPassthrough: e2eStringSlicePtr("GOOGLE_APPLICATION_CREDENTIALS", "GOOGLE_CLOUD_PROJECT", "GCLOUD_PROJECT"),
+				Env:            map[string]string{"GOOGLE_CLOUD_LOCATION": "global"},
+				Models: map[string]config.ProviderModelConfig{
+					"default": {ProviderModel: "gemini-3.6-flash", Reasoning: "medium"},
 				},
 			},
 		}
@@ -726,6 +933,11 @@ func defaultCLIE2EAgents(mode consensus.WorkflowMode) ([]config.AgentConfig, con
 	}
 }
 
+func e2eStringSlicePtr(values ...string) *[]string {
+	cloned := append([]string{}, values...)
+	return &cloned
+}
+
 func buildCLIE2EProviderLayout(mode consensus.WorkflowMode, readiness []cliProviderPreflightResult) e2eCLIProviderLayout {
 	ready := readyCLIProviderSet(readiness)
 	ordered := orderedReadyCLIProviders(ready)
@@ -760,16 +972,16 @@ func buildCLIE2EProviderLayout(mode consensus.WorkflowMode, readiness []cliProvi
 	switch mode {
 	case consensus.WorkflowModeFreeDebate:
 		participantProviders := []string{
-			selectProvider("claude-cli", "gemini-cli", "antigravity-cli", "codex-cli"),
-			selectProvider("antigravity-cli", "gemini-cli", "codex-cli", "claude-cli"),
-			selectProvider("codex-cli", "claude-cli", "antigravity-cli", "gemini-cli"),
+			selectProvider("claude-cli", "gemini-cli", "antigravity-cli", "codex-cli", "pi-cli"),
+			selectProvider("antigravity-cli", "gemini-cli", "codex-cli", "claude-cli", "pi-cli"),
+			selectProvider("pi-cli", "codex-cli", "claude-cli", "antigravity-cli", "gemini-cli"),
 		}
 		participantIDs := make([]string, 0, len(participantProviders))
 		for idx, provider := range participantProviders {
 			participantIDs = append(participantIDs, addAgent(fmt.Sprintf("participant-%d-%s", idx+1, shortCLIProviderName(provider)), provider, "participant"))
 			markProvider(provider)
 		}
-		reporterProvider := selectProvider("gemini-cli", "claude-cli", "codex-cli", "antigravity-cli")
+		reporterProvider := selectProvider("gemini-cli", "claude-cli", "codex-cli", "antigravity-cli", "pi-cli")
 		reporterID := addAgent("reporter-"+shortCLIProviderName(reporterProvider), reporterProvider, "reporter")
 		markProvider(reporterProvider)
 		layout.Roles = config.RolesConfig{
@@ -778,17 +990,17 @@ func buildCLIE2EProviderLayout(mode consensus.WorkflowMode, readiness []cliProvi
 		}
 	case consensus.WorkflowModeDelphi:
 		participantProviders := []string{
-			selectProvider("claude-cli", "gemini-cli", "antigravity-cli", "codex-cli"),
-			selectProvider("antigravity-cli", "gemini-cli", "codex-cli", "claude-cli"),
-			selectProvider("codex-cli", "claude-cli", "antigravity-cli", "gemini-cli"),
+			selectProvider("claude-cli", "gemini-cli", "antigravity-cli", "codex-cli", "pi-cli"),
+			selectProvider("antigravity-cli", "gemini-cli", "codex-cli", "claude-cli", "pi-cli"),
+			selectProvider("pi-cli", "codex-cli", "claude-cli", "antigravity-cli", "gemini-cli"),
 		}
 		participantIDs := make([]string, 0, len(participantProviders))
 		for idx, provider := range participantProviders {
 			participantIDs = append(participantIDs, addAgent(fmt.Sprintf("participant-%d-%s", idx+1, shortCLIProviderName(provider)), provider, "participant"))
 			markProvider(provider)
 		}
-		facilitatorProvider := selectProvider("claude-cli", "codex-cli", "gemini-cli", "antigravity-cli")
-		reporterProvider := selectProvider("gemini-cli", "codex-cli", "claude-cli", "antigravity-cli")
+		facilitatorProvider := selectProvider("claude-cli", "codex-cli", "gemini-cli", "antigravity-cli", "pi-cli")
+		reporterProvider := selectProvider("gemini-cli", "codex-cli", "claude-cli", "antigravity-cli", "pi-cli")
 		facilitatorID := addAgent("facilitator-"+shortCLIProviderName(facilitatorProvider), facilitatorProvider, "facilitator")
 		reporterID := addAgent("reporter-"+shortCLIProviderName(reporterProvider), reporterProvider, "reporter")
 		markProvider(facilitatorProvider)
@@ -799,11 +1011,11 @@ func buildCLIE2EProviderLayout(mode consensus.WorkflowMode, readiness []cliProvi
 			Reporter:     reporterID,
 		}
 	default:
-		proposerProvider := selectProvider("claude-cli", "codex-cli", "gemini-cli", "antigravity-cli")
-		challengerProvider := selectProvider("antigravity-cli", "gemini-cli", "claude-cli", "codex-cli")
-		verifierProvider := selectProvider("codex-cli", "claude-cli", "gemini-cli", "antigravity-cli")
-		arbiterProvider := selectProvider("claude-cli", "codex-cli", "gemini-cli", "antigravity-cli")
-		reporterProvider := selectProvider("gemini-cli", "antigravity-cli", "claude-cli", "codex-cli")
+		proposerProvider := selectProvider("claude-cli", "codex-cli", "gemini-cli", "antigravity-cli", "pi-cli")
+		challengerProvider := selectProvider("antigravity-cli", "gemini-cli", "claude-cli", "codex-cli", "pi-cli")
+		verifierProvider := selectProvider("codex-cli", "claude-cli", "gemini-cli", "antigravity-cli", "pi-cli")
+		arbiterProvider := selectProvider("claude-cli", "codex-cli", "gemini-cli", "antigravity-cli", "pi-cli")
+		reporterProvider := selectProvider("pi-cli", "gemini-cli", "antigravity-cli", "claude-cli", "codex-cli")
 		proposerID := addAgent("proposer-"+shortCLIProviderName(proposerProvider), proposerProvider, "proposer")
 		challengerID := addAgent("challenger-"+shortCLIProviderName(challengerProvider), challengerProvider, "challenger")
 		verifierID := addAgent("verifier-"+shortCLIProviderName(verifierProvider), verifierProvider, "semantic-verifier")
@@ -823,7 +1035,7 @@ func buildCLIE2EProviderLayout(mode consensus.WorkflowMode, readiness []cliProvi
 		}
 	}
 
-	for _, provider := range []string{"claude-cli", "gemini-cli", "antigravity-cli", "codex-cli"} {
+	for _, provider := range []string{"claude-cli", "gemini-cli", "antigravity-cli", "codex-cli", "pi-cli"} {
 		if _, ok := usedProviders[provider]; ok {
 			layout.ExpectedProviders = append(layout.ExpectedProviders, provider)
 		}
@@ -846,7 +1058,7 @@ func readyCLIProviderSet(results []cliProviderPreflightResult) map[string]bool {
 
 func orderedReadyCLIProviders(ready map[string]bool) []string {
 	ordered := make([]string, 0, len(ready))
-	for _, provider := range []string{"claude-cli", "gemini-cli", "antigravity-cli", "codex-cli"} {
+	for _, provider := range []string{"claude-cli", "gemini-cli", "antigravity-cli", "codex-cli", "pi-cli"} {
 		if ready[provider] {
 			ordered = append(ordered, provider)
 		}
@@ -877,6 +1089,8 @@ func shortCLIProviderName(provider string) string {
 		return "antigravity"
 	case "codex-cli":
 		return "codex"
+	case "pi-cli":
+		return "pi"
 	default:
 		return strings.TrimSuffix(provider, "-cli")
 	}
@@ -892,6 +1106,8 @@ func cliReadinessProviderID(provider string) (string, bool) {
 		return "antigravity-cli", true
 	case "codex":
 		return "codex-cli", true
+	case "pi":
+		return "pi-cli", true
 	default:
 		return "", false
 	}
@@ -1153,7 +1369,7 @@ func realE2ETimeoutForMode(mode consensus.WorkflowMode) time.Duration {
 		fallback = 25 * time.Minute
 	default:
 		key = "TIL_CONSENSUS_E2E_REAL_TIMEOUT_ADJUDICATION"
-		fallback = 15 * time.Minute
+		fallback = 25 * time.Minute
 	}
 	if override := strings.TrimSpace(os.Getenv(key)); override != "" {
 		if parsed, err := time.ParseDuration(override); err == nil && parsed > 0 {
@@ -1291,6 +1507,42 @@ func loadRealCLIProviderReadiness(t *testing.T) []cliProviderPreflightResult {
 	return realCLIPreflightResults
 }
 
+func realCLIE2EEnabled() bool {
+	return strings.TrimSpace(os.Getenv("TIL_CONSENSUS_E2E_REAL_CLI")) != "" || strings.TrimSpace(os.Getenv("TIL_CONSENSUS_E2E_REAL")) != ""
+}
+
+func requiredCLIReadinessError(results []cliProviderPreflightResult, getenv func(string) string, exists func(string) bool) error {
+	if !piVertexCredentialsAvailable(getenv, exists) {
+		return nil
+	}
+	for _, result := range results {
+		if result.Provider != "pi" {
+			continue
+		}
+		if result.Ready {
+			return nil
+		}
+		return fmt.Errorf("Pi is configured through Google Vertex ADC but readiness failed: %s", formatPreflightFailureReason(result))
+	}
+	return fmt.Errorf("Pi is configured through Google Vertex ADC but no Pi readiness result was produced")
+}
+
+func piVertexCredentialsAvailable(getenv func(string) string, exists func(string) bool) bool {
+	if strings.TrimSpace(getenv("GOOGLE_CLOUD_PROJECT")) == "" && strings.TrimSpace(getenv("GCLOUD_PROJECT")) == "" {
+		return false
+	}
+	if credentials := strings.TrimSpace(getenv("GOOGLE_APPLICATION_CREDENTIALS")); credentials != "" {
+		return exists(credentials)
+	}
+	home := strings.TrimSpace(getenv("HOME"))
+	return home != "" && exists(filepath.Join(home, ".config", "gcloud", "application_default_credentials.json"))
+}
+
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
+}
+
 func loadRealAPIProviderReadiness(t *testing.T) []apiProviderPreflightResult {
 	t.Helper()
 	realAPIPreflightOnce.Do(func() {
@@ -1413,10 +1665,19 @@ func runRealCLIProviderPreflight() []cliProviderPreflightResult {
 		{provider: "gemini", command: "gemini"},
 		{provider: "antigravity", command: "agy"},
 		{provider: "codex", command: "codex"},
+		{provider: "pi", command: "pi"},
 	}
 	results := make([]cliProviderPreflightResult, 0, len(specs))
 	for _, spec := range specs {
-		results = append(results, probeCLIProviderReadiness(spec.provider, spec.command, prompt))
+		providerPrompt := prompt
+		if spec.provider == "antigravity" {
+			providerPrompt = strings.Repeat("Read every line of this context before following the final instruction.\n", 1024) + "\n" + prompt
+		}
+		if spec.provider == "pi" && !piVertexCredentialsAvailable(os.Getenv, fileExists) {
+			results = append(results, cliProviderPreflightResult{Provider: "pi", Error: "Google Vertex ADC and project are not configured"})
+			continue
+		}
+		results = append(results, probeCLIProviderReadiness(spec.provider, spec.command, providerPrompt))
 	}
 	return results
 }
@@ -1459,6 +1720,25 @@ func runRealAPIProviderPreflight() []apiProviderPreflightResult {
 }
 
 func probeCLIProviderReadiness(provider string, command string, prompt string) cliProviderPreflightResult {
+	if provider == "antigravity" {
+		return probeCLIProviderReadinessWithRunner(provider, config.ProviderConfig{
+			Type:           config.ProviderTypeCLI,
+			CLIType:        config.CLITypeAntigravity,
+			Command:        command,
+			Args:           []string{"--print-timeout", realCLIPreflightTimeout().String()},
+			EnvPassthrough: e2eStringSlicePtr("GEMINI_API_KEY"),
+		}, "Gemini 3.5 Flash (High)", "", prompt)
+	}
+	if provider == "pi" {
+		return probeCLIProviderReadinessWithRunner(provider, config.ProviderConfig{
+			Type:           config.ProviderTypeCLI,
+			CLIType:        config.CLITypePi,
+			Command:        command,
+			Args:           []string{"--provider", "google-vertex"},
+			EnvPassthrough: e2eStringSlicePtr("GOOGLE_APPLICATION_CREDENTIALS", "GOOGLE_CLOUD_PROJECT", "GCLOUD_PROJECT"),
+			Env:            map[string]string{"GOOGLE_CLOUD_LOCATION": "global"},
+		}, "gemini-3.6-flash", "medium", prompt)
+	}
 	result := cliProviderPreflightResult{
 		Provider: provider,
 	}
@@ -1526,6 +1806,52 @@ func probeCLIProviderReadiness(provider string, command string, prompt string) c
 	return result
 }
 
+func probeCLIProviderReadinessWithRunner(provider string, providerConfig config.ProviderConfig, model string, reasoning string, prompt string) cliProviderPreflightResult {
+	result := cliProviderPreflightResult{Provider: provider}
+	ctx, cancel := context.WithTimeout(context.Background(), realCLIPreflightTimeout())
+	defer cancel()
+	task := realCLIPreflightTask{TaskMeta: consensus.TaskMeta{
+		RequestID: "real-cli-preflight",
+		SessionID: "real-cli-preflight",
+		AgentID:   "preflight-" + provider,
+		Role:      "preflight",
+	}}
+	startedAt := time.Now()
+	runResult, err := cliruntime.NewRunner(providerConfig).RunTaskDetailed(ctx, task, prompt, task.AgentID, task.Role, model, reasoning, nil, cliPreflightSchema())
+	result.Duration = time.Since(startedAt)
+	result.Command = runResult.Command
+	result.StdoutPreview = previewText(runResult.Output, 220)
+	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			result.Error = fmt.Sprintf("timed out after %s", realCLIPreflightTimeout())
+		} else if errors.Is(err, exec.ErrNotFound) {
+			result.Error = fmt.Sprintf("binary %s not found", providerConfig.Command)
+		} else {
+			result.Error = err.Error()
+		}
+		return result
+	}
+	if strict, strictErr := tilruntime.StrictJSONObjectBytes(runResult.Output); strictErr == nil && len(strict) > 0 {
+		result.StrictJSON = true
+		result.RecoverableJSON = true
+	} else if _, parseErr := tilruntime.ParseJSONObject(runResult.Output); parseErr == nil {
+		result.RecoverableJSON = true
+	}
+	if !result.RecoverableJSON {
+		result.Error = "command succeeded but did not return a recoverable JSON object"
+		return result
+	}
+	var minimal struct {
+		OK bool `json:"ok"`
+	}
+	if err := json.Unmarshal([]byte(runResult.Output), &minimal); err != nil || !minimal.OK {
+		result.Error = "command returned JSON but did not satisfy the preflight {\"ok\":true} contract"
+		return result
+	}
+	result.Ready = true
+	return result
+}
+
 func probeAPIProviderReadiness(provider string, protocol string, baseURL string, apiKeyEnv string, model string) apiProviderPreflightResult {
 	result := apiProviderPreflightResult{
 		Provider: provider,
@@ -1583,16 +1909,7 @@ func probeAPIProviderReadiness(provider string, protocol string, baseURL string,
 }
 
 func buildCLIProviderPreflightArgs(provider string, prompt string) ([]string, string, func(), error) {
-	schema := map[string]any{
-		"type":                 "object",
-		"additionalProperties": false,
-		"required":             []string{"ok"},
-		"properties": map[string]any{
-			"ok": map[string]any{
-				"type": "boolean",
-			},
-		},
-	}
+	schema := cliPreflightSchema()
 	switch provider {
 	case "claude":
 		body, err := json.Marshal(schema)
@@ -1629,16 +1946,27 @@ func buildCLIProviderPreflightArgs(provider string, prompt string) ([]string, st
 			_ = os.Remove(outputPath)
 			return nil, "", nil, fmt.Errorf("close codex preflight output-last-message temp file: %w", err)
 		}
-		return []string{"exec", "-m", "gpt-5.4", "--full-auto", "--color", "never", "--skip-git-repo-check", "--output-schema", file.Name(), "--output-last-message", outputPath}, prompt, func() {
+		return []string{"exec", "-m", "gpt-5.4", "--sandbox", "workspace-write", "-c", `approval_policy="never"`, "--color", "never", "--skip-git-repo-check", "--output-schema", file.Name(), "--output-last-message", outputPath}, prompt, func() {
 			_ = os.Remove(file.Name())
 			_ = os.Remove(outputPath)
 		}, nil
 	case "gemini":
-		return []string{"--approval-mode", "yolo", "-m", "gemini-3.1-pro-preview", "-p", prompt}, "", func() {}, nil
-	case "antigravity":
-		return []string{"--model", "Gemini 3.5 Flash (High)", "--print-timeout", realCLIPreflightTimeout().String(), "-p", prompt}, "", func() {}, nil
+		return []string{"--approval-mode", "yolo", "-m", "gemini-3.1-pro-preview"}, prompt, func() {}, nil
 	default:
 		return nil, prompt, func() {}, nil
+	}
+}
+
+func cliPreflightSchema() map[string]any {
+	return map[string]any{
+		"type":                 "object",
+		"additionalProperties": false,
+		"required":             []string{"ok"},
+		"properties": map[string]any{
+			"ok": map[string]any{
+				"type": "boolean",
+			},
+		},
 	}
 }
 

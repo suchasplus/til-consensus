@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -27,6 +28,7 @@ type Delegate struct {
 	tasks       map[string]*taskEntry
 	compliance  map[string]*complianceSummaryEntry
 	artifactDir string
+	cliHostEnv  clirunner.HostEnvironment
 	seq         int
 }
 
@@ -62,6 +64,7 @@ func NewDelegate(cfg config.Config, artifactDir string) (*Delegate, error) {
 		tasks:       map[string]*taskEntry{},
 		compliance:  map[string]*complianceSummaryEntry{},
 		artifactDir: artifactDir,
+		cliHostEnv:  clirunner.SnapshotHostEnvironment(os.Environ()),
 	}, nil
 }
 
@@ -71,6 +74,13 @@ func (d *Delegate) Dispatch(ctx context.Context, task consensus.Task) (consensus
 	if !ok {
 		d.mu.Unlock()
 		return consensus.DispatchReceipt{}, fmt.Errorf("unknown agent id: %s", task.Meta().AgentID)
+	}
+	if agent.Provider.Type == config.ProviderTypeCLI {
+		built := clirunner.BuildEnvironment(d.cliHostEnv, agent.Provider, task, agent.ID, agent.Role, agent.ProviderModel)
+		if migrationErr := clirunner.EnvironmentMigrationError(agent.ProviderName, built.MissingKnownKeys); migrationErr != nil {
+			d.mu.Unlock()
+			return consensus.DispatchReceipt{}, migrationErr
+		}
 	}
 	runner, err := d.getRunnerLocked(agent)
 	if err != nil {
@@ -173,27 +183,31 @@ func (d *Delegate) Await(ctx context.Context, taskID string, timeout time.Durati
 	defer timer.Stop()
 	select {
 	case <-ctx.Done():
-		entry.cancel()
-		drainTaskOutcome(entry.done, 100*time.Millisecond)
-		d.mu.Lock()
-		delete(d.tasks, taskID)
-		d.mu.Unlock()
+		d.cancelAndDrainTask(taskID, entry, 100*time.Millisecond)
 		return consensus.AwaitedTask{}, ctx.Err()
 	case <-timer.C:
-		entry.cancel()
-		drainTaskOutcome(entry.done, 100*time.Millisecond)
-		d.mu.Lock()
-		delete(d.tasks, taskID)
-		d.mu.Unlock()
+		d.cancelAndDrainTask(taskID, entry, 100*time.Millisecond)
 		return consensus.AwaitedTask{OK: false, Error: "__timeout__"}, nil
 	case outcome := <-entry.done:
-		d.mu.Lock()
-		delete(d.tasks, taskID)
-		d.mu.Unlock()
+		d.deleteTaskEntry(taskID, entry)
 		if outcome.err != nil {
 			return consensus.AwaitedTask{OK: false, Error: outcome.err.Error(), Artifact: outcome.artifact}, nil
 		}
 		return consensus.AwaitedTask{OK: true, Output: outcome.result, Artifact: outcome.artifact}, nil
+	}
+}
+
+func (d *Delegate) cancelAndDrainTask(taskID string, entry *taskEntry, grace time.Duration) {
+	entry.cancel()
+	drainTaskOutcome(entry.done, grace)
+	d.deleteTaskEntry(taskID, entry)
+}
+
+func (d *Delegate) deleteTaskEntry(taskID string, entry *taskEntry) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if current, ok := d.tasks[taskID]; ok && current == entry {
+		delete(d.tasks, taskID)
 	}
 }
 
@@ -211,10 +225,10 @@ func drainTaskOutcome(done <-chan taskOutcome, grace time.Duration) {
 
 func (d *Delegate) Cancel(_ context.Context, taskID string) error {
 	d.mu.Lock()
-	defer d.mu.Unlock()
-	if entry, ok := d.tasks[taskID]; ok {
-		entry.cancel()
-		delete(d.tasks, taskID)
+	entry, ok := d.tasks[taskID]
+	d.mu.Unlock()
+	if ok {
+		d.cancelAndDrainTask(taskID, entry, 100*time.Millisecond)
 	}
 	return nil
 }
@@ -248,7 +262,7 @@ func (d *Delegate) getRunnerLocked(agent ResolvedAgentRuntime) (ProviderRunner, 
 			)
 		})
 	case config.ProviderTypeCLI:
-		cliRunner := clirunner.NewRunner(agent.Provider)
+		cliRunner := clirunner.NewRunnerWithHostEnvironment(agent.Provider, d.cliHostEnv)
 		runner = providerRunnerFunc(func(ctx context.Context, req ProviderTaskRequest) (any, error) {
 			prompt := req.PromptOverride
 			if strings.TrimSpace(prompt) == "" {
@@ -418,6 +432,10 @@ func (d *Delegate) persistTaskInput(taskID string, task consensus.Task, agent Re
 		},
 		"task": task,
 	}
+	if agent.Provider.Type == config.ProviderTypeCLI {
+		built := clirunner.BuildEnvironment(d.cliHostEnv, agent.Provider, task, agent.ID, agent.Role, agent.ProviderModel)
+		payload["cliEnvironment"] = built.Audit
+	}
 	body, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
 		return nil, fmt.Errorf("marshal task input: %w", err)
@@ -432,6 +450,15 @@ func (d *Delegate) persistTaskFailure(taskID string, task consensus.Task, agent 
 		return nil, nil
 	}
 	providerErr := classifyProviderError(err)
+	errorPayload := map[string]any{
+		"class":      providerErr.Class,
+		"operation":  providerErr.Operation,
+		"statusCode": providerErr.StatusCode,
+		"message":    providerErr.Error(),
+	}
+	if providerErr.ExitCode != 0 {
+		errorPayload["exitCode"] = providerErr.ExitCode
+	}
 	payload := map[string]any{
 		"version": 1,
 		"agent": map[string]any{
@@ -448,12 +475,7 @@ func (d *Delegate) persistTaskFailure(taskID string, task consensus.Task, agent 
 			"sessionId": task.Meta().SessionID,
 			"agentId":   task.Meta().AgentID,
 		},
-		"error": map[string]any{
-			"class":      providerErr.Class,
-			"operation":  providerErr.Operation,
-			"statusCode": providerErr.StatusCode,
-			"message":    providerErr.Error(),
-		},
+		"error": errorPayload,
 	}
 	if inputArtifact != nil {
 		payload["inputArtifact"] = inputArtifact

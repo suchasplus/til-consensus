@@ -25,6 +25,7 @@ providers:
     type: cli
     cli_type: antigravity
     command: agy
+    env_passthrough: [GEMINI_API_KEY]
     models:
       default:
         provider_model: Gemini 3.5 Flash (High)

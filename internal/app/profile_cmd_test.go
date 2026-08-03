@@ -327,13 +327,17 @@ providers:
 	}
 	output := stdout.String()
 	for _, needle := range []string{
-		`command: til-consensus-missing-agy-for-test --model "Gemini 3.5 Flash (High)" -p`,
-		"Return exactly this JSON object:",
+		`command: til-consensus-missing-agy-for-test --add-dir`,
+		`--dangerously-skip-permissions --model "Gemini 3.5 Flash (High)" -p`,
+		"Read the complete task instructions from the absolute file",
 		"provider: type=cli protocol=antigravity",
 	} {
 		if !strings.Contains(output, needle) {
 			t.Fatalf("preflight verbose output missing %q:\n%s", needle, output)
 		}
+	}
+	if strings.Contains(output, "Return exactly this JSON object:") {
+		t.Fatalf("preflight verbose output leaked the full prompt:\n%s", output)
 	}
 }
 

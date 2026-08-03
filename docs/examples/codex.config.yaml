@@ -25,6 +25,7 @@ providers:
     type: cli
     cli_type: codex
     command: codex
+    env_passthrough: [OPENAI_API_KEY, OPENAI_BASE_URL]
     models:
       default:
         provider_model: gpt-5.4

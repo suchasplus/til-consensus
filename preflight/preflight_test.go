@@ -50,6 +50,35 @@ func TestBuildCandidatesSkipsDisabledProviderAndModels(t *testing.T) {
 	}
 }
 
+func TestPreflightReportsMissingCLIEnvironmentPassthrough(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "must-not-leak")
+	entries, err := Run(context.Background(), config.Config{
+		SchemaVersion: 1,
+		Providers: map[string]config.ProviderConfig{
+			"codex-cli": {
+				Type:    config.ProviderTypeCLI,
+				CLIType: config.CLITypeCodex,
+				Command: "codex",
+				Models:  map[string]config.ProviderModelConfig{"default": {ProviderModel: "gpt-test"}},
+			},
+		},
+	}, Options{All: true, Timeout: time.Second}, nil)
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Ready {
+		t.Fatalf("expected one unavailable entry, got %#v", entries)
+	}
+	for _, want := range []string{"codex-cli", "OPENAI_API_KEY", "env_passthrough"} {
+		if !strings.Contains(entries[0].Error, want) {
+			t.Fatalf("preflight error missing %q: %s", want, entries[0].Error)
+		}
+	}
+	if strings.Contains(entries[0].Error, "must-not-leak") {
+		t.Fatalf("preflight error leaked secret: %s", entries[0].Error)
+	}
+}
+
 func TestEffectiveMaxOutputTokensUsesDefaultBudget(t *testing.T) {
 	got := effectiveMaxOutputTokens(candidate{
 		ProviderType: config.ProviderTypeAPI,

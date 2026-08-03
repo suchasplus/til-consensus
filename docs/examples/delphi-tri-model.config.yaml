@@ -28,6 +28,7 @@ providers:
     type: cli
     cli_type: claude
     command: claude
+    env_passthrough: [ANTHROPIC_API_KEY, ANTHROPIC_BASE_URL]
     models:
       default:
         provider_model: claude-opus-4-6
@@ -37,6 +38,7 @@ providers:
     type: cli
     cli_type: gemini
     command: gemini
+    env_passthrough: [GEMINI_API_KEY]
     models:
       default:
         provider_model: gemini-3.1-pro-preview
@@ -46,6 +48,7 @@ providers:
     type: cli
     cli_type: codex
     command: codex
+    env_passthrough: [OPENAI_API_KEY, OPENAI_BASE_URL]
     models:
       default:
         provider_model: gpt-5.4

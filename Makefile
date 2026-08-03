@@ -49,7 +49,7 @@ test-e2e:
 	$(GO) test ./internal/app -run '^TestE2E' -count=1
 
 test-e2e-real:
-	TIL_CONSENSUS_E2E_REAL=1 $(GO) test ./internal/app -run '^TestE2ERealCLIFixtureMatrix$$' -count=1 -timeout 180m
+	TIL_CONSENSUS_E2E_REAL_CLI=1 $(GO) test ./internal/app -run '^TestE2ERealCLIFixtureMatrix$$' -count=1 -timeout 180m
 
 test-e2e-real-api:
 	TIL_CONSENSUS_E2E_REAL_API=1 $(GO) test ./internal/app -run '^TestE2EReal(APIFixtureMatrix|APIProviderReadinessPreflight)$$' -count=1 -timeout 180m

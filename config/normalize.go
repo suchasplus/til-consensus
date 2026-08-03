@@ -25,7 +25,12 @@ const (
 
 const (
 	CLITypeGeneric     = "generic"
+	CLITypeClaude      = "claude"
+	CLITypeCodex       = "codex"
+	CLITypeGemini      = "gemini"
 	CLITypeAntigravity = "antigravity"
+	CLITypeOpenCode    = "opencode"
+	CLITypePi          = "pi"
 )
 
 func Normalize(cfg Config) Config {
@@ -131,6 +136,11 @@ func float64Ptr(value float64) *float64 {
 
 func intPtr(value int) *int {
 	return &value
+}
+
+func stringSlicePtr(values ...string) *[]string {
+	cloned := append([]string{}, values...)
+	return &cloned
 }
 
 func optionalValue[T any](fallback T, values ...*T) T {

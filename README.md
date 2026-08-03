@@ -72,7 +72,7 @@ til-consensus profile preflight \
 
 Provider 支持 CLI 和 API：
 
-- CLI：Codex、Claude Code、Gemini CLI、Antigravity CLI、generic。
+- CLI：Codex、Claude Code、Gemini CLI、Antigravity CLI、Pi、generic。
 - API：OpenAI-compatible、OpenAI Responses、Anthropic-compatible、Gemini API。
 
 详细配置见 [Provider 配置与预检](docs/providers.md)。
@@ -131,6 +131,7 @@ output:
 # 传统模板初始化
 til-consensus config init --mode adjudication --provider-profile mock --config ./til-consensus.yaml
 til-consensus config init --mode adjudication --provider-profile codex --config ./til-consensus.yaml
+til-consensus config init --mode adjudication --provider-profile pi --config ./til-consensus.yaml
 til-consensus config init --mode free-debate --provider-profile mock --stdout
 til-consensus config init --mode adjudication --provider-profile mock --task-profile coding --stdout
 
@@ -239,5 +240,6 @@ make release-archive VERSION=v0.1.0 TARGET_GOOS=darwin TARGET_GOARCH=arm64 DIRTY
 - [claude.config.yaml](docs/examples/claude.config.yaml)
 - [gemini.config.yaml](docs/examples/gemini.config.yaml)
 - [antigravity.config.yaml](docs/examples/antigravity.config.yaml)
+- [pi.config.yaml](docs/examples/pi.config.yaml)
 - [document-refinement.run.yaml](docs/examples/document-refinement.run.yaml)
 - [coding-review.run.yaml](docs/examples/coding-review.run.yaml)

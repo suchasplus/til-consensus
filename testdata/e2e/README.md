@@ -34,7 +34,7 @@
 真实 CLI × 三种 mode：
 
 ```bash
-TIL_CONSENSUS_E2E_REAL=1 go test ./internal/app -run '^TestE2ERealCLIFixtureMatrix$' -count=1
+TIL_CONSENSUS_E2E_REAL_CLI=1 go test ./internal/app -run '^TestE2ERealCLIFixtureMatrix$' -count=1
 ```
 
 真实 API × 三种 mode：

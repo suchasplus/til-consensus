@@ -18,6 +18,7 @@ const (
 	TemplatePresetClaude      = "claude"
 	TemplatePresetGemini      = "gemini"
 	TemplatePresetAntigravity = "antigravity"
+	TemplatePresetPi          = "pi"
 )
 
 func InitTemplate() Config {
