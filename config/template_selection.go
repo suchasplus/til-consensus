@@ -202,12 +202,12 @@ func applyBaseGeneralDefaults(cfg *Config) {
 		DedupeStrategy:     "normalized-statement",
 	}
 	cfg.Defaults.VerificationPolicy = VerificationPolicyConfig{
-		AllowSemanticVerifier: true,
+		AllowSemanticVerifier: boolPtr(true),
 		MaxParallelChecks:     2,
 	}
 	cfg.Defaults.ArbiterPolicy = ArbiterPolicyConfig{
-		AllowUndetermined: true,
-		BlindReview:       true,
+		AllowUndetermined: boolPtr(true),
+		BlindReview:       boolPtr(true),
 	}
 }
 
@@ -268,10 +268,10 @@ func applyFreeDebateModeDefaults(cfg *Config) {
 		// outlawed by vote calibration; 0.67 matches the documented example.
 		SupportThreshold:     0.67,
 		VoteAggregation:      string(consensus.DebateVoteAggregationMedian),
-		VoteQuorum:           0.6,
+		VoteQuorum:           float64Ptr(0.6),
 		MaxNewClaimsPerRound: consensus.DefaultDebateMaxNewClaimsPerRound,
 		MaxActiveClaims:      consensus.DefaultDebateMaxActiveClaims,
-		EnableEarlyStop:      true,
+		EnableEarlyStop:      boolPtr(true),
 		PeerContextMode:      "summary+active_claims",
 	}
 }
@@ -280,13 +280,16 @@ func applyDelphiModeDefaults(cfg *Config) {
 	cfg.Defaults.Mode = consensus.WorkflowModeDelphi
 	cfg.Defaults.SuccessCriteria = defaultSuccessCriteriaForMode(consensus.WorkflowModeDelphi)
 	cfg.Defaults.DelphiPolicy = DelphiPolicyConfig{
-		MinRounds:               2,
-		MaxRounds:               3,
-		ConvergenceThreshold:    0.8,
-		RatingScaleMin:          1,
-		RatingScaleMax:          5,
-		Anonymous:               true,
-		FacilitatorSummaryStyle: "anonymous-aggregate",
+		MinRounds:                2,
+		MaxRounds:                3,
+		ConvergenceThreshold:     0.8,
+		RatingScaleMin:           1,
+		RatingScaleMax:           5,
+		ResponseQuorum:           consensus.DefaultDelphiResponseQuorum,
+		MinResponsesPerStatement: consensus.DefaultDelphiMinResponses,
+		StabilityRounds:          consensus.DefaultDelphiStabilityRounds,
+		Anonymous:                boolPtr(true),
+		FacilitatorSummaryStyle:  "anonymous-aggregate",
 	}
 }
 

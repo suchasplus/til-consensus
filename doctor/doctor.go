@@ -102,7 +102,11 @@ func Run(ctx context.Context, opts Options) Report {
 }
 
 func checkOutputWritable(loaded config.LoadedConfig, add func(Status, string, string, string)) {
-	paths := config.ResolveRunArtifacts(loaded, "doctor")
+	paths, err := config.ResolveRunArtifactsChecked(loaded, "doctor")
+	if err != nil {
+		add(StatusFail, "output.directory", err.Error(), "检查 output.directory 与 request id 模板")
+		return
+	}
 	parent := filepath.Dir(paths.RunDir)
 	probeDir, parentExists, err := nearestExistingDirectory(parent)
 	if err != nil {

@@ -169,7 +169,6 @@ func writeE2EAPIConfig(t *testing.T, path string, outputDir string, openAIBaseUR
 				MinRounds:       2,
 				MaxRounds:       2,
 				VoteThreshold:   0.67,
-				EnableEarlyStop: true,
 				PeerContextMode: "summary+active_claims",
 			},
 		},

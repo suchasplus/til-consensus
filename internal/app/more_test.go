@@ -719,14 +719,11 @@ func TestFollowUpRunAndSessionCommands(t *testing.T) {
 			SemanticVerifier: loaded.Config.Roles.SemanticVerifier,
 			Reporter:         loaded.Config.Roles.Reporter,
 		},
-		ProposalPolicy: consensus.ProposalPolicy{MaxPasses: 1, MaxClaimsPerWorker: 2},
-		VerificationPolicy: consensus.VerificationPolicy{
-			AllowSemanticVerifier: true,
-			MaxParallelChecks:     1,
-		},
-		ArbiterPolicy: consensus.ArbiterPolicy{AllowUndetermined: true, BlindReview: true},
-		ReportPolicy:  consensus.ReportPolicy{Style: "builtin"},
-		WaitingPolicy: consensus.WaitingPolicy{PerTaskTimeout: consensus.DefaultPerTaskTimeout, RetryAttempts: 1},
+		ProposalPolicy:     consensus.ProposalPolicy{MaxPasses: 1, MaxClaimsPerWorker: 2},
+		VerificationPolicy: consensus.VerificationPolicy{MaxParallelChecks: 1},
+		ArbiterPolicy:      consensus.ArbiterPolicy{},
+		ReportPolicy:       consensus.ReportPolicy{Style: "builtin"},
+		WaitingPolicy:      consensus.WaitingPolicy{PerTaskTimeout: consensus.DefaultPerTaskTimeout, RetryAttempts: 1},
 	})
 	if err != nil {
 		t.Fatalf("NormalizeStartRequest failed: %v", err)
@@ -756,7 +753,10 @@ func TestFollowUpRunAndSessionCommands(t *testing.T) {
 	if err := followupCmd.Run(context.Background(), []string{"followup", "run", "--config", configPath, "--artifact", artifactPath}); err != nil {
 		t.Fatalf("followup run failed: %v", err)
 	}
-	paths := config.ResolveRunArtifacts(loaded, request.RequestID)
+	paths, err := config.ResolveRunArtifactsChecked(loaded, request.RequestID)
+	if err != nil {
+		t.Fatalf("ResolveRunArtifacts failed: %v", err)
+	}
 	body, err = os.ReadFile(paths.ResultPath)
 	if err != nil {
 		t.Fatalf("read result failed: %v", err)

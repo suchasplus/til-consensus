@@ -130,7 +130,10 @@ func resolveRunFilesForCommand(configPath string, profile string, requestID stri
 		}
 		requestID = latest.RequestID
 	}
-	paths := config.ResolveRunArtifacts(loaded, requestID)
+	paths, err := config.ResolveRunArtifactsChecked(loaded, requestID)
+	if err != nil {
+		return viewer.RunFiles{}, err
+	}
 	return viewer.RunFiles{
 		RunDir:                paths.RunDir,
 		ArtifactsDir:          paths.ArtifactsDir,

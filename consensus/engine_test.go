@@ -75,6 +75,23 @@ type stubStore struct {
 	snapshot SessionSnapshot
 }
 
+type checkpointInterruptStore struct {
+	stubStore
+	targetStep string
+	armed      bool
+}
+
+func (s *checkpointInterruptStore) Patch(ctx context.Context, sessionID string, patch SessionPatch) error {
+	if err := s.stubStore.Patch(ctx, sessionID, patch); err != nil {
+		return err
+	}
+	if s.armed && patch.Checkpoint != nil && patch.Checkpoint.Step == s.targetStep {
+		s.armed = false
+		return errors.New("injected crash after durable checkpoint")
+	}
+	return nil
+}
+
 func (s *stubStore) Save(_ context.Context, snapshot SessionSnapshot) error {
 	s.snapshot = snapshot
 	return nil
@@ -122,6 +139,9 @@ func (s *stubStore) Patch(_ context.Context, _ string, patch SessionPatch) error
 	if patch.Metrics != nil {
 		s.snapshot.Metrics = *patch.Metrics
 	}
+	if patch.Degradations != nil {
+		s.snapshot.Degradations = append([]Degradation(nil), patch.Degradations...)
+	}
 	if patch.ResumeCount != nil {
 		s.snapshot.ResumeCount = *patch.ResumeCount
 	}
@@ -136,6 +156,54 @@ func (s *stubStore) Patch(_ context.Context, _ string, patch SessionPatch) error
 	}
 	if patch.Action != nil {
 		s.snapshot.Action = patch.Action
+	}
+	if patch.DebateClaims != nil {
+		s.snapshot.DebateClaims = append([]DebateClaim(nil), patch.DebateClaims...)
+	}
+	if patch.DebateRounds != nil {
+		s.snapshot.DebateRounds = append([]DebateRoundRecord(nil), patch.DebateRounds...)
+	}
+	if patch.DebateVotes != nil {
+		s.snapshot.DebateVotes = append([]DebateVoteRecord(nil), patch.DebateVotes...)
+	}
+	if patch.DelphiRounds != nil {
+		s.snapshot.DelphiRounds = append([]DelphiRoundRecord(nil), patch.DelphiRounds...)
+	}
+	if patch.DelphiStatements != nil {
+		s.snapshot.DelphiStatements = append([]DelphiStatement(nil), patch.DelphiStatements...)
+	}
+	if patch.DelphiRatingDistributions != nil {
+		s.snapshot.DelphiRatingDistributions = make(map[string][]float64, len(patch.DelphiRatingDistributions))
+		for key, values := range patch.DelphiRatingDistributions {
+			s.snapshot.DelphiRatingDistributions[key] = append([]float64(nil), values...)
+		}
+	}
+	if patch.DelphiConsensusLevel != nil {
+		s.snapshot.DelphiConsensusLevel = *patch.DelphiConsensusLevel
+	}
+	if patch.DelphiConverged != nil {
+		s.snapshot.DelphiConverged = *patch.DelphiConverged
+	}
+	if patch.DelphiResponseQuorumMet != nil {
+		s.snapshot.DelphiResponseQuorumMet = *patch.DelphiResponseQuorumMet
+	}
+	if patch.DelphiMinResponsesMet != nil {
+		s.snapshot.DelphiMinResponsesMet = *patch.DelphiMinResponsesMet
+	}
+	if patch.DelphiStableRounds != nil {
+		s.snapshot.DelphiStableRounds = *patch.DelphiStableRounds
+	}
+	if patch.DelphiLastStableStatementID != nil {
+		s.snapshot.DelphiLastStableStatementID = *patch.DelphiLastStableStatementID
+	}
+	if patch.DelphiRecommendation != nil {
+		s.snapshot.DelphiRecommendation = *patch.DelphiRecommendation
+	}
+	if patch.DelphiDissentSummary != nil {
+		s.snapshot.DelphiDissentSummary = append([]string(nil), patch.DelphiDissentSummary...)
+	}
+	if patch.FinishedAt != nil {
+		s.snapshot.FinishedAt = *patch.FinishedAt
 	}
 	if patch.Result != nil {
 		s.snapshot.Result = patch.Result
@@ -156,6 +224,8 @@ type stubDelegate struct {
 	debateDrafts    []ClaimDraft
 	failKinds       map[TaskKind]int
 	failAgentKinds  map[string]int // key: agentID+"/"+kind, value: remaining forced failures
+	finalVoteDrafts map[string][]DebateVoteDraft
+	delphiDrafts    map[string][]DelphiResponseDraft
 	mergeFirstTwo   bool
 	// reviseSynthesis makes participants propose this replacement text when
 	// reviewing the synthesis draft (amendment rounds).
@@ -182,6 +252,28 @@ func (d *stubDelegate) Await(_ context.Context, taskID string, _ time.Duration) 
 	revisionDrafts := append([]ClaimRevisionDraft(nil), d.revisionDrafts...)
 	debateDrafts := append([]ClaimDraft(nil), d.debateDrafts...)
 	mergeFirstTwo := d.mergeFirstTwo
+	var customFinalVotes []DebateVoteDraft
+	hasCustomFinalVotes := false
+	if finalVoteTask, ok := task.(FinalVoteTask); ok && d.finalVoteDrafts != nil {
+		if configured, exists := d.finalVoteDrafts[finalVoteTask.AgentID]; exists {
+			customFinalVotes = append([]DebateVoteDraft(nil), configured...)
+			hasCustomFinalVotes = true
+		}
+	}
+	var customDelphiResponses []DelphiResponseDraft
+	hasCustomDelphiResponses := false
+	switch delphiTask := task.(type) {
+	case DelphiQuestionnaireTask:
+		if configured, exists := d.delphiDrafts[delphiTask.AgentID]; exists {
+			customDelphiResponses = append([]DelphiResponseDraft(nil), configured...)
+			hasCustomDelphiResponses = true
+		}
+	case DelphiRevisionTask:
+		if configured, exists := d.delphiDrafts[delphiTask.AgentID]; exists {
+			customDelphiResponses = append([]DelphiResponseDraft(nil), configured...)
+			hasCustomDelphiResponses = true
+		}
+	}
 	if d.failKinds != nil {
 		if remaining := d.failKinds[task.Kind()]; remaining > 0 {
 			d.failKinds[task.Kind()] = remaining - 1
@@ -316,6 +408,12 @@ func (d *stubDelegate) Await(_ context.Context, taskID string, _ time.Duration) 
 			Merges:  merges,
 		}}}, nil
 	case FinalVoteTask:
+		if hasCustomFinalVotes {
+			return AwaitedTask{OK: true, Output: FinalVoteTaskResult{Output: FinalVoteOutput{
+				Summary: "custom final vote",
+				Votes:   customFinalVotes,
+			}}}, nil
+		}
 		votes := make([]DebateVoteDraft, 0, len(value.Claims))
 		for _, claim := range value.Claims {
 			confidence := 1.0
@@ -357,15 +455,25 @@ func (d *stubDelegate) Await(_ context.Context, taskID string, _ time.Duration) 
 	case ReportTask:
 		return AwaitedTask{OK: true, Output: ReportTaskResult{Output: AdjudicationReport{Summary: "report"}}}, nil
 	case DelphiQuestionnaireTask:
+		if hasCustomDelphiResponses {
+			return AwaitedTask{OK: true, Output: DelphiQuestionnaireTaskResult{Output: DelphiQuestionnaireOutput{
+				Summary: "custom delphi questionnaire", Responses: customDelphiResponses,
+			}}}, nil
+		}
 		return AwaitedTask{OK: true, Output: DelphiQuestionnaireTaskResult{Output: DelphiQuestionnaireOutput{
 			Summary: "delphi questionnaire",
 			Responses: []DelphiResponseDraft{{
 				Statement: "Use monorepo",
-				Rating:    4,
+				Rating:    ptr(4.0),
 				Rationale: "better coordination",
 			}},
 		}}}, nil
 	case DelphiRevisionTask:
+		if hasCustomDelphiResponses {
+			return AwaitedTask{OK: true, Output: DelphiRevisionTaskResult{Output: DelphiRevisionOutput{
+				Summary: "custom delphi revision", Responses: customDelphiResponses,
+			}}}, nil
+		}
 		statementID := ""
 		if len(value.StatementSummaries) > 0 {
 			statementID = value.StatementSummaries[0].StatementID
@@ -374,7 +482,7 @@ func (d *stubDelegate) Await(_ context.Context, taskID string, _ time.Duration) 
 			Summary: "delphi revision",
 			Responses: []DelphiResponseDraft{{
 				StatementID: statementID,
-				Rating:      5,
+				Rating:      ptr(5.0),
 				Rationale:   "stronger support",
 			}},
 		}}}, nil
@@ -526,8 +634,8 @@ func baseRequest() StartRequest {
 			MaxParallelChecks: 1,
 		},
 		ArbiterPolicy: ArbiterPolicy{
-			AllowUndetermined: true,
-			BlindReview:       true,
+			AllowUndetermined: ptr(true),
+			BlindReview:       ptr(true),
 		},
 		ReportPolicy: ReportPolicy{Style: "builtin"},
 		WaitingPolicy: WaitingPolicy{
@@ -661,7 +769,7 @@ func TestEngineRunsFreeDebateWorkflow(t *testing.T) {
 		MinRounds:       1,
 		MaxRounds:       2,
 		VoteThreshold:   1.0,
-		EnableEarlyStop: true,
+		EnableEarlyStop: ptr(true),
 		PeerContextMode: "summary+active_claims",
 	}
 	engine := NewEngine(EngineDeps{
@@ -699,7 +807,7 @@ func TestFreeDebateSemanticDedupMergesClaimsBeforeVote(t *testing.T) {
 		MinRounds:       1,
 		MaxRounds:       1,
 		VoteThreshold:   1.0,
-		EnableEarlyStop: true,
+		EnableEarlyStop: ptr(true),
 		PeerContextMode: "summary+active_claims",
 		SemanticDedup: DebateSemanticDedupPolicy{
 			Enabled:             true,
@@ -792,7 +900,7 @@ func TestFreeDebateCanonicalizesStatusPrefixesBeforeDedup(t *testing.T) {
 		MinRounds:       1,
 		MaxRounds:       1,
 		VoteThreshold:   1.0,
-		EnableEarlyStop: true,
+		EnableEarlyStop: ptr(true),
 		PeerContextMode: "summary+active_claims",
 	}
 	statement := "Go 在大团队默认协作成本更低，但 Rust 在安全收益可量化时可能抵消额外成本。"
@@ -845,7 +953,7 @@ func TestFreeDebateSkipsProcessMetaNewClaims(t *testing.T) {
 		MinRounds:       1,
 		MaxRounds:       1,
 		VoteThreshold:   1.0,
-		EnableEarlyStop: true,
+		EnableEarlyStop: ptr(true),
 		PeerContextMode: "summary+active_claims",
 	}
 	metaDraft := ClaimDraft{
@@ -888,7 +996,7 @@ func TestEngineRunsDelphiWorkflow(t *testing.T) {
 		ConvergenceThreshold:    0.8,
 		RatingScaleMin:          1,
 		RatingScaleMax:          5,
-		Anonymous:               true,
+		Anonymous:               ptr(true),
 		FacilitatorSummaryStyle: "anonymous-aggregate",
 	}
 	engine := NewEngine(EngineDeps{
@@ -909,6 +1017,230 @@ func TestEngineRunsDelphiWorkflow(t *testing.T) {
 	}
 	if len(result.Delphi.Rounds) != 2 {
 		t.Fatalf("expected two delphi rounds, got %#v", result.Delphi.Rounds)
+	}
+	if !result.Delphi.Converged || result.Delphi.StableRounds != 2 {
+		t.Fatalf("expected two consecutive eligible rounds to converge, got %#v", result.Delphi)
+	}
+	for _, task := range engine.deps.TaskDelegate.(*stubDelegate).tasks {
+		switch typed := task.(type) {
+		case DelphiQuestionnaireTask:
+			if typed.RatingQuestion == "" || typed.RatingScaleMin != 1 || typed.RatingScaleMax != 5 {
+				t.Fatalf("questionnaire task missing rating contract: %#v", typed)
+			}
+		case DelphiRevisionTask:
+			if typed.RatingQuestion == "" || typed.RatingScaleMin != 1 || typed.RatingScaleMax != 5 {
+				t.Fatalf("revision task missing rating contract: %#v", typed)
+			}
+		}
+	}
+}
+
+func TestEngineDelphiRejectsInvalidDirectResponsesBeforeQuorum(t *testing.T) {
+	request := baseRequest()
+	request.Mode = WorkflowModeDelphi
+	request.Roles = RoleAssignments{Participants: []string{"participant-1", "participant-2", "participant-3"}}
+	request.DelphiPolicy = DelphiPolicy{
+		MinRounds: 2, MaxRounds: 2, ConvergenceThreshold: 0.8,
+		RatingScaleMin: 1, RatingScaleMax: 5,
+		ResponseQuorum: 0.8, MinResponsesPerStatement: 2, StabilityRounds: 2,
+	}
+	delegate := &stubDelegate{delphiDrafts: map[string][]DelphiResponseDraft{
+		"participant-3": {{Statement: "Use monorepo", Rating: nil}},
+	}}
+	engine := NewEngine(EngineDeps{
+		TaskDelegate: delegate,
+		SessionStore: &stubStore{},
+		Clock:        fixedClock{now: time.Unix(1, 0).UTC()},
+		IDFactory:    &deterministicIDs{},
+	})
+	result, err := engine.Start(context.Background(), request)
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	if result.Delphi == nil || result.Delphi.Converged {
+		t.Fatalf("invalid direct responses must not allow convergence: %#v", result.Delphi)
+	}
+	if result.TerminalState != TerminalStateInsufficientEvidence {
+		t.Fatalf("expected insufficient evidence, got %s", result.TerminalState)
+	}
+	for _, round := range result.Delphi.Rounds {
+		if round.ResponseQuorumMet || round.ResponderCount != 2 || round.AbsentResponderCount != 1 {
+			t.Fatalf("invalid response must not count toward quorum: %#v", round)
+		}
+		for _, response := range round.Responses {
+			if response.agentID == "participant-3" {
+				t.Fatalf("invalid response must be rejected atomically: %#v", round.Responses)
+			}
+		}
+	}
+	if len(degradationsByKind(result, DegradationQuorumNotMet)) != 2 {
+		t.Fatalf("expected one quorum degradation per round: %#v", result.Degradations)
+	}
+}
+
+func TestEngineDelphiRequiresTwoConsecutiveEligibleRounds(t *testing.T) {
+	request := baseRequest()
+	request.Mode = WorkflowModeDelphi
+	request.Roles = RoleAssignments{Participants: []string{"participant-1", "participant-2", "participant-3"}}
+	request.DelphiPolicy = DelphiPolicy{
+		MinRounds: 2, MaxRounds: 2, ConvergenceThreshold: 0.8,
+		RatingScaleMin: 1, RatingScaleMax: 5,
+		ResponseQuorum: 0.8, MinResponsesPerStatement: 2, StabilityRounds: 2,
+	}
+	delegate := &stubDelegate{failAgentKinds: map[string]int{
+		"participant-3/" + string(TaskKindDelphiQuestionnaire): 2,
+	}}
+	engine := NewEngine(EngineDeps{
+		TaskDelegate: delegate,
+		SessionStore: &stubStore{},
+		Clock:        fixedClock{now: time.Unix(1, 0).UTC()},
+		IDFactory:    &deterministicIDs{},
+	})
+	result, err := engine.Start(context.Background(), request)
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	if result.Delphi == nil || result.Delphi.Converged || result.Delphi.StableRounds != 1 {
+		t.Fatalf("one eligible round after an ineligible round must not converge: %#v", result.Delphi)
+	}
+	if len(result.Delphi.Rounds) != 2 || result.Delphi.Rounds[0].StableRounds != 0 || result.Delphi.Rounds[1].StableRounds != 1 {
+		t.Fatalf("unexpected stability history: %#v", result.Delphi.Rounds)
+	}
+	if result.TerminalState != TerminalStateUnresolvedConflict {
+		t.Fatalf("expected unresolved conflict after only one stable round, got %s", result.TerminalState)
+	}
+}
+
+func TestNonAdjudicationWorkflowsUseUnifiedRiskGatedFinalization(t *testing.T) {
+	for _, mode := range []WorkflowMode{WorkflowModeFreeDebate, WorkflowModeDelphi} {
+		t.Run(string(mode), func(t *testing.T) {
+			request := nonAdjudicationRequest(mode)
+			request.TaskSpec.TaskType = CaseTaskTypeStrategy
+			request.ActionPolicy = &ActionPolicy{
+				Prompt:  "执行高风险架构变更",
+				ActorID: "actor-1",
+				// 留空以验证默认 low_only 也会生效。
+			}
+			delegate := &stubDelegate{}
+			store := &stubStore{}
+			engine := NewEngine(EngineDeps{
+				TaskDelegate: delegate,
+				SessionStore: store,
+				Clock:        fixedClock{now: time.Unix(1, 0).UTC()},
+				IDFactory:    &deterministicIDs{},
+			})
+
+			result, err := engine.Start(context.Background(), request)
+			if err != nil {
+				t.Fatalf("Start failed: %v", err)
+			}
+			if result.CaseManifest == nil || result.CaseManifest.RiskLevel != RiskLevelHigh {
+				t.Fatalf("expected high-risk case manifest, got %#v", result.CaseManifest)
+			}
+			if result.TerminalState != TerminalStateActionBlockedByRisk {
+				t.Fatalf("expected action_blocked_by_risk, got %s", result.TerminalState)
+			}
+			if result.Action == nil || result.Action.Status != string(TerminalStateActionBlockedByRisk) || result.Action.Executed {
+				t.Fatalf("expected non-executed blocked action, got %#v", result.Action)
+			}
+			if len(result.Observations) != 1 || result.Observations[0].Outcome != ObservationOutcomeFollowUp {
+				t.Fatalf("expected risk follow-up observation, got %#v", result.Observations)
+			}
+			if got := countDelegateTasks(delegate, TaskKindAction); got != 0 {
+				t.Fatalf("risk gate should prevent actor dispatch, got %d action tasks", got)
+			}
+			assertUnifiedFinalSnapshot(t, store.snapshot, mode)
+		})
+	}
+}
+
+func TestNonAdjudicationWorkflowsMarkAllowedActionsExecuted(t *testing.T) {
+	for _, mode := range []WorkflowMode{WorkflowModeFreeDebate, WorkflowModeDelphi} {
+		t.Run(string(mode), func(t *testing.T) {
+			request := nonAdjudicationRequest(mode)
+			request.TaskSpec.TaskType = CaseTaskTypeStrategy
+			request.ActionPolicy = &ActionPolicy{
+				Prompt:   "执行已批准的架构变更",
+				ActorID:  "actor-1",
+				RiskGate: ActionRiskGateAllowHigh,
+			}
+			delegate := &stubDelegate{}
+			store := &stubStore{}
+			engine := NewEngine(EngineDeps{
+				TaskDelegate: delegate,
+				SessionStore: store,
+				Clock:        fixedClock{now: time.Unix(1, 0).UTC()},
+				IDFactory:    &deterministicIDs{},
+			})
+
+			result, err := engine.Start(context.Background(), request)
+			if err != nil {
+				t.Fatalf("Start failed: %v", err)
+			}
+			if result.Action == nil || result.Action.Status != "completed" || !result.Action.Executed {
+				t.Fatalf("expected executed action, got %#v", result.Action)
+			}
+			if got := countDelegateTasks(delegate, TaskKindAction); got != 1 {
+				t.Fatalf("expected one actor dispatch, got %d", got)
+			}
+			if len(result.Observations) != 1 || result.Observations[0].Outcome != ObservationOutcomePending {
+				t.Fatalf("expected post-action observation, got %#v", result.Observations)
+			}
+			assertUnifiedFinalSnapshot(t, store.snapshot, mode)
+		})
+	}
+}
+
+func nonAdjudicationRequest(mode WorkflowMode) StartRequest {
+	request := baseRequest()
+	request.Mode = mode
+	request.TaskSpec.Goal = "决定高风险架构迁移方案"
+	request.Roles = RoleAssignments{
+		Participants: []string{"participant-1", "participant-2"},
+		Facilitator:  "facilitator-1",
+	}
+	request.DebatePolicy = DebatePolicy{
+		MinRounds:       1,
+		MaxRounds:       1,
+		VoteThreshold:   1,
+		EnableEarlyStop: ptr(true),
+		PeerContextMode: "summary+active_claims",
+	}
+	request.DelphiPolicy = DelphiPolicy{
+		MinRounds:               1,
+		MaxRounds:               2,
+		ConvergenceThreshold:    0.8,
+		RatingScaleMin:          1,
+		RatingScaleMax:          5,
+		Anonymous:               ptr(true),
+		FacilitatorSummaryStyle: "anonymous-aggregate",
+	}
+	return request
+}
+
+func assertUnifiedFinalSnapshot(t *testing.T, snapshot SessionSnapshot, mode WorkflowMode) {
+	t.Helper()
+	if snapshot.Phase != SessionPhaseFinished {
+		t.Fatalf("expected finished session, got %s", snapshot.Phase)
+	}
+	if snapshot.Checkpoint == nil || snapshot.Checkpoint.Mode != mode || snapshot.Checkpoint.LastCompletedPhase != SessionPhaseObserve {
+		t.Fatalf("expected final observe checkpoint for %s, got %#v", mode, snapshot.Checkpoint)
+	}
+	if snapshot.CaseManifest == nil || len(snapshot.Observations) == 0 || snapshot.Result == nil {
+		t.Fatalf("expected manifest, observations, and final result in snapshot: %#v", snapshot)
+	}
+	switch mode {
+	case WorkflowModeFreeDebate:
+		if len(snapshot.DebateRounds) == 0 || len(snapshot.DebateClaims) == 0 || len(snapshot.DebateVotes) == 0 {
+			t.Fatalf("expected debate checkpoint data, got %#v", snapshot)
+		}
+	case WorkflowModeDelphi:
+		if len(snapshot.DelphiRounds) == 0 || len(snapshot.DelphiStatements) == 0 || snapshot.DelphiRecommendation == "" {
+			t.Fatalf("expected delphi checkpoint data, got %#v", snapshot)
+		}
+		if !snapshot.DelphiConverged || !snapshot.DelphiResponseQuorumMet || !snapshot.DelphiMinResponsesMet || snapshot.DelphiStableRounds != 2 {
+			t.Fatalf("expected Delphi convergence gates in final checkpoint, got %#v", snapshot)
+		}
 	}
 }
 
@@ -973,6 +1305,64 @@ func TestEngineExecuteActionAndFailSession(t *testing.T) {
 	}
 	if store.snapshot.Phase != SessionPhaseFailed || store.snapshot.Error == nil || store.snapshot.Error.Message != "boom" {
 		t.Fatalf("unexpected failed snapshot: %#v", store.snapshot)
+	}
+}
+
+func TestActionIncludeResultPreservesExplicitFalse(t *testing.T) {
+	includeResult := false
+	request := baseRequest()
+	request.Roles.Actor = "actor-1"
+	request.ActionPolicy = &ActionPolicy{
+		Prompt:        "perform action without embedding result",
+		IncludeResult: &includeResult,
+		RiskGate:      ActionRiskGateAllowHigh,
+	}
+	delegate := &stubDelegate{}
+	engine := NewEngine(EngineDeps{
+		TaskDelegate: delegate,
+		SessionStore: &stubStore{},
+		Clock:        fixedClock{now: time.Unix(2, 0).UTC()},
+		IDFactory:    &deterministicIDs{},
+	})
+	result, err := engine.Start(context.Background(), request)
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	if result.Action == nil || !result.Action.Executed {
+		t.Fatalf("expected action execution, got %#v", result.Action)
+	}
+	if result.Action == nil || request.ActionPolicy.IncludeResult == nil || *request.ActionPolicy.IncludeResult {
+		t.Fatalf("test setup lost explicit include_result=false")
+	}
+	for _, task := range delegate.tasks {
+		if actionTask, ok := task.(ActionTask); ok {
+			if actionTask.Input != nil {
+				t.Fatalf("include_result=false must omit action input, got %#v", actionTask.Input)
+			}
+			return
+		}
+	}
+	t.Fatal("expected dispatched action task")
+}
+
+func TestNormalizeActionIncludeResultDefaultsOnlyWhenUnset(t *testing.T) {
+	request := baseRequest()
+	request.ActionPolicy = &ActionPolicy{Prompt: "act"}
+	normalized, err := NormalizeStartRequest(request)
+	if err != nil {
+		t.Fatalf("NormalizeStartRequest failed: %v", err)
+	}
+	if normalized.ActionPolicy.IncludeResult == nil || !*normalized.ActionPolicy.IncludeResult {
+		t.Fatalf("unset include_result should default true: %#v", normalized.ActionPolicy)
+	}
+	includeResult := false
+	request.ActionPolicy.IncludeResult = &includeResult
+	normalized, err = NormalizeStartRequest(request)
+	if err != nil {
+		t.Fatalf("NormalizeStartRequest failed: %v", err)
+	}
+	if normalized.ActionPolicy.IncludeResult == nil || *normalized.ActionPolicy.IncludeResult {
+		t.Fatalf("explicit include_result=false must survive: %#v", normalized.ActionPolicy)
 	}
 }
 
@@ -1463,6 +1853,138 @@ func TestEngineResumeFromSavedCheckpoint(t *testing.T) {
 	section := requireAdjudicationSection(t, resumed)
 	if len(section.ChallengeTickets) == 0 || len(section.AdjudicationRecords) == 0 {
 		t.Fatalf("expected resumed run to continue from checkpoint, got %#v", section)
+	}
+}
+
+func TestEngineResumesFreeDebateAfterCompletedRound(t *testing.T) {
+	store := &checkpointInterruptStore{targetStep: checkpointStepDebateRoundComplete, armed: true}
+	delegate := &stubDelegate{}
+	request := baseRequest()
+	request.Mode = WorkflowModeFreeDebate
+	request.Roles = RoleAssignments{Participants: []string{"debater-1", "debater-2"}}
+	request.DebatePolicy = DebatePolicy{
+		MinRounds: 1, MaxRounds: 2, VoteThreshold: 1,
+		EnableEarlyStop: ptr(false), PeerContextMode: "summary+active_claims",
+	}
+	engine := NewEngine(EngineDeps{TaskDelegate: delegate, SessionStore: store, Clock: fixedClock{now: time.Unix(1, 0).UTC()}, IDFactory: &deterministicIDs{}})
+	if _, err := engine.Start(context.Background(), request); err == nil {
+		t.Fatal("expected injected interruption after first debate round")
+	}
+	if store.snapshot.Checkpoint == nil || store.snapshot.Checkpoint.Step != checkpointStepDebateRoundComplete || store.snapshot.Checkpoint.DebateRound != 1 {
+		t.Fatalf("expected durable first-round checkpoint, got %#v", store.snapshot.Checkpoint)
+	}
+	if len(store.snapshot.DebateClaims) == 0 || len(store.snapshot.DebateRounds) != 2 {
+		t.Fatalf("expected claims and completed rounds in checkpoint, got %#v", store.snapshot)
+	}
+	result, err := engine.Resume(context.Background(), store.snapshot)
+	if err != nil {
+		t.Fatalf("Resume failed: %v", err)
+	}
+	if result.FreeDebate == nil || len(result.FreeDebate.Rounds) != 3 {
+		t.Fatalf("expected initial plus exactly two debate rounds, got %#v", result.FreeDebate)
+	}
+	if got := countDelegateTasks(delegate, TaskKindInitialProposal); got != 2 {
+		t.Fatalf("completed initial phase was replayed: task count=%d", got)
+	}
+	if got := countDelegateTasks(delegate, TaskKindDebateRound); got != 4 {
+		t.Fatalf("completed debate round was replayed: task count=%d", got)
+	}
+	if got := countDelegateTasks(delegate, TaskKindFinalVote); got != 2 {
+		t.Fatalf("expected one final ballot per participant, task count=%d", got)
+	}
+	if store.snapshot.ResumeCount != 1 || store.snapshot.Phase != SessionPhaseFinished {
+		t.Fatalf("unexpected resumed snapshot: %#v", store.snapshot)
+	}
+}
+
+func TestEngineResumesDelphiAfterCompletedRound(t *testing.T) {
+	store := &checkpointInterruptStore{targetStep: checkpointStepDelphiRoundComplete, armed: true}
+	delegate := &stubDelegate{}
+	request := baseRequest()
+	request.Mode = WorkflowModeDelphi
+	request.Roles = RoleAssignments{Participants: []string{"participant-1", "participant-2"}, Facilitator: "facilitator-1"}
+	request.DelphiPolicy = DelphiPolicy{
+		MinRounds: 2, MaxRounds: 2, ConvergenceThreshold: 0.8,
+		RatingScaleMin: 1, RatingScaleMax: 5, Anonymous: ptr(true),
+		ResponseQuorum: 1, MinResponsesPerStatement: 2, StabilityRounds: 2,
+	}
+	engine := NewEngine(EngineDeps{TaskDelegate: delegate, SessionStore: store, Clock: fixedClock{now: time.Unix(1, 0).UTC()}, IDFactory: &deterministicIDs{}})
+	if _, err := engine.Start(context.Background(), request); err == nil {
+		t.Fatal("expected injected interruption after first Delphi round")
+	}
+	if store.snapshot.Checkpoint == nil || store.snapshot.Checkpoint.Step != checkpointStepDelphiRoundComplete || store.snapshot.Checkpoint.DelphiRound != 1 {
+		t.Fatalf("expected durable first-round checkpoint, got %#v", store.snapshot.Checkpoint)
+	}
+	if len(store.snapshot.DelphiStatements) == 0 || len(store.snapshot.DelphiRatingDistributions) == 0 || store.snapshot.DelphiStableRounds != 1 || store.snapshot.DelphiLastStableStatementID == "" {
+		t.Fatalf("expected aggregated Delphi state in checkpoint, got %#v", store.snapshot)
+	}
+	result, err := engine.Resume(context.Background(), store.snapshot)
+	if err != nil {
+		t.Fatalf("Resume failed: %v", err)
+	}
+	if result.Delphi == nil || len(result.Delphi.Rounds) != 2 || !result.Delphi.Converged || result.Delphi.StableRounds != 2 {
+		t.Fatalf("expected resumed two-round convergence, got %#v", result.Delphi)
+	}
+	if got := countDelegateTasks(delegate, TaskKindDelphiQuestionnaire); got != 2 {
+		t.Fatalf("completed questionnaire round was replayed: task count=%d", got)
+	}
+	if got := countDelegateTasks(delegate, TaskKindDelphiRevision); got != 2 {
+		t.Fatalf("expected one revision round per participant, task count=%d", got)
+	}
+	if store.snapshot.ResumeCount != 1 || store.snapshot.Phase != SessionPhaseFinished {
+		t.Fatalf("unexpected resumed snapshot: %#v", store.snapshot)
+	}
+}
+
+func TestEngineResumesFreeDebateAfterCompletedBallot(t *testing.T) {
+	store := &checkpointInterruptStore{targetStep: checkpointStepDebateVoteComplete, armed: true}
+	delegate := &stubDelegate{}
+	request := nonAdjudicationRequest(WorkflowModeFreeDebate)
+	engine := NewEngine(EngineDeps{TaskDelegate: delegate, SessionStore: store, Clock: fixedClock{now: time.Unix(1, 0).UTC()}, IDFactory: &deterministicIDs{}})
+	if _, err := engine.Start(context.Background(), request); err == nil {
+		t.Fatal("expected injected interruption after durable ballot checkpoint")
+	}
+	if store.snapshot.Checkpoint == nil || store.snapshot.Checkpoint.Step != checkpointStepDebateVoteComplete || len(store.snapshot.DebateVotes) == 0 {
+		t.Fatalf("expected durable ballot checkpoint, got %#v", store.snapshot)
+	}
+	voteTasks := countDelegateTasks(delegate, TaskKindFinalVote)
+	result, err := engine.Resume(context.Background(), store.snapshot)
+	if err != nil {
+		t.Fatalf("Resume failed: %v", err)
+	}
+	if result.FreeDebate == nil || len(result.FreeDebate.Votes) != len(store.snapshot.DebateVotes) {
+		t.Fatalf("expected restored ballot, got %#v", result.FreeDebate)
+	}
+	if got := countDelegateTasks(delegate, TaskKindFinalVote); got != voteTasks {
+		t.Fatalf("completed ballot was dispatched again: before=%d after=%d", voteTasks, got)
+	}
+}
+
+func TestEngineResumeDoesNotRepeatCompletedAction(t *testing.T) {
+	store := &checkpointInterruptStore{targetStep: checkpointStepActionComplete, armed: true}
+	delegate := &stubDelegate{}
+	request := nonAdjudicationRequest(WorkflowModeFreeDebate)
+	request.TaskSpec.TaskType = CaseTaskTypeStrategy
+	request.ActionPolicy = &ActionPolicy{Prompt: "执行已批准的架构变更", ActorID: "actor-1", RiskGate: ActionRiskGateAllowHigh}
+	engine := NewEngine(EngineDeps{TaskDelegate: delegate, SessionStore: store, Clock: fixedClock{now: time.Unix(1, 0).UTC()}, IDFactory: &deterministicIDs{}})
+	if _, err := engine.Start(context.Background(), request); err == nil {
+		t.Fatal("expected injected interruption after durable action checkpoint")
+	}
+	if store.snapshot.Checkpoint == nil || store.snapshot.Checkpoint.Step != checkpointStepActionComplete || store.snapshot.Action == nil || !store.snapshot.Action.Executed {
+		t.Fatalf("expected completed action checkpoint, got %#v", store.snapshot)
+	}
+	if got := countDelegateTasks(delegate, TaskKindAction); got != 1 {
+		t.Fatalf("expected one action before resume, got %d", got)
+	}
+	result, err := engine.Resume(context.Background(), store.snapshot)
+	if err != nil {
+		t.Fatalf("Resume failed: %v", err)
+	}
+	if result.Action == nil || !result.Action.Executed || len(result.Observations) == 0 {
+		t.Fatalf("expected finalized resumed action result, got %#v", result)
+	}
+	if got := countDelegateTasks(delegate, TaskKindAction); got != 1 {
+		t.Fatalf("completed action was dispatched again: task count=%d", got)
 	}
 }
 

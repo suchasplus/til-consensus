@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/suchasplus/til-consensus/consensus"
@@ -25,6 +26,9 @@ func TestStoreSaveLoadAndPatch(t *testing.T) {
 	if snapshot == nil || snapshot.RequestID != "req-1" {
 		t.Fatalf("unexpected snapshot: %#v", snapshot)
 	}
+	if snapshot.Version != 1 {
+		t.Fatalf("expected initial version 1, got %d", snapshot.Version)
+	}
 
 	phase := consensus.SessionPhaseFinished
 	finishedAt := "2026-04-15T00:00:00Z"
@@ -40,14 +44,18 @@ func TestStoreSaveLoadAndPatch(t *testing.T) {
 		},
 	}
 	failure := &consensus.FailureInfo{Code: "code", Message: "message"}
+	stableStatementID := "statement-1"
+	degradations := []consensus.Degradation{{Kind: consensus.DegradationParticipantAbsent, Phase: "delphi_round", Impact: "partial panel"}}
 	if err := store.Patch(context.Background(), "session-1", consensus.SessionPatch{
-		Phase:            &phase,
-		FinishedAt:       &finishedAt,
-		ClaimGraph:       claims,
-		ChallengeTickets: challenges,
-		LedgerCursor:     &cursor,
-		Result:           result,
-		Error:            failure,
+		Phase:                       &phase,
+		FinishedAt:                  &finishedAt,
+		ClaimGraph:                  claims,
+		ChallengeTickets:            challenges,
+		LedgerCursor:                &cursor,
+		Result:                      result,
+		Error:                       failure,
+		Degradations:                degradations,
+		DelphiLastStableStatementID: &stableStatementID,
 	}); err != nil {
 		t.Fatalf("Patch failed: %v", err)
 	}
@@ -74,6 +82,12 @@ func TestStoreSaveLoadAndPatch(t *testing.T) {
 	if patched.Error == nil || patched.Error.Code != "code" {
 		t.Fatalf("expected error info to be stored, got %#v", patched.Error)
 	}
+	if len(patched.Degradations) != 1 || patched.Degradations[0].Impact != "partial panel" || patched.DelphiLastStableStatementID != stableStatementID {
+		t.Fatalf("expected resumable workflow state to be stored, got %#v", patched)
+	}
+	if patched.Version != 2 {
+		t.Fatalf("expected patched version 2, got %d", patched.Version)
+	}
 }
 
 func TestStoreSaveAndPatchErrors(t *testing.T) {
@@ -90,5 +104,21 @@ func TestStoreSaveAndPatchErrors(t *testing.T) {
 	}
 	if err := store.Patch(context.Background(), "missing", consensus.SessionPatch{}); err == nil {
 		t.Fatal("expected patching unknown session to fail")
+	}
+}
+
+func TestStorePatchCAS(t *testing.T) {
+	ctx := context.Background()
+	store := New()
+	if err := store.Save(ctx, consensus.SessionSnapshot{SessionID: "session-cas"}); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+	expected := uint64(1)
+	phase := consensus.SessionPhaseIngest
+	if err := store.Patch(ctx, "session-cas", consensus.SessionPatch{ExpectedVersion: &expected, Phase: &phase}); err != nil {
+		t.Fatalf("first CAS patch failed: %v", err)
+	}
+	if err := store.Patch(ctx, "session-cas", consensus.SessionPatch{ExpectedVersion: &expected, Phase: &phase}); !errors.Is(err, consensus.ErrSessionVersionConflict) {
+		t.Fatalf("expected version conflict, got %v", err)
 	}
 }

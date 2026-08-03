@@ -243,6 +243,8 @@ til-consensus run --config ./til-consensus.yaml --resume-session session_xxx
 til-consensus run --config ./til-consensus.yaml --replay-session session_xxx
 ```
 
+`--resume-session` 支持 `adjudication`、`free_debate` 和 `delphi`。后两者会从最后完成的 round、final ballot 或收尾阶段继续，并保留已聚合的 claims/statements、评分分布、quorum、稳定轮数和 degradations。中断发生在单个并行 round 内时，该未完成 round 会整体重试；`replay-session` 则始终按 replay 语义重新执行。
+
 ## Exit code
 
 CLI 会把常见失败映射成稳定 exit code：

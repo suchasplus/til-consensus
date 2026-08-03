@@ -301,12 +301,13 @@ func buildDeterministic(task consensus.Task, agent config.AgentConfig) any {
 			NextActions:         []string{"next action from " + agent.ID},
 		}
 	case consensus.DelphiQuestionnaireTask:
+		rating := float64(value.RatingScaleMin+value.RatingScaleMax) / 2
 		return map[string]any{
 			"summary": "delphi questionnaire by " + agent.ID,
 			"responses": []map[string]any{
 				{
 					"statement": "Option from " + agent.ID,
-					"rating":    4.0,
+					"rating":    rating,
 					"rationale": "favored by " + agent.ID,
 				},
 			},
@@ -316,12 +317,13 @@ func buildDeterministic(task consensus.Task, agent config.AgentConfig) any {
 		if len(value.StatementSummaries) > 0 {
 			statementID = value.StatementSummaries[0].StatementID
 		}
+		rating := float64(value.RatingScaleMin+value.RatingScaleMax) / 2
 		return map[string]any{
 			"summary": "delphi revision by " + agent.ID,
 			"responses": []map[string]any{
 				{
 					"statementId": statementID,
-					"rating":      4.0,
+					"rating":      rating,
 					"rationale":   "revised by " + agent.ID,
 				},
 			},

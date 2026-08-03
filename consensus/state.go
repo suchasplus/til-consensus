@@ -55,7 +55,7 @@ func allowedTransition(current, next SessionPhase) bool {
 	case SessionPhaseIngest:
 		return next == SessionPhasePropose || next == SessionPhaseChallenge || next == SessionPhaseAdjudicate || next == SessionPhaseInitial || next == SessionPhaseDelphiQuestionnaire || next == SessionPhaseFailed
 	case SessionPhasePropose:
-		return next == SessionPhaseChallenge || next == SessionPhaseFinished || next == SessionPhaseFailed
+		return next == SessionPhaseChallenge || next == SessionPhaseReport || next == SessionPhaseFinished || next == SessionPhaseFailed
 	case SessionPhaseChallenge:
 		return next == SessionPhaseVerify || next == SessionPhaseFinished || next == SessionPhaseFailed
 	case SessionPhaseVerify:

@@ -552,7 +552,6 @@ func writeE2EProviderConfig(t *testing.T, params e2eConfigParams) {
 			MinRounds:       2,
 			MaxRounds:       2,
 			VoteThreshold:   0.67,
-			EnableEarlyStop: true,
 			PeerContextMode: "summary+active_claims",
 		}
 	case consensus.WorkflowModeDelphi:
@@ -562,7 +561,6 @@ func writeE2EProviderConfig(t *testing.T, params e2eConfigParams) {
 			ConvergenceThreshold:    0.75,
 			RatingScaleMin:          1,
 			RatingScaleMax:          5,
-			Anonymous:               true,
 			FacilitatorSummaryStyle: "anonymous-aggregate",
 		}
 	}

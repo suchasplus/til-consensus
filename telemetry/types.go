@@ -4,10 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/suchasplus/til-consensus/consensus"
+	"github.com/suchasplus/til-consensus/internal/securefs"
 )
 
 type ProviderReadinessFile struct {
@@ -204,10 +204,7 @@ func writeJSON(path string, value any) error {
 		return fmt.Errorf("marshal json: %w", err)
 	}
 	body = append(body, '\n')
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("create dir: %w", err)
-	}
-	if err := os.WriteFile(path, body, 0o644); err != nil {
+	if err := securefs.WriteFile(path, body); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	return nil

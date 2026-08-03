@@ -230,8 +230,8 @@ func (ReportTaskResult) Kind() TaskKind { return TaskKindReport }
 
 type ActionTask struct {
 	TaskMeta
-	Prompt string    `json:"prompt"`
-	Input  RunResult `json:"input"`
+	Prompt string     `json:"prompt"`
+	Input  *RunResult `json:"input,omitempty"`
 }
 
 func (ActionTask) Kind() TaskKind   { return TaskKindAction }
@@ -395,6 +395,9 @@ type DelphiQuestionnaireTask struct {
 	TaskSpec           TaskSpec          `json:"taskSpec"`
 	Round              int               `json:"round"`
 	Questionnaire      string            `json:"questionnaire"`
+	RatingQuestion     string            `json:"ratingQuestion"`
+	RatingScaleMin     int               `json:"ratingScaleMin"`
+	RatingScaleMax     int               `json:"ratingScaleMax"`
 	PreviousStatements []DelphiStatement `json:"previousStatements,omitempty"`
 	PreviousSummary    string            `json:"previousSummary,omitempty"`
 }
@@ -403,10 +406,10 @@ func (DelphiQuestionnaireTask) Kind() TaskKind   { return TaskKindDelphiQuestion
 func (t DelphiQuestionnaireTask) Meta() TaskMeta { return t.TaskMeta }
 
 type DelphiResponseDraft struct {
-	StatementID string  `json:"statementId,omitempty"`
-	Statement   string  `json:"statement,omitempty"`
-	Rating      float64 `json:"rating"`
-	Rationale   string  `json:"rationale,omitempty"`
+	StatementID string   `json:"statementId,omitempty"`
+	Statement   string   `json:"statement,omitempty"`
+	Rating      *float64 `json:"rating"`
+	Rationale   string   `json:"rationale,omitempty"`
 }
 
 type DelphiQuestionnaireOutput struct {
@@ -424,6 +427,9 @@ type DelphiRevisionTask struct {
 	TaskMeta
 	TaskSpec           TaskSpec          `json:"taskSpec"`
 	Round              int               `json:"round"`
+	RatingQuestion     string            `json:"ratingQuestion"`
+	RatingScaleMin     int               `json:"ratingScaleMin"`
+	RatingScaleMax     int               `json:"ratingScaleMax"`
 	StatementSummaries []DelphiStatement `json:"statementSummaries"`
 	PreviousSummary    string            `json:"previousSummary,omitempty"`
 }

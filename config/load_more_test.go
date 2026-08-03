@@ -127,6 +127,19 @@ defaults:
   verification_policy:
     allow_semantic_verifier: true
     max_parallel_checks: 2
+  arbiter_policy:
+    allow_undetermined: true
+    blind_review: true
+  debate_policy:
+    vote_quorum: 0.6
+    enable_early_stop: true
+    semantic_dedup:
+      enabled: true
+    synthesis:
+      enabled: true
+      amendment_rounds: 2
+  delphi_policy:
+    anonymous: true
 output:
   directory: ./base-out/{requestId}
 providers:
@@ -162,6 +175,7 @@ agents:
 	configPath := filepath.Join(tmp, "til-consensus.yaml")
 	writeConfigTestFile(t, configPath, `
 schema_version: 1
+profile: explicit-zero-values
 include:
   - partials/base.yaml
   - partials/override.yaml
@@ -187,6 +201,24 @@ agents:
 roles:
   adjudication:
     arbiter: arbiter-a
+profiles:
+  explicit-zero-values:
+    defaults:
+      verification_policy:
+        allow_semantic_verifier: false
+      arbiter_policy:
+        allow_undetermined: false
+        blind_review: false
+      debate_policy:
+        vote_quorum: 0
+        enable_early_stop: false
+        semantic_dedup:
+          enabled: false
+        synthesis:
+          enabled: false
+          amendment_rounds: 0
+      delphi_policy:
+        anonymous: false
 `)
 
 	loaded, err := Load(configPath)
@@ -203,8 +235,18 @@ roles:
 	if cfg.Defaults.ProposalPolicy.MaxClaimsPerWorker != 5 {
 		t.Fatalf("expected main scalar override, got %#v", cfg.Defaults.ProposalPolicy)
 	}
-	if !cfg.Defaults.VerificationPolicy.AllowSemanticVerifier || cfg.Defaults.VerificationPolicy.MaxParallelChecks != 2 {
-		t.Fatalf("expected inherited verification policy, got %#v", cfg.Defaults.VerificationPolicy)
+	if optionalValue(true, cfg.Defaults.VerificationPolicy.AllowSemanticVerifier) || cfg.Defaults.VerificationPolicy.MaxParallelChecks != 2 {
+		t.Fatalf("expected profile false to override inherited verification policy, got %#v", cfg.Defaults.VerificationPolicy)
+	}
+	if optionalValue(true, cfg.Defaults.ArbiterPolicy.AllowUndetermined) || optionalValue(true, cfg.Defaults.ArbiterPolicy.BlindReview) {
+		t.Fatalf("expected profile false to override inherited arbiter policy, got %#v", cfg.Defaults.ArbiterPolicy)
+	}
+	debate := cfg.Defaults.DebatePolicy
+	if debate.VoteQuorum == nil || *debate.VoteQuorum != 0 || optionalValue(true, debate.EnableEarlyStop) || optionalValue(true, debate.SemanticDedup.Enabled) || optionalValue(true, debate.Synthesis.Enabled) || optionalValue(-1, debate.Synthesis.AmendmentRounds) != 0 {
+		t.Fatalf("expected profile false/zero debate overrides to survive, got %#v", debate)
+	}
+	if optionalValue(true, cfg.Defaults.DelphiPolicy.Anonymous) {
+		t.Fatalf("expected profile anonymous=false to survive, got %#v", cfg.Defaults.DelphiPolicy)
 	}
 	if cfg.Output.Directory != "./main-out/{requestId}" {
 		t.Fatalf("expected main output override, got %s", cfg.Output.Directory)

@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -14,6 +13,7 @@ import (
 
 	"github.com/suchasplus/til-consensus/config"
 	"github.com/suchasplus/til-consensus/consensus"
+	"github.com/suchasplus/til-consensus/internal/securefs"
 	apirunner "github.com/suchasplus/til-consensus/runtime/api"
 	clirunner "github.com/suchasplus/til-consensus/runtime/cli"
 	mockrunner "github.com/suchasplus/til-consensus/runtime/mock"
@@ -626,10 +626,7 @@ func (d *Delegate) persistRepairReportArtifact(taskID string, task consensus.Tas
 }
 
 func writeArtifact(path string, body []byte, mediaType string) (*consensus.ArtifactRef, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return nil, err
-	}
-	if err := os.WriteFile(path, body, 0o644); err != nil {
+	if err := securefs.WriteFile(path, body); err != nil {
 		return nil, err
 	}
 	hash := sha256.Sum256(body)

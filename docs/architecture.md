@@ -63,6 +63,16 @@ Engine 是 workflow dispatcher，不应该把 provider-specific 逻辑写进 wor
 
 Workflow runner 只关心阶段语义和领域对象，不关心某个 provider 是 CLI 还是 API。
 
+### Resume 与 checkpoint
+
+三种 workflow 都支持基于 session snapshot 的阶段级恢复：
+
+- `adjudication` 在 propose/challenge/verify/revise/adjudicate/report/action/observe 后提交 checkpoint。
+- `free_debate` 在 initial、每个完整 debate round、最终去重与 synthesis、final ballot、report/action/observe 后提交 checkpoint。
+- `delphi` 在每个完整问卷/修订 round、收敛判断、report/action/observe 后提交 checkpoint；snapshot 同时保存 statements、评分分布、quorum、连续稳定轮数和稳定 statement ID。
+
+Resume 使用原 session ID 和原始 `startedAt`，从最后一个完整 checkpoint 的下一步继续；已经提交的 round、ballot 或 action 不会再次派发。若进程在一个并行 round 尚未完整提交时中断，该未完成 round 会整体重试，因此 participant/provider 调用仍是 at-least-once，不能宣称 task 级 exactly-once。
+
 ## Provider 执行层
 
 Provider 执行层负责：
@@ -119,7 +129,8 @@ Telemetry 关注：
 
 - `result.json`：最终结构化结果。
 - `summary.md`：人工阅读摘要。
-- `ledger.jsonl`：append-only 审计账本。
+- `ledger.jsonl`：带 SHA-256 hash chain 的唯一审计 WAL；`ledger.root.json` 保存
+  当前 root checkpoint，manifest 可从 WAL 恢复。
 - `events.jsonl`：运行期事件。
 - `artifacts/`：输入、原始输出、失败、telemetry、readiness。
 

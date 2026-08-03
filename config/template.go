@@ -34,12 +34,12 @@ func InitTemplate() Config {
 				DedupeStrategy:     "normalized-statement",
 			},
 			VerificationPolicy: VerificationPolicyConfig{
-				AllowSemanticVerifier: true,
+				AllowSemanticVerifier: boolPtr(true),
 				MaxParallelChecks:     4,
 			},
 			ArbiterPolicy: ArbiterPolicyConfig{
-				AllowUndetermined: true,
-				BlindReview:       true,
+				AllowUndetermined: boolPtr(true),
+				BlindReview:       boolPtr(true),
 			},
 		},
 		Output: OutputConfig{

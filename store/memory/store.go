@@ -25,6 +25,10 @@ func (s *Store) Save(_ context.Context, session consensus.SessionSnapshot) error
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	session.Version = 1
+	if current, exists := s.sessions[session.SessionID]; exists {
+		session.Version = current.Version + 1
+	}
 	s.sessions[session.SessionID] = session
 	return nil
 }
@@ -46,6 +50,9 @@ func (s *Store) Patch(_ context.Context, sessionID string, patch consensus.Sessi
 	current, ok := s.sessions[sessionID]
 	if !ok {
 		return fmt.Errorf("unknown session id: %s", sessionID)
+	}
+	if patch.ExpectedVersion != nil && current.Version != *patch.ExpectedVersion {
+		return fmt.Errorf("%w: session=%s expected=%d actual=%d", consensus.ErrSessionVersionConflict, sessionID, *patch.ExpectedVersion, current.Version)
 	}
 	if patch.Phase != nil {
 		current.Phase = *patch.Phase
@@ -89,6 +96,9 @@ func (s *Store) Patch(_ context.Context, sessionID string, patch consensus.Sessi
 	if patch.Metrics != nil {
 		current.Metrics = *patch.Metrics
 	}
+	if patch.Degradations != nil {
+		current.Degradations = append([]consensus.Degradation(nil), patch.Degradations...)
+	}
 	if patch.ResumeCount != nil {
 		current.ResumeCount = *patch.ResumeCount
 	}
@@ -128,6 +138,21 @@ func (s *Store) Patch(_ context.Context, sessionID string, patch consensus.Sessi
 	if patch.DelphiConsensusLevel != nil {
 		current.DelphiConsensusLevel = *patch.DelphiConsensusLevel
 	}
+	if patch.DelphiConverged != nil {
+		current.DelphiConverged = *patch.DelphiConverged
+	}
+	if patch.DelphiResponseQuorumMet != nil {
+		current.DelphiResponseQuorumMet = *patch.DelphiResponseQuorumMet
+	}
+	if patch.DelphiMinResponsesMet != nil {
+		current.DelphiMinResponsesMet = *patch.DelphiMinResponsesMet
+	}
+	if patch.DelphiStableRounds != nil {
+		current.DelphiStableRounds = *patch.DelphiStableRounds
+	}
+	if patch.DelphiLastStableStatementID != nil {
+		current.DelphiLastStableStatementID = *patch.DelphiLastStableStatementID
+	}
 	if patch.DelphiRecommendation != nil {
 		current.DelphiRecommendation = *patch.DelphiRecommendation
 	}
@@ -140,6 +165,7 @@ func (s *Store) Patch(_ context.Context, sessionID string, patch consensus.Sessi
 	if patch.Error != nil {
 		current.Error = patch.Error
 	}
+	current.Version++
 	s.sessions[sessionID] = current
 	return nil
 }

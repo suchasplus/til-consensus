@@ -3,6 +3,7 @@ package viewer
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/suchasplus/til-consensus/consensus"
 	"github.com/suchasplus/til-consensus/internal/artifact"
+	"github.com/suchasplus/til-consensus/observer"
 	"github.com/suchasplus/til-consensus/telemetry"
 )
 
@@ -451,9 +453,9 @@ func LoadBundle(files RunFiles) (Bundle, error) {
 	if err != nil {
 		return Bundle{}, fmt.Errorf("decode result file: %w", err)
 	}
-	ledger, err := readJSONL[consensus.EvidenceRecord](files.LedgerPath)
+	ledger, _, err := observer.ReadVerifiedLedger(context.Background(), files.LedgerPath)
 	if err != nil {
-		return Bundle{}, fmt.Errorf("read ledger file: %w", err)
+		return Bundle{}, fmt.Errorf("verify ledger integrity: %w", err)
 	}
 	manifest, missing, err := readOptionalJSONL[consensus.ArtifactManifestEntry](files.ManifestPath, "artifacts/manifest.jsonl")
 	if err != nil {

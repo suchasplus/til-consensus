@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -257,6 +258,58 @@ func TestNormalizeFinalVoteRequiresNumericConfidence(t *testing.T) {
 	}
 }
 
+func TestNormalizeFinalVoteRequiresExactBallotCoverage(t *testing.T) {
+	task := consensus.FinalVoteTask{
+		TaskMeta: consensus.TaskMeta{AgentID: "voter-1"},
+		Claims: []consensus.DebateClaim{
+			{ClaimID: "claim-1", Active: true},
+			{ClaimID: "claim-2", Active: true},
+		},
+	}
+	tests := []struct {
+		name    string
+		payload string
+		want    string
+	}{
+		{
+			name:    "empty ballot",
+			payload: `{"summary":"vote","votes":[]}`,
+			want:    "ballot is empty",
+		},
+		{
+			name:    "unknown claim",
+			payload: `{"summary":"vote","votes":[{"claimId":"claim-1","vote":"accept","confidence":0.9},{"claimId":"claim-x","vote":"reject","confidence":0.1}]}`,
+			want:    "is not on the active ballot",
+		},
+		{
+			name:    "duplicate claim",
+			payload: `{"summary":"vote","votes":[{"claimId":"claim-1","vote":"accept","confidence":0.9},{"claimId":"claim-1","vote":"accept","confidence":0.8}]}`,
+			want:    "duplicates earlier vote",
+		},
+		{
+			name:    "missing claim",
+			payload: `{"summary":"vote","votes":[{"claimId":"claim-1","vote":"accept","confidence":0.9}]}`,
+			want:    "missing votes for: claim-2",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := NormalizeTaskOutputFromText(task, tc.payload)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("expected %q validation error, got %v", tc.want, err)
+			}
+		})
+	}
+
+	valid, err := NormalizeTaskOutputFromText(task, `{"summary":"vote","votes":[{"claimId":"claim-2","vote":"abstain","confidence":1.0},{"claimId":"claim-1","vote":"accept","confidence":0.9}]}`)
+	if err != nil {
+		t.Fatalf("expected order-independent exact ballot to pass, got %v", err)
+	}
+	if typed, ok := valid.(consensus.FinalVoteTaskResult); !ok || len(typed.Output.Votes) != 2 {
+		t.Fatalf("unexpected valid ballot: %#v", valid)
+	}
+}
+
 func TestNormalizeFinalVoteRejectsIncoherentVoteLabels(t *testing.T) {
 	task := consensus.FinalVoteTask{
 		TaskMeta: consensus.TaskMeta{AgentID: "voter-1"},
@@ -272,7 +325,8 @@ func TestNormalizeFinalVoteRejectsIncoherentVoteLabels(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "vote=accept requires confidence >= 0.5") {
 		t.Fatalf("expected incoherent accept vote to fail, got %v", err)
 	}
-	// Boundary 0.5 is coherent for both labels, abstain is unconstrained.
+	// Boundary 0.5 is coherent for both labels. Abstain confidence is retained
+	// for diagnostics but excluded from support-score aggregation.
 	if _, err := NormalizeTaskOutputFromText(task, `{"summary":"vote","votes":[{"claimId":"claim-1","vote":"reject","confidence":0.5,"rationale":"uncertain lean-no"}]}`); err != nil {
 		t.Fatalf("expected boundary reject vote to pass, got %v", err)
 	}
@@ -293,15 +347,21 @@ func TestNormalizeFinalVoteRejectsUniformBallots(t *testing.T) {
 		}
 		return `{"summary":"vote","votes":[` + strings.Join(rows, ",") + `]}`
 	}
-	task := consensus.FinalVoteTask{TaskMeta: consensus.TaskMeta{AgentID: "voter-1"}}
-	if _, err := NormalizeTaskOutputFromText(task, buildBallot(5, true)); err == nil || !strings.Contains(err.Error(), "calibrate") {
+	buildTask := func(count int) consensus.FinalVoteTask {
+		claims := make([]consensus.DebateClaim, 0, count)
+		for idx := 0; idx < count; idx++ {
+			claims = append(claims, consensus.DebateClaim{ClaimID: fmt.Sprintf("claim-%d", idx), Active: true})
+		}
+		return consensus.FinalVoteTask{TaskMeta: consensus.TaskMeta{AgentID: "voter-1"}, Claims: claims}
+	}
+	if _, err := NormalizeTaskOutputFromText(buildTask(5), buildBallot(5, true)); err == nil || !strings.Contains(err.Error(), "calibrate") {
 		t.Fatalf("expected uniform 5-vote ballot to fail calibration, got %v", err)
 	}
-	if _, err := NormalizeTaskOutputFromText(task, buildBallot(5, false)); err != nil {
+	if _, err := NormalizeTaskOutputFromText(buildTask(5), buildBallot(5, false)); err != nil {
 		t.Fatalf("expected ballot with one distinct score to pass, got %v", err)
 	}
 	// Small ballots are exempt: honest uniform enthusiasm on 4 claims is fine.
-	if _, err := NormalizeTaskOutputFromText(task, buildBallot(4, true)); err != nil {
+	if _, err := NormalizeTaskOutputFromText(buildTask(4), buildBallot(4, true)); err != nil {
 		t.Fatalf("expected uniform 4-vote ballot to pass, got %v", err)
 	}
 }
@@ -365,7 +425,9 @@ func TestNormalizeArbiterOutputRejectsVerifiedVerdictAndAcceptedDisposition(t *t
 
 func TestNormalizeDelphiQuestionnaireOutputCoercesStringRating(t *testing.T) {
 	result, err := NormalizeTaskOutputFromText(consensus.DelphiQuestionnaireTask{
-		TaskMeta: consensus.TaskMeta{AgentID: "participant-1"},
+		TaskMeta:       consensus.TaskMeta{AgentID: "participant-1"},
+		RatingScaleMin: 1,
+		RatingScaleMax: 5,
 	}, `{"summary":"responses","responses":[{"statement":"Use monorepo","rating":"4"}]}`)
 	if err != nil {
 		t.Fatalf("NormalizeTaskOutputFromText failed: %v", err)
@@ -374,8 +436,55 @@ func TestNormalizeDelphiQuestionnaireOutputCoercesStringRating(t *testing.T) {
 	if !ok {
 		t.Fatalf("unexpected result type: %T", result)
 	}
-	if typed.Output.Responses[0].Rating != 4 {
+	if typed.Output.Responses[0].Rating == nil || *typed.Output.Responses[0].Rating != 4 {
 		t.Fatalf("unexpected coerced rating: %#v", typed.Output.Responses[0])
+	}
+}
+
+func TestNormalizeDelphiQuestionnaireOutputEnforcesRatingContract(t *testing.T) {
+	task := consensus.DelphiQuestionnaireTask{
+		TaskMeta:       consensus.TaskMeta{AgentID: "participant-1"},
+		RatingScaleMin: 1,
+		RatingScaleMax: 5,
+	}
+	for _, test := range []struct {
+		name string
+		raw  string
+	}{
+		{name: "missing", raw: `{"summary":"responses","responses":[{"statement":"Use monorepo"}]}`},
+		{name: "below minimum", raw: `{"summary":"responses","responses":[{"statement":"Use monorepo","rating":0}]}`},
+		{name: "above maximum", raw: `{"summary":"responses","responses":[{"statement":"Use monorepo","rating":10}]}`},
+		{name: "empty", raw: `{"summary":"responses","responses":[]}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := NormalizeTaskOutputFromText(task, test.raw); err == nil {
+				t.Fatal("expected invalid Delphi rating contract to fail")
+			}
+		})
+	}
+	for _, rating := range []int{1, 5} {
+		raw := fmt.Sprintf(`{"summary":"responses","responses":[{"statement":"Use monorepo","rating":%d}]}`, rating)
+		if _, err := NormalizeTaskOutputFromText(task, raw); err != nil {
+			t.Fatalf("expected boundary rating %d to pass: %v", rating, err)
+		}
+	}
+}
+
+func TestDelphiResponseSchemaCarriesRequiredRatingRange(t *testing.T) {
+	schema := TaskOutputJSONSchema(consensus.DelphiQuestionnaireTask{RatingScaleMin: 2, RatingScaleMax: 7})
+	properties := schema["properties"].(map[string]any)
+	responses := properties["responses"].(map[string]any)
+	if responses["minItems"] != 1 {
+		t.Fatalf("Delphi responses must be non-empty: %#v", responses)
+	}
+	item := responses["items"].(map[string]any)
+	required := item["required"].([]string)
+	if !slices.Contains(required, "rating") {
+		t.Fatalf("rating must be required: %#v", item)
+	}
+	rating := item["properties"].(map[string]any)["rating"].(map[string]any)
+	if rating["minimum"] != 2 || rating["maximum"] != 7 {
+		t.Fatalf("rating schema must carry task scale: %#v", rating)
 	}
 }
 

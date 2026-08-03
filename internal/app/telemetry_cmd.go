@@ -3,12 +3,12 @@ package app
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/suchasplus/til-consensus/config"
+	"github.com/suchasplus/til-consensus/internal/securefs"
 	"github.com/suchasplus/til-consensus/telemetry"
 	"github.com/urfave/cli/v3"
 )
@@ -53,10 +53,7 @@ func runTelemetryDailyCommand(_ context.Context, cmd *cli.Command) error {
 	}
 	body := telemetry.RenderDailyMarkdown(report)
 	if outputPath := strings.TrimSpace(cmd.String("output")); outputPath != "" {
-		if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
-			return fmt.Errorf("create telemetry output dir: %w", err)
-		}
-		if err := os.WriteFile(outputPath, []byte(body), 0o644); err != nil {
+		if err := securefs.WriteFile(outputPath, []byte(body)); err != nil {
 			return fmt.Errorf("write telemetry report: %w", err)
 		}
 		_, _ = fmt.Fprintf(cmd.Writer, "telemetry report written: %s\n", outputPath)

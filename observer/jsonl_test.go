@@ -3,6 +3,7 @@ package observer
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -48,7 +49,7 @@ func TestLedgerWriterAppendsMonotonicSeq(t *testing.T) {
 	for idx := 0; idx < 2; idx++ {
 		if _, err := writer.Append(context.Background(), consensus.EvidenceRecord{
 			SchemaVersion: 1,
-			EntryID:       "entry",
+			EntryID:       fmt.Sprintf("entry-%d", idx),
 			RequestID:     "req-1",
 			SessionID:     "session-1",
 			Kind:          consensus.EvidenceKindClaimProposed,

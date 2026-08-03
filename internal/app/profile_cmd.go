@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -15,6 +14,7 @@ import (
 	"github.com/suchasplus/til-consensus/config"
 	"github.com/suchasplus/til-consensus/consensus"
 	"github.com/suchasplus/til-consensus/internal/artifact"
+	"github.com/suchasplus/til-consensus/internal/securefs"
 	"github.com/suchasplus/til-consensus/internal/viewer"
 	"github.com/suchasplus/til-consensus/preflight"
 	"github.com/suchasplus/til-consensus/telemetry"
@@ -68,11 +68,14 @@ func runProfilePreflightCommand(ctx context.Context, cmd *cli.Command) error {
 		loaded.Config.Output.Directory = output
 	}
 	requestID := artifact.NewRequestID(time.Now().UTC())
-	paths := config.ResolveRunArtifacts(loaded, requestID)
-	if err := os.MkdirAll(paths.ArtifactsDir, 0o755); err != nil {
+	paths, err := config.ResolveRunArtifactsChecked(loaded, requestID)
+	if err != nil {
+		return err
+	}
+	if err := securefs.TightenPrivateDir(paths.ArtifactsDir); err != nil {
 		return fmt.Errorf("create preflight artifacts dir: %w", err)
 	}
-	if err := os.MkdirAll(paths.RunDir, 0o755); err != nil {
+	if err := securefs.TightenPrivateDir(paths.RunDir); err != nil {
 		return fmt.Errorf("create preflight run dir: %w", err)
 	}
 
@@ -428,21 +431,15 @@ func (p *preflightPrinter) PrintFinal(entries []telemetry.ProviderReadinessEntry
 }
 
 func writeJSONFile(path string, value any) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
 	body, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, append(body, '\n'), 0o644)
+	return securefs.WriteFile(path, append(body, '\n'))
 }
 
 func writeTextFile(path string, value string) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(path, []byte(value), 0o644)
+	return securefs.WriteFile(path, []byte(value))
 }
 
 func formatContextMap(values map[string]any, order []string) string {

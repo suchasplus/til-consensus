@@ -71,6 +71,19 @@ executor.Observer = myObserver
 executor.Ledger = myLedger
 ```
 
+内置 file/memory store 的 snapshot 带有单调递增的 `Version`。需要防止陈旧写入
+时，把读取到的版本放入 `SessionPatch.ExpectedVersion`；版本不匹配会返回可用
+`errors.Is(err, consensus.ErrSessionVersionConflict)` 判断的冲突错误。file store
+还会把完整 Patch 作为加锁的 read-modify-write 事务执行，并用进程间文件锁保护
+同一 store 目录。
+
+`Engine.Resume` 和 `Executor.Resume` 支持全部三种 workflow。`free_debate` 会持久化每轮 claims/rounds、最终 ballot 及收尾状态；`delphi` 会持久化 rounds/statements、评分分布、response quorum、最小样本门槛和连续稳定状态。恢复从最后一个完整 checkpoint 后继续，未完成的并行 round 按 at-least-once 语义整体重试。
+
+`observer.LedgerWriter.Verify` / `observer.VerifyLedger` 可验证 ledger 的完整 hash
+chain 和 `ledger.root.json`，`RootHash` 可取得最终 root hash 供外部签名或写入
+不可变审计系统。旧版无 hash ledger 会返回 `Legacy: true`，并在下一次 Append 时
+迁移。
+
 ## 后续 action
 
 `runner.Executor.Act` 可基于已有 `RunResult` 执行后续 action：

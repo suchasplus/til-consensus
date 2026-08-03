@@ -76,10 +76,16 @@ roles:
 	if err != nil {
 		t.Fatalf("read session dir: %v", err)
 	}
-	if len(entries) != 1 {
-		t.Fatalf("expected one session snapshot, got %d", len(entries))
+	var snapshots []os.DirEntry
+	for _, entry := range entries {
+		if filepath.Ext(entry.Name()) == ".json" {
+			snapshots = append(snapshots, entry)
+		}
 	}
-	sessionID := strings.TrimSuffix(entries[0].Name(), filepath.Ext(entries[0].Name()))
+	if len(snapshots) != 1 {
+		t.Fatalf("expected one session snapshot, got %d", len(snapshots))
+	}
+	sessionID := strings.TrimSuffix(snapshots[0].Name(), filepath.Ext(snapshots[0].Name()))
 
 	sessionListCmd := newSessionCommand().Commands[0]
 	sessionListCmd.Writer = &stdout

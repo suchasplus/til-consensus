@@ -410,9 +410,10 @@ func taskSpecificContract(task consensus.Task) []string {
 	case consensus.FinalVoteTask:
 		return []string{
 			"- Final-vote fields: summary, votes[].claimId, votes[].vote, votes[].confidence, votes[].rationale.",
-			"- Final-vote claimId must copy an existing claims[].claimId exactly.",
+			"- Final-vote must contain exactly one row for every claims[].claimId, with no duplicates, omissions, unknown IDs, or empty ballot.",
 			"- Final-vote vote allowed: accept, reject, abstain.",
 			"- Final-vote confidence is a continuous support score from 0.0 to 1.0: 0.0 means strongly reject, 0.5 means uncertain/abstain, 1.0 means strongly accept.",
+			"- Abstain confidence is diagnostic only and is excluded from support-score aggregation.",
 			"- Final-vote confidence must be a JSON number, not a string.",
 			"- Final-vote aliases forbidden: targetId, verdict, judgement, stance.",
 		}
@@ -429,10 +430,17 @@ func taskSpecificContract(task consensus.Task) []string {
 			"- Arbiter should use insufficient_evidence only when no narrower supported core remains even after considering caveats, applicability, and boundaryConditions.",
 			"- Arbiter confidence must be a JSON number, not a string.",
 		}
-	case consensus.DelphiQuestionnaireTask, consensus.DelphiRevisionTask:
+	case consensus.DelphiQuestionnaireTask:
 		return []string{
-			"- Delphi fields: summary, responses[].statement, responses[].rating.",
-			"- Delphi rating must be a JSON number, not a string.",
+			"- Delphi fields: summary, responses[].statementId or responses[].statement, responses[].rating, responses[].rationale.",
+			fmt.Sprintf("- Delphi rating is required and must be a JSON number within inclusive [%d,%d].", typed.RatingScaleMin, typed.RatingScaleMax),
+			"- Delphi responses must not be empty or contain duplicate ratings for the same statement.",
+		}
+	case consensus.DelphiRevisionTask:
+		return []string{
+			"- Delphi fields: summary, responses[].statementId or responses[].statement, responses[].rating, responses[].rationale.",
+			fmt.Sprintf("- Delphi rating is required and must be a JSON number within inclusive [%d,%d].", typed.RatingScaleMin, typed.RatingScaleMax),
+			"- Delphi responses must not be empty or contain duplicate ratings for the same statement.",
 		}
 	default:
 		return nil

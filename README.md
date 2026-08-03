@@ -191,6 +191,7 @@ til-consensus view --config ./til-consensus.yaml
 - `result.json`：统一结果壳（含 `degradations` 降级清单）。
 - `summary.md`：结论优先的人工阅读摘要。
 - `ledger.jsonl`：append-only 审计账本。
+- `ledger.root.json`：ledger hash chain 的最终 root checkpoint。
 - `events.jsonl`：运行事件流。
 - `artifacts/`：provider input/raw/failure、readiness、telemetry、manifest。
 

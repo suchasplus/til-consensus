@@ -100,6 +100,10 @@ func taskPromptHints(task consensus.Task) []string {
 		return synthesisPromptHints(typed)
 	case consensus.FinalVoteTask:
 		return finalVotePromptHints(typed)
+	case consensus.DelphiQuestionnaireTask:
+		return delphiPromptHints(typed.RatingQuestion, typed.RatingScaleMin, typed.RatingScaleMax)
+	case consensus.DelphiRevisionTask:
+		return delphiPromptHints(typed.RatingQuestion, typed.RatingScaleMin, typed.RatingScaleMax)
 	default:
 		return nil
 	}
@@ -125,6 +129,10 @@ func taskRepairHints(task consensus.Task) []string {
 		return synthesisRepairHints()
 	case consensus.FinalVoteTask:
 		return finalVoteRepairHints()
+	case consensus.DelphiQuestionnaireTask:
+		return delphiRepairHints(typed.RatingScaleMin, typed.RatingScaleMax)
+	case consensus.DelphiRevisionTask:
+		return delphiRepairHints(typed.RatingScaleMin, typed.RatingScaleMax)
 	default:
 		return nil
 	}
@@ -221,11 +229,11 @@ func finalVotePromptHints(task consensus.FinalVoteTask) []string {
 		}
 	}
 	lines := []string{
-		"- Final vote must return one votes[] row for each active claim you evaluate.",
+		"- Final vote must return exactly one votes[] row for every active claim: no omissions, duplicates, unknown claim IDs, or empty ballots.",
 		"- Each vote requires claimId, vote, confidence, and rationale.",
 		"- vote is the coarse label: accept, reject, or abstain.",
 		"- confidence is the continuous support score from 0.0 to 1.0: 0.0 strongly rejects the claim, 0.5 is uncertain/abstain, 1.0 strongly accepts the claim.",
-		"- confidence is NOT certainty in your vote label. Keep them coherent: vote=accept requires confidence >= 0.5, vote=reject requires confidence <= 0.5, vote=abstain should sit near 0.5.",
+		"- confidence is NOT certainty in your vote label. Keep them coherent: vote=accept requires confidence >= 0.5 and vote=reject requires confidence <= 0.5. For vote=abstain, confidence is diagnostic only and is excluded from support-score aggregation.",
 		"- Use intermediate confidence values to express partial support, caveated support, or live disagreement; do not collapse everything to 0 or 1.",
 		"- Calibrate scores comparatively across the whole ballot: the claims you would actually stake the conclusion on belong near the top of your range, weaker or more redundant ones lower. Giving every claim the same confidence is invalid.",
 		"- confidence must be a JSON number, not a string.",
@@ -239,7 +247,7 @@ func finalVotePromptHints(task consensus.FinalVoteTask) []string {
 	if len(ids) > 0 {
 		lines = append(lines,
 			"- Valid final-vote claim IDs for this task: "+strings.Join(ids, ", ")+".",
-			`- Valid example: {"summary":"Final vote with continuous confidence scores.","votes":[{"claimId":"`+ids[0]+`","vote":"accept","confidence":0.74,"rationale":"The claim is directionally sound but still depends on execution constraints."}]}`,
+			`- Example votes[] row shape (the final JSON must still include one row for every listed ID): {"claimId":"`+ids[0]+`","vote":"accept","confidence":0.74,"rationale":"The claim is directionally sound but still depends on execution constraints."}`,
 		)
 	}
 	return lines
@@ -247,12 +255,30 @@ func finalVotePromptHints(task consensus.FinalVoteTask) []string {
 
 func finalVoteRepairHints() []string {
 	return []string{
+		"- Return exactly one vote for every claimId listed in the task; remove duplicates and unknown IDs, and add every missing claimId.",
 		"- Add a numeric confidence field to every votes[] row.",
 		"- Repair confidence into the inclusive [0,1] range.",
-		"- Keep vote as accept, reject, or abstain, but use confidence to preserve partial support.",
+		"- Keep vote as accept, reject, or abstain. Abstain is diagnostic and does not contribute to supportScore.",
 		"- If a row's vote label contradicts its confidence (accept with confidence < 0.5, or reject with confidence > 0.5), the confidence was probably meant as certainty in the label. Reconcile using the rationale: keep the vote label and move confidence into the matching band (accept: 0.5-1.0 where higher means stronger support; reject: 0.0-0.5 where lower means stronger rejection).",
-		"- If every vote carries an identical confidence, spread the scores to reflect relative strength while keeping each vote label.",
+		"- If every support-bearing vote carries an identical confidence, spread those accept/reject scores to reflect relative strength while keeping each vote label.",
 		"- Do not quote confidence numbers.",
+	}
+}
+
+func delphiPromptHints(question string, scaleMin, scaleMax int) []string {
+	return []string{
+		"- Evaluate the statements using this exact rating question: " + question,
+		fmt.Sprintf("- Every responses[] row requires rating as a JSON number within the inclusive [%d,%d] scale.", scaleMin, scaleMax),
+		"- Every response requires statementId or statement, and the same statement may be rated at most once in this response.",
+		"- Do not return an empty responses array.",
+	}
+}
+
+func delphiRepairHints(scaleMin, scaleMax int) []string {
+	return []string{
+		fmt.Sprintf("- Add a numeric rating to every responses[] row and keep every rating within the inclusive [%d,%d] scale.", scaleMin, scaleMax),
+		"- Remove duplicate ratings for the same statement and do not return an empty responses array.",
+		"- Preserve the prior evaluation intent when repairing a missing or malformed rating; do not silently clamp an out-of-range judgment.",
 	}
 }
 

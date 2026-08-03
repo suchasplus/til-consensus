@@ -49,6 +49,9 @@ func ResolveRunPlan(loaded LoadedConfig, input RunInput, overrides RunOverrides,
 	if requestID == "" {
 		requestID = consensus.NewRequestID(now)
 	}
+	if err := consensus.ValidateRequestID(requestID); err != nil {
+		return ResolvedRunPlan{}, err
+	}
 	task := firstNonEmpty(strings.TrimSpace(overrides.Task), strings.TrimSpace(input.TaskSpec.Goal))
 	if task == "" {
 		return ResolvedRunPlan{}, fmt.Errorf("missing task")
@@ -80,18 +83,12 @@ func ResolveRunPlan(loaded LoadedConfig, input RunInput, overrides RunOverrides,
 	}
 	verificationPolicy := consensus.VerificationPolicy{
 		RequiredChecks:        pickChecks(input.VerificationPolicy.RequiredChecks, cfg.Defaults.VerificationPolicy.RequiredChecks),
-		AllowSemanticVerifier: cfg.Defaults.VerificationPolicy.AllowSemanticVerifier || input.VerificationPolicy.AllowSemanticVerifier,
+		AllowSemanticVerifier: boolPtr(optionalValue(true, input.VerificationPolicy.AllowSemanticVerifier, cfg.Defaults.VerificationPolicy.AllowSemanticVerifier)),
 		MaxParallelChecks:     pickInt(input.VerificationPolicy.MaxParallelChecks, cfg.Defaults.VerificationPolicy.MaxParallelChecks, consensus.DefaultMaxParallelChecks),
 	}
 	arbiterPolicy := consensus.ArbiterPolicy{
-		AllowUndetermined: true,
-		BlindReview:       true,
-	}
-	if cfg.Defaults.ArbiterPolicy.AllowUndetermined || input.ArbiterPolicy.AllowUndetermined {
-		arbiterPolicy.AllowUndetermined = true
-	}
-	if cfg.Defaults.ArbiterPolicy.BlindReview || input.ArbiterPolicy.BlindReview {
-		arbiterPolicy.BlindReview = true
+		AllowUndetermined: boolPtr(optionalValue(true, input.ArbiterPolicy.AllowUndetermined, cfg.Defaults.ArbiterPolicy.AllowUndetermined)),
+		BlindReview:       boolPtr(optionalValue(true, input.ArbiterPolicy.BlindReview, cfg.Defaults.ArbiterPolicy.BlindReview)),
 	}
 	perTaskTimeout := pickDuration(overrides.Timeout, cfg.Defaults.PerTaskTimeout.Duration, consensus.DefaultPerTaskTimeout)
 	taskRetryAttempts := pickInt(input.TaskRetryAttempts, cfg.Defaults.TaskRetryAttempts, consensus.DefaultTaskRetryAttempts)
@@ -104,38 +101,38 @@ func ResolveRunPlan(loaded LoadedConfig, input RunInput, overrides RunOverrides,
 		// legacy alias at each precedence level.
 		VoteThreshold:        pickFloat(overrides.VoteThreshold, input.DebatePolicy.SupportThreshold, input.DebatePolicy.VoteThreshold, cfg.Defaults.DebatePolicy.SupportThreshold, cfg.Defaults.DebatePolicy.VoteThreshold, consensus.DefaultVoteThreshold),
 		VoteAggregation:      consensus.DebateVoteAggregation(firstNonEmpty(input.DebatePolicy.VoteAggregation, cfg.Defaults.DebatePolicy.VoteAggregation)),
-		VoteQuorum:           pickFloat(input.DebatePolicy.VoteQuorum, cfg.Defaults.DebatePolicy.VoteQuorum),
+		VoteQuorum:           optionalValue(0.0, input.DebatePolicy.VoteQuorum, cfg.Defaults.DebatePolicy.VoteQuorum),
 		MaxNewClaimsPerRound: pickInt(input.DebatePolicy.MaxNewClaimsPerRound, cfg.Defaults.DebatePolicy.MaxNewClaimsPerRound, consensus.DefaultDebateMaxNewClaimsPerRound),
 		MaxActiveClaims:      pickInt(input.DebatePolicy.MaxActiveClaims, cfg.Defaults.DebatePolicy.MaxActiveClaims, consensus.DefaultDebateMaxActiveClaims),
-		EnableEarlyStop:      cfg.Defaults.DebatePolicy.EnableEarlyStop || input.DebatePolicy.EnableEarlyStop,
+		EnableEarlyStop:      boolPtr(optionalValue(true, input.DebatePolicy.EnableEarlyStop, cfg.Defaults.DebatePolicy.EnableEarlyStop)),
 		PeerContextMode:      firstNonEmpty(input.DebatePolicy.PeerContextMode, cfg.Defaults.DebatePolicy.PeerContextMode, "summary+active_claims"),
 		SemanticDedup: consensus.DebateSemanticDedupPolicy{
-			Enabled:             cfg.Defaults.DebatePolicy.SemanticDedup.Enabled || input.DebatePolicy.SemanticDedup.Enabled,
+			Enabled:             optionalValue(false, input.DebatePolicy.SemanticDedup.Enabled, cfg.Defaults.DebatePolicy.SemanticDedup.Enabled),
 			SimilarityThreshold: pickFloat(input.DebatePolicy.SemanticDedup.SimilarityThreshold, cfg.Defaults.DebatePolicy.SemanticDedup.SimilarityThreshold, 0.85),
 			Cadence:             consensus.DebateSemanticDedupCadence(firstNonEmpty(input.DebatePolicy.SemanticDedup.Cadence, cfg.Defaults.DebatePolicy.SemanticDedup.Cadence)),
 		},
 		Synthesis: consensus.DebateSynthesisPolicy{
-			Enabled:         cfg.Defaults.DebatePolicy.Synthesis.Enabled || input.DebatePolicy.Synthesis.Enabled,
-			AmendmentRounds: pickInt(input.DebatePolicy.Synthesis.AmendmentRounds, cfg.Defaults.DebatePolicy.Synthesis.AmendmentRounds),
+			Enabled:         optionalValue(false, input.DebatePolicy.Synthesis.Enabled, cfg.Defaults.DebatePolicy.Synthesis.Enabled),
+			AmendmentRounds: optionalValue(0, input.DebatePolicy.Synthesis.AmendmentRounds, cfg.Defaults.DebatePolicy.Synthesis.AmendmentRounds),
 		},
 	}
-	if !debatePolicy.EnableEarlyStop {
-		debatePolicy.EnableEarlyStop = true
-	}
 	delphiPolicy := consensus.DelphiPolicy{
-		MinRounds:               pickInt(overrides.MinRounds, input.DelphiPolicy.MinRounds, cfg.Defaults.DelphiPolicy.MinRounds, consensus.DefaultDelphiMinRounds),
-		MaxRounds:               pickInt(overrides.MaxRounds, input.DelphiPolicy.MaxRounds, cfg.Defaults.DelphiPolicy.MaxRounds, consensus.DefaultDelphiMaxRounds),
-		ConvergenceThreshold:    pickFloat(overrides.ConvergenceThreshold, input.DelphiPolicy.ConvergenceThreshold, cfg.Defaults.DelphiPolicy.ConvergenceThreshold, consensus.DefaultConvergence),
-		RatingScaleMin:          pickInt(input.DelphiPolicy.RatingScaleMin, cfg.Defaults.DelphiPolicy.RatingScaleMin, consensus.DefaultRatingScaleMin),
-		RatingScaleMax:          pickInt(input.DelphiPolicy.RatingScaleMax, cfg.Defaults.DelphiPolicy.RatingScaleMax, consensus.DefaultRatingScaleMax),
-		Anonymous:               cfg.Defaults.DelphiPolicy.Anonymous || input.DelphiPolicy.Anonymous,
-		FacilitatorSummaryStyle: firstNonEmpty(input.DelphiPolicy.FacilitatorSummaryStyle, cfg.Defaults.DelphiPolicy.FacilitatorSummaryStyle, "anonymous-aggregate"),
-	}
-	if !delphiPolicy.Anonymous {
-		delphiPolicy.Anonymous = true
+		MinRounds:                pickInt(overrides.MinRounds, input.DelphiPolicy.MinRounds, cfg.Defaults.DelphiPolicy.MinRounds, consensus.DefaultDelphiMinRounds),
+		MaxRounds:                pickInt(overrides.MaxRounds, input.DelphiPolicy.MaxRounds, cfg.Defaults.DelphiPolicy.MaxRounds, consensus.DefaultDelphiMaxRounds),
+		ConvergenceThreshold:     pickFloat(overrides.ConvergenceThreshold, input.DelphiPolicy.ConvergenceThreshold, cfg.Defaults.DelphiPolicy.ConvergenceThreshold, consensus.DefaultConvergence),
+		RatingScaleMin:           pickInt(input.DelphiPolicy.RatingScaleMin, cfg.Defaults.DelphiPolicy.RatingScaleMin, consensus.DefaultRatingScaleMin),
+		RatingScaleMax:           pickInt(input.DelphiPolicy.RatingScaleMax, cfg.Defaults.DelphiPolicy.RatingScaleMax, consensus.DefaultRatingScaleMax),
+		ResponseQuorum:           pickFloat(input.DelphiPolicy.ResponseQuorum, cfg.Defaults.DelphiPolicy.ResponseQuorum, consensus.DefaultDelphiResponseQuorum),
+		MinResponsesPerStatement: pickInt(input.DelphiPolicy.MinResponsesPerStatement, cfg.Defaults.DelphiPolicy.MinResponsesPerStatement, consensus.DefaultDelphiMinResponses),
+		StabilityRounds:          pickInt(input.DelphiPolicy.StabilityRounds, cfg.Defaults.DelphiPolicy.StabilityRounds, consensus.DefaultDelphiStabilityRounds),
+		Anonymous:                boolPtr(optionalValue(true, input.DelphiPolicy.Anonymous, cfg.Defaults.DelphiPolicy.Anonymous)),
+		FacilitatorSummaryStyle:  firstNonEmpty(input.DelphiPolicy.FacilitatorSummaryStyle, cfg.Defaults.DelphiPolicy.FacilitatorSummaryStyle, "anonymous-aggregate"),
 	}
 
-	artifactPaths := ResolveRunArtifacts(loaded, requestID)
+	artifactPaths, err := ResolveRunArtifactsChecked(loaded, requestID)
+	if err != nil {
+		return ResolvedRunPlan{}, err
+	}
 
 	startRequest := consensus.StartRequest{
 		Mode:               mode,
@@ -163,7 +160,7 @@ func ResolveRunPlan(loaded LoadedConfig, input RunInput, overrides RunOverrides,
 		startRequest.ActionPolicy = &consensus.ActionPolicy{
 			Prompt:        actionPrompt,
 			ActorID:       roles.Actor,
-			IncludeResult: true,
+			IncludeResult: boolPtr(true),
 		}
 	}
 	normalized, err := consensus.NormalizeStartRequest(startRequest)
@@ -245,7 +242,10 @@ func ResolveRunPlanForRequest(loaded LoadedConfig, request consensus.StartReques
 	if err := validateAssignedAgents(loaded.Config, normalized.Roles, normalized.Mode); err != nil {
 		return ResolvedRunPlan{}, err
 	}
-	artifactPaths := ResolveRunArtifacts(loaded, normalized.RequestID)
+	artifactPaths, err := ResolveRunArtifactsChecked(loaded, normalized.RequestID)
+	if err != nil {
+		return ResolvedRunPlan{}, err
+	}
 	return ResolvedRunPlan{
 		RequestID:       normalized.RequestID,
 		Task:            normalized.TaskSpec.Goal,
@@ -265,7 +265,18 @@ func ResolveRunPlanForRequest(loaded LoadedConfig, request consensus.StartReques
 	}, nil
 }
 
+// ResolveRunArtifacts preserves the original convenience API. Invalid request
+// IDs return an empty path set; execution paths use ResolveRunArtifactsChecked
+// so they can return the validation error to the caller.
 func ResolveRunArtifacts(loaded LoadedConfig, requestID string) RunArtifactPaths {
+	paths, _ := ResolveRunArtifactsChecked(loaded, requestID)
+	return paths
+}
+
+func ResolveRunArtifactsChecked(loaded LoadedConfig, requestID string) (RunArtifactPaths, error) {
+	if err := consensus.ValidateRequestID(requestID); err != nil {
+		return RunArtifactPaths{}, err
+	}
 	basePath := mustGetwd()
 	baseDir := loaded.Config.Output.Directory
 	if strings.TrimSpace(baseDir) == "" {
@@ -282,7 +293,7 @@ func ResolveRunArtifacts(loaded LoadedConfig, requestID string) RunArtifactPaths
 		SummaryPath:  resolveOutputPath(fallbackPath(loaded.Config.Output.SummaryPath, filepath.Join(baseDir, "summary.md")), basePath, requestID),
 		ErrorPath:    resolveOutputPath(fallbackPath(loaded.Config.Output.ErrorPath, filepath.Join(baseDir, "error.json")), basePath, requestID),
 		ArtifactsDir: artifactsDir,
-	}
+	}, nil
 }
 
 func ResolveResultTemplate(loaded LoadedConfig) string {

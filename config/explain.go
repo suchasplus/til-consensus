@@ -78,6 +78,7 @@ func RenderJSON(cfg Config) ([]byte, error) {
 func BuildExplainReport(loaded LoadedConfig, opts ExplainOptions) ExplainReport {
 	providerFilter := strings.TrimSpace(opts.ProviderFilter)
 	agentFilter := strings.TrimSpace(opts.AgentFilter)
+	templatePaths := ResolveRunArtifacts(loaded, "{requestId}")
 	report := ExplainReport{
 		ConfigPath:   loaded.Path,
 		ConfigDir:    loaded.ConfigDir,
@@ -86,7 +87,7 @@ func BuildExplainReport(loaded LoadedConfig, opts ExplainOptions) ExplainReport 
 		Mode:         loaded.Config.Defaults.Mode,
 		Roles:        loaded.Config.Roles,
 		Output: ExplainOutput{
-			RunDir:          ResolveRunArtifacts(loaded, "{requestId}").RunDir,
+			RunDir:          templatePaths.RunDir,
 			ResultTemplate:  ResolveResultTemplate(loaded),
 			SessionStoreDir: ResolveSessionStoreDir(loaded),
 		},

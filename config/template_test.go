@@ -52,6 +52,9 @@ func TestRenderTemplatePresetsAreValidYAML(t *testing.T) {
 			needles: []string{
 				"mode: delphi",
 				"convergence_threshold",
+				"response_quorum",
+				"min_responses_per_statement",
+				"stability_rounds",
 				"participant-c",
 			},
 		},

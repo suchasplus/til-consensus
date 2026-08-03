@@ -125,6 +125,23 @@ func boolPtr(value bool) *bool {
 	return &value
 }
 
+func float64Ptr(value float64) *float64 {
+	return &value
+}
+
+func intPtr(value int) *int {
+	return &value
+}
+
+func optionalValue[T any](fallback T, values ...*T) T {
+	for _, value := range values {
+		if value != nil {
+			return *value
+		}
+	}
+	return fallback
+}
+
 func normalizeRoles(roles RolesConfig) RolesConfig {
 	legacyOnly := roles.Adjudication.IsZero() && roles.FreeDebate.IsZero() && roles.Delphi.IsZero()
 	if legacyOnly && roles.Adjudication.IsZero() {

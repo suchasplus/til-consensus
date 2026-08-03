@@ -51,6 +51,9 @@ defaults:
     convergence_threshold: 0.8
     rating_scale_min: 1
     rating_scale_max: 5
+    response_quorum: 0.6
+    min_responses_per_statement: 2
+    stability_rounds: 2
     anonymous: true
     facilitator_summary_style: anonymous-aggregate
 

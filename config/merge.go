@@ -269,8 +269,8 @@ func mergeVerificationPolicy(base VerificationPolicyConfig, overlay Verification
 	if len(overlay.RequiredChecks) > 0 {
 		out.RequiredChecks = cloneVerificationChecks(overlay.RequiredChecks)
 	}
-	if overlay.AllowSemanticVerifier {
-		out.AllowSemanticVerifier = true
+	if overlay.AllowSemanticVerifier != nil {
+		out.AllowSemanticVerifier = boolPtr(*overlay.AllowSemanticVerifier)
 	}
 	if overlay.MaxParallelChecks != 0 {
 		out.MaxParallelChecks = overlay.MaxParallelChecks
@@ -280,11 +280,11 @@ func mergeVerificationPolicy(base VerificationPolicyConfig, overlay Verification
 
 func mergeArbiterPolicy(base ArbiterPolicyConfig, overlay ArbiterPolicyConfig) ArbiterPolicyConfig {
 	out := base
-	if overlay.AllowUndetermined {
-		out.AllowUndetermined = true
+	if overlay.AllowUndetermined != nil {
+		out.AllowUndetermined = boolPtr(*overlay.AllowUndetermined)
 	}
-	if overlay.BlindReview {
-		out.BlindReview = true
+	if overlay.BlindReview != nil {
+		out.BlindReview = boolPtr(*overlay.BlindReview)
 	}
 	return out
 }
@@ -345,8 +345,8 @@ func mergeDebatePolicy(base DebatePolicyConfig, overlay DebatePolicyConfig) Deba
 	if overlay.VoteAggregation != "" {
 		out.VoteAggregation = overlay.VoteAggregation
 	}
-	if overlay.VoteQuorum != 0 {
-		out.VoteQuorum = overlay.VoteQuorum
+	if overlay.VoteQuorum != nil {
+		out.VoteQuorum = float64Ptr(*overlay.VoteQuorum)
 	}
 	if overlay.MaxNewClaimsPerRound != 0 {
 		out.MaxNewClaimsPerRound = overlay.MaxNewClaimsPerRound
@@ -354,12 +354,12 @@ func mergeDebatePolicy(base DebatePolicyConfig, overlay DebatePolicyConfig) Deba
 	if overlay.MaxActiveClaims != 0 {
 		out.MaxActiveClaims = overlay.MaxActiveClaims
 	}
-	if overlay.EnableEarlyStop {
-		out.EnableEarlyStop = true
+	if overlay.EnableEarlyStop != nil {
+		out.EnableEarlyStop = boolPtr(*overlay.EnableEarlyStop)
 	}
 	out.PeerContextMode = pickString(out.PeerContextMode, overlay.PeerContextMode)
-	if overlay.SemanticDedup.Enabled {
-		out.SemanticDedup.Enabled = true
+	if overlay.SemanticDedup.Enabled != nil {
+		out.SemanticDedup.Enabled = boolPtr(*overlay.SemanticDedup.Enabled)
 	}
 	if overlay.SemanticDedup.SimilarityThreshold != 0 {
 		out.SemanticDedup.SimilarityThreshold = overlay.SemanticDedup.SimilarityThreshold
@@ -367,11 +367,11 @@ func mergeDebatePolicy(base DebatePolicyConfig, overlay DebatePolicyConfig) Deba
 	if overlay.SemanticDedup.Cadence != "" {
 		out.SemanticDedup.Cadence = overlay.SemanticDedup.Cadence
 	}
-	if overlay.Synthesis.Enabled {
-		out.Synthesis.Enabled = true
+	if overlay.Synthesis.Enabled != nil {
+		out.Synthesis.Enabled = boolPtr(*overlay.Synthesis.Enabled)
 	}
-	if overlay.Synthesis.AmendmentRounds != 0 {
-		out.Synthesis.AmendmentRounds = overlay.Synthesis.AmendmentRounds
+	if overlay.Synthesis.AmendmentRounds != nil {
+		out.Synthesis.AmendmentRounds = intPtr(*overlay.Synthesis.AmendmentRounds)
 	}
 	return out
 }
@@ -393,8 +393,17 @@ func mergeDelphiPolicy(base DelphiPolicyConfig, overlay DelphiPolicyConfig) Delp
 	if overlay.RatingScaleMax != 0 {
 		out.RatingScaleMax = overlay.RatingScaleMax
 	}
-	if overlay.Anonymous {
-		out.Anonymous = true
+	if overlay.ResponseQuorum != 0 {
+		out.ResponseQuorum = overlay.ResponseQuorum
+	}
+	if overlay.MinResponsesPerStatement != 0 {
+		out.MinResponsesPerStatement = overlay.MinResponsesPerStatement
+	}
+	if overlay.StabilityRounds != 0 {
+		out.StabilityRounds = overlay.StabilityRounds
+	}
+	if overlay.Anonymous != nil {
+		out.Anonymous = boolPtr(*overlay.Anonymous)
 	}
 	out.FacilitatorSummaryStyle = pickString(out.FacilitatorSummaryStyle, overlay.FacilitatorSummaryStyle)
 	return out

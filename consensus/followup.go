@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/suchasplus/til-consensus/internal/securefs"
 )
 
 type FollowUpCaseArtifact struct {
@@ -104,12 +106,12 @@ func (e *Engine) createFollowUpCaseArtifact(request StartRequest, run *workflowR
 		return "", "", nil, fmt.Errorf("marshal follow-up case artifact: %w", err)
 	}
 	followUpDir := filepath.Join(dir, "followups")
-	if err := os.MkdirAll(followUpDir, 0o755); err != nil {
+	if err := securefs.TightenPrivateDir(followUpDir); err != nil {
 		return "", "", nil, fmt.Errorf("create follow-up dir: %w", err)
 	}
 	path := filepath.Join(followUpDir, sanitizeFilename(followUpCaseID)+".json")
 	body = append(body, '\n')
-	if err := os.WriteFile(path, body, 0o644); err != nil {
+	if err := securefs.WriteFile(path, body); err != nil {
 		return "", "", nil, fmt.Errorf("write follow-up case artifact: %w", err)
 	}
 	hash := sha256.Sum256(body)

@@ -70,6 +70,9 @@ type dryRunPolicies struct {
 	DelphiMinRounds        int      `json:"delphiMinRounds,omitempty"`
 	DelphiMaxRounds        int      `json:"delphiMaxRounds,omitempty"`
 	ConvergenceThreshold   float64  `json:"convergenceThreshold,omitempty"`
+	DelphiResponseQuorum   float64  `json:"delphiResponseQuorum,omitempty"`
+	DelphiMinResponses     int      `json:"delphiMinResponsesPerStatement,omitempty"`
+	DelphiStabilityRounds  int      `json:"delphiStabilityRounds,omitempty"`
 }
 
 func writeDryRunPlan(writer io.Writer, loaded config.LoadedConfig, plan config.ResolvedRunPlan, source string, format string) error {
@@ -151,7 +154,7 @@ func buildDryRunPlan(loaded config.LoadedConfig, plan config.ResolvedRunPlan, so
 			GlobalDeadline:         plan.StartRequest.WaitingPolicy.GlobalDeadline.String(),
 			RetryAttempts:          plan.StartRequest.WaitingPolicy.RetryAttempts,
 			VerificationChecks:     checks,
-			AllowSemanticVerifier:  plan.StartRequest.VerificationPolicy.AllowSemanticVerifier,
+			AllowSemanticVerifier:  plan.StartRequest.VerificationPolicy.AllowSemanticVerifier != nil && *plan.StartRequest.VerificationPolicy.AllowSemanticVerifier,
 			DebateMinRounds:        plan.StartRequest.DebatePolicy.MinRounds,
 			DebateMaxRounds:        plan.StartRequest.DebatePolicy.MaxRounds,
 			SupportThreshold:       plan.StartRequest.DebatePolicy.VoteThreshold,
@@ -165,6 +168,9 @@ func buildDryRunPlan(loaded config.LoadedConfig, plan config.ResolvedRunPlan, so
 			DelphiMinRounds:        plan.StartRequest.DelphiPolicy.MinRounds,
 			DelphiMaxRounds:        plan.StartRequest.DelphiPolicy.MaxRounds,
 			ConvergenceThreshold:   plan.StartRequest.DelphiPolicy.ConvergenceThreshold,
+			DelphiResponseQuorum:   plan.StartRequest.DelphiPolicy.ResponseQuorum,
+			DelphiMinResponses:     plan.StartRequest.DelphiPolicy.MinResponsesPerStatement,
+			DelphiStabilityRounds:  plan.StartRequest.DelphiPolicy.StabilityRounds,
 		},
 	}
 }

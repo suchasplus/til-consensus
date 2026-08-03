@@ -128,9 +128,9 @@ claim 还必须自带 `category` 自分类：`domain`（针对用户任务的实
 
 `synthesis` 类 claim 走独立的**合成阶段**（`debate_policy.synthesis`，需配置 `roles.free_debate.synthesizer`）：辩论轮结束后，synthesizer 作为 rapporteur 把原子 claim 和参与者的综合稿改写合成为**唯一一条 canonical 综合推荐**（被消费的综合稿 `mergedInto` 它、保留 provenance），随后进行 `amendment_rounds` 轮修正评审——每个参与者对草案给出 agree / revise（携带完整替换文本）/ disagree，synthesizer 整合修正意见——最终草案与原子 claim 一起进入 final vote。投票通过即"批准"（summary 的 `### Synthesis` 组显示 ratified / not ratified）。这解决了"每个参与者末轮各写一份综合推荐、丢弃式去重无法合并超集"的结构性冗余：改写式合并只发生在这个被授权的角色身上，而它的产物要经过全员修正与投票的双重审计。synthesizer 失败时自动降级回旧行为（参与者综合稿直接进投票）并记入 degradations。
 
-final vote 不是纯二元多数票。每个 participant 会为每个 active claim 输出 `vote` 粗标签和连续 `confidence` 支持分数，且两者必须一致（accept 要求 ≥0.5，reject 要求 ≤0.5，违反会被校验拒绝并进入 repair）。系统把各票支持分数按 `vote_aggregation`（默认 `median`）聚合成 `supportScore`，用 `supportScore >= support_threshold` 判断 claim 是否 accepted；`confidenceVariance` / `confidenceStdDev` 仍然输出，帮助区分“高分低方差的强共识”和“中等分数高方差的真实争议”。summary 里 `support=` 显示的就是判定用的 `supportScore`。
+final vote 不是纯二元多数票。每个 participant 必须为每个 active claim **恰好提交一票**；返回的 claim ID 集合必须与 ballot 集合等价，空 ballot、未知 ID、重复票或漏票都会使该参与者的整张 ballot 无效，且不会计入 `voters`。`vote` 粗标签和连续 `confidence` 支持分数必须一致（accept 要求 ≥0.5，reject 要求 ≤0.5，违反会被校验拒绝并进入 repair）。系统把 accept/reject 的支持分数按 `vote_aggregation`（默认 `median`）聚合成 `supportScore`；abstain 只保留在原始票和诊断字段中，不参与 supportScore、均值或方差。接受判定是 `supportScore >= support_threshold`。
 
-投票是有法定人数的：成功返回 final vote 的参与者比例低于 `vote_quorum` 时，outcome 会被降级为 `quorum_not_met` 而不是伪装成 consensus / no_consensus，同时 result 的 `degradations` 和 summary 的 `## Degradations` 段会记录缺席者。`vote_quorum: 0`（默认）关闭该检查。`freeDebate` section 的 `voters` / `absentVoters` 字段无论是否启用 quorum 都会填充，summary 里对应 `- voters: N/M (absent: ...)` 行。
+投票是有法定人数的：`vote_quorum` 会对每条 active claim 分别计算唯一投票者数；任一 claim 未达到阈值时，该 claim 不会保持 accepted，整体 outcome 降级为 `quorum_not_met`。result 的 `degradations` 和 `debate_vote_quorum` ledger 会记录各缺额 claim 的 `voteCount/requiredVotes`。`vote_quorum: 0`（默认）关闭检查；`voters` 只包含提交了完整有效 ballot 的参与者。
 
 ## `delphi`
 
@@ -167,6 +167,9 @@ defaults:
     convergence_threshold: 0.8
     rating_scale_min: 1
     rating_scale_max: 5
+    response_quorum: 0.6
+    min_responses_per_statement: 2
+    stability_rounds: 2
     anonymous: true
 
 roles:
@@ -175,6 +178,10 @@ roles:
     facilitator: facilitator-a
     reporter: reporter-a
 ```
+
+每个 questionnaire/revision task 都会显式携带 `ratingQuestion`、`ratingScaleMin` 和 `ratingScaleMax`。参与者必须为每条响应提交 `[ratingScaleMin, ratingScaleMax]` 内的数值评分；缺失、越界、重复或空响应整份不计入本轮统计。
+
+单轮低离散度不等于收敛。每轮首先要求有效响应者达到 `ceil(response_quorum × participants)`，且每个 active statement 的独立响应数达到 `min_responses_per_statement`；在此基础上，最高候选还必须连续 `stability_rounds` 轮达到 `convergence_threshold`，才会标记为 `converged`。默认连续稳定轮数为 2，因此 `max_rounds` 不能小于 2。
 
 ## 如何串起来
 

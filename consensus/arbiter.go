@@ -114,7 +114,7 @@ func (a *DefaultArbiter) ruleBasedDecision(input ArbiterInput) ArbiterReport {
 	decisions := make([]ArbiterDecision, 0, len(input.Claims))
 	records := make([]AdjudicationRecord, 0, len(input.Claims))
 	for _, claim := range input.Claims {
-		decision, record := adjudicateClaim(manifest, claim, challengeMap[claim.ClaimID], findingMap[claim.ClaimID], evidenceMap[claim.ClaimID], input.Request.ArbiterPolicy.AllowUndetermined)
+		decision, record := adjudicateClaim(manifest, claim, challengeMap[claim.ClaimID], findingMap[claim.ClaimID], evidenceMap[claim.ClaimID], boolOrDefault(input.Request.ArbiterPolicy.AllowUndetermined, true))
 		decisions = append(decisions, decision)
 		records = append(records, record)
 	}

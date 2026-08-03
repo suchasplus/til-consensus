@@ -279,7 +279,7 @@ func TestVerifierRunIncludesUnsupportedAndSemanticChecks(t *testing.T) {
 				SemanticVerifier: "verifier-a",
 			},
 			VerificationPolicy: VerificationPolicy{
-				AllowSemanticVerifier: true,
+				AllowSemanticVerifier: ptr(true),
 				RequiredChecks: []VerificationCheck{
 					{Name: "unknown", Kind: "unknown"},
 				},

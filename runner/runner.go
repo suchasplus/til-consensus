@@ -158,7 +158,7 @@ func (e *Executor) Act(ctx context.Context, input ActionInput) (ActionResult, er
 			Role:      "actor",
 		},
 		Prompt: input.Prompt,
-		Input:  input.Result,
+		Input:  &input.Result,
 	}
 	receipt, awaited, attempts, err := consensus.ExecuteTaskWithRetry(ctx, delegate, task, timeout, retryAttempts, consensus.TaskRetryHooks{})
 	if err != nil {

@@ -92,6 +92,11 @@ func (e *Engine) runAdjudicationFromCheckpoint(
 	action *ActionOutput,
 ) (*RunResult, error) {
 	if len(run.claimGraph) == 0 {
+		if run.state.Current() != SessionPhaseReport {
+			if err := e.advancePhase(ctx, request, run.sessionID, run.state, SessionPhaseReport, run.claimGraph, run.challengeTickets, run.ledgerCursor); err != nil {
+				return nil, err
+			}
+		}
 		result := e.buildAdjudicationResult(request, run.sessionID, run.manifest, run.claimGraph, run.challengeTickets, run.verificationResults, run.revisionRecords, nil, ArbiterReport{
 			TaskVerdict: TaskVerdictFailed,
 			Summary:     "未产生任何可裁决 claim",
@@ -99,11 +104,16 @@ func (e *Engine) runAdjudicationFromCheckpoint(
 			Summary:             "未产生任何可裁决 claim",
 			UnresolvedQuestions: append([]string(nil), run.manifest.UnresolvedQuestions...),
 		}, nil, TerminalStateInsufficientEvidence, run.observations, run.metrics, run.startedAt, nil)
-		result.Degradations = run.degradations
-		if err := e.finishSession(ctx, run.sessionID, run.state, result, run.claimGraph, run.challengeTickets, run.ledgerCursor); err != nil {
+		if _, err := e.appendEvidence(ctx, request, run.sessionID, &run.ledgerEntries, &run.ledgerCursor, EvidenceRecord{
+			Kind:         EvidenceKindReportGenerated,
+			Source:       EvidenceSourceReporter,
+			ProducerID:   request.Roles.Reporter,
+			ProducerRole: "reporter",
+			Summary:      result.Report.Summary,
+		}); err != nil {
 			return nil, err
 		}
-		return result, nil
+		return e.finalizeWorkflow(ctx, request, run, result)
 	}
 	return e.afterProposalCheckpoint(ctx, request, run, activeClaimIDs, revisionRound, verifyRounds, fallbacksUsed, checkpoint, arbiterReport, report, action)
 }
@@ -352,59 +362,12 @@ func (e *Engine) resumeReportPhase(ctx context.Context, request StartRequest, ru
 
 func (e *Engine) resumeActionPhase(ctx context.Context, request StartRequest, run *workflowRun, arbiterReport ArbiterReport, report AdjudicationReport, action *ActionOutput) (*RunResult, error) {
 	result := e.buildAdjudicationResult(request, run.sessionID, run.manifest, run.claimGraph, run.challengeTickets, run.verificationResults, run.revisionRecords, run.adjudicationRecords, arbiterReport, report, action, DetermineTerminalState(run.claimGraph, run.challengeTickets, run.manifest, action), run.observations, run.metrics, run.startedAt, nil)
-	result.Degradations = run.degradations
-	if run.state.Current() != SessionPhaseAction {
-		if err := e.advancePhase(ctx, request, run.sessionID, run.state, SessionPhaseAction, run.claimGraph, run.challengeTickets, run.ledgerCursor); err != nil {
-			return nil, err
-		}
-	}
-	if action == nil && request.ActionPolicy != nil {
-		action = e.gatedAction(ctx, request, run, result)
-		result.Action = action
-		result.TerminalState = DetermineTerminalState(run.claimGraph, run.challengeTickets, run.manifest, action)
-		if action != nil {
-			if _, err := e.appendEvidence(ctx, request, run.sessionID, &run.ledgerEntries, &run.ledgerCursor, EvidenceRecord{
-				Kind:         EvidenceKindActionGenerated,
-				Source:       EvidenceSourceActor,
-				ProducerID:   action.ActorID,
-				ProducerRole: "actor",
-				Summary:      action.Summary,
-				Metadata: map[string]any{
-					"status":   action.Status,
-					"executed": action.Executed,
-				},
-			}); err != nil {
-				return nil, err
-			}
-		}
-	}
-	if err := e.saveAdjudicationCheckpoint(ctx, run, SessionPhaseAction, claimIDs(run.claimGraph), 0, 0, 0, true, &arbiterReport, &report, action); err != nil {
-		return nil, err
-	}
-	return e.resumeObservePhase(ctx, request, run, arbiterReport, report, action)
+	return e.finalizeWorkflow(ctx, request, run, result)
 }
 
 func (e *Engine) resumeObservePhase(ctx context.Context, request StartRequest, run *workflowRun, arbiterReport ArbiterReport, report AdjudicationReport, action *ActionOutput) (*RunResult, error) {
 	result := e.buildAdjudicationResult(request, run.sessionID, run.manifest, run.claimGraph, run.challengeTickets, run.verificationResults, run.revisionRecords, run.adjudicationRecords, arbiterReport, report, action, DetermineTerminalState(run.claimGraph, run.challengeTickets, run.manifest, action), run.observations, run.metrics, run.startedAt, nil)
-	result.Degradations = run.degradations
-	if run.state.Current() != SessionPhaseObserve {
-		if err := e.advancePhase(ctx, request, run.sessionID, run.state, SessionPhaseObserve, run.claimGraph, run.challengeTickets, run.ledgerCursor); err != nil {
-			return nil, err
-		}
-	}
-	if len(run.observations) == 0 {
-		if err := e.runObservePhase(ctx, request, run, result); err != nil {
-			return nil, err
-		}
-	}
-	result.Observations = append([]ObservationRecord(nil), run.observations...)
-	if err := e.saveAdjudicationCheckpoint(ctx, run, SessionPhaseObserve, claimIDs(run.claimGraph), 0, 0, 0, true, &arbiterReport, &report, action); err != nil {
-		return nil, err
-	}
-	if err := e.finishSession(ctx, run.sessionID, run.state, result, run.claimGraph, run.challengeTickets, run.ledgerCursor); err != nil {
-		return nil, err
-	}
-	return result, nil
+	return e.finalizeWorkflow(ctx, request, run, result)
 }
 
 func derefArbiter(in *ArbiterReport) ArbiterReport {

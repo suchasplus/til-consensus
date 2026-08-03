@@ -208,6 +208,9 @@ func (e *Engine) startAdjudication(ctx context.Context, request StartRequest) (_
 		return nil, err
 	}
 	if len(run.claimGraph) == 0 {
+		if err := e.advancePhase(ctx, request, run.sessionID, run.state, SessionPhaseReport, run.claimGraph, run.challengeTickets, run.ledgerCursor); err != nil {
+			return nil, err
+		}
 		result := e.buildAdjudicationResult(request, run.sessionID, run.manifest, run.claimGraph, run.challengeTickets, run.verificationResults, run.revisionRecords, nil, ArbiterReport{
 			TaskVerdict: TaskVerdictFailed,
 			Summary:     "未产生任何可裁决 claim",
@@ -215,11 +218,16 @@ func (e *Engine) startAdjudication(ctx context.Context, request StartRequest) (_
 			Summary:             "未产生任何可裁决 claim",
 			UnresolvedQuestions: append([]string(nil), run.manifest.UnresolvedQuestions...),
 		}, nil, TerminalStateInsufficientEvidence, run.observations, run.metrics, run.startedAt, nil)
-		result.Degradations = run.degradations
-		if err := e.finishSession(ctx, run.sessionID, run.state, result, run.claimGraph, run.challengeTickets, run.ledgerCursor); err != nil {
+		if _, err := e.appendEvidence(ctx, request, run.sessionID, &run.ledgerEntries, &run.ledgerCursor, EvidenceRecord{
+			Kind:         EvidenceKindReportGenerated,
+			Source:       EvidenceSourceReporter,
+			ProducerID:   request.Roles.Reporter,
+			ProducerRole: "reporter",
+			Summary:      result.Report.Summary,
+		}); err != nil {
 			return nil, err
 		}
-		return result, nil
+		return e.finalizeWorkflow(ctx, request, run, result)
 	}
 	activeClaimIDs := claimIDs(run.claimGraph)
 	var (
@@ -441,50 +449,7 @@ adjudicationCycle:
 	}
 
 	result := e.buildAdjudicationResult(request, run.sessionID, run.manifest, run.claimGraph, run.challengeTickets, run.verificationResults, run.revisionRecords, run.adjudicationRecords, arbiterReport, report, nil, terminalState, nil, run.metrics, run.startedAt, nil)
-	result.Degradations = run.degradations
-	if request.ActionPolicy != nil {
-		if err := e.advancePhase(ctx, request, run.sessionID, run.state, SessionPhaseAction, run.claimGraph, run.challengeTickets, run.ledgerCursor); err != nil {
-			return nil, err
-		}
-		actionOutput := e.gatedAction(ctx, request, run, result)
-		result.Action = actionOutput
-		result.TerminalState = DetermineTerminalState(run.claimGraph, run.challengeTickets, run.manifest, actionOutput)
-		if actionOutput != nil {
-			if _, err := e.appendEvidence(ctx, request, run.sessionID, &run.ledgerEntries, &run.ledgerCursor, EvidenceRecord{
-				Kind:         EvidenceKindActionGenerated,
-				Source:       EvidenceSourceActor,
-				ProducerID:   actionOutput.ActorID,
-				ProducerRole: "actor",
-				Summary:      actionOutput.Summary,
-				Metadata: map[string]any{
-					"status":   actionOutput.Status,
-					"executed": actionOutput.Executed,
-				},
-			}); err != nil {
-				return nil, err
-			}
-		}
-		if err := e.saveAdjudicationCheckpoint(ctx, run, SessionPhaseAction, claimIDs(run.claimGraph), 0, 0, fallbacksUsed, true, &arbiterReport, &report, actionOutput); err != nil {
-			return nil, err
-		}
-	}
-	if err := e.advancePhase(ctx, request, run.sessionID, run.state, SessionPhaseObserve, run.claimGraph, run.challengeTickets, run.ledgerCursor); err != nil {
-		return nil, err
-	}
-	if err := e.runObservePhase(ctx, request, run, result); err != nil {
-		return nil, err
-	}
-	result.Observations = append([]ObservationRecord(nil), run.observations...)
-	if err := e.saveAdjudicationCheckpoint(ctx, run, SessionPhaseObserve, claimIDs(run.claimGraph), 0, 0, fallbacksUsed, true, &arbiterReport, &report, result.Action); err != nil {
-		return nil, err
-	}
-	if result.TerminalState == "" {
-		result.TerminalState = terminalState
-	}
-	if err := e.finishSession(ctx, run.sessionID, run.state, result, run.claimGraph, run.challengeTickets, run.ledgerCursor); err != nil {
-		return nil, err
-	}
-	return result, nil
+	return e.finalizeWorkflow(ctx, request, run, result)
 }
 
 func (e *Engine) runProposalPhase(ctx context.Context, request StartRequest, run *workflowRun) error {
@@ -1166,6 +1131,115 @@ func (e *Engine) gatedAction(ctx context.Context, request StartRequest, run *wor
 	return actionOutput
 }
 
+func determineWorkflowTerminalState(request StartRequest, run *workflowRun, result *RunResult) WorkflowTerminalState {
+	if result.Action != nil && result.Action.Status == string(TerminalStateActionBlockedByRisk) {
+		return TerminalStateActionBlockedByRisk
+	}
+	switch request.Mode {
+	case WorkflowModeAdjudication:
+		return DetermineTerminalState(run.claimGraph, run.challengeTickets, run.manifest, result.Action)
+	case WorkflowModeFreeDebate:
+		if result.FreeDebate == nil || len(result.FreeDebate.Claims) == 0 || result.FreeDebate.BallotSize == 0 {
+			return TerminalStateInsufficientEvidence
+		}
+		switch result.FreeDebate.Outcome {
+		case FreeDebateOutcomeConsensus:
+			return TerminalStateCompleted
+		case FreeDebateOutcomeQuorumNotMet:
+			return TerminalStateInsufficientEvidence
+		default:
+			return TerminalStateUnresolvedConflict
+		}
+	case WorkflowModeDelphi:
+		if result.Delphi == nil || len(result.Delphi.Statements) == 0 || strings.TrimSpace(result.Delphi.Recommendation) == "" {
+			return TerminalStateInsufficientEvidence
+		}
+		if result.Delphi.Converged {
+			return TerminalStateCompleted
+		}
+		if !result.Delphi.ResponseQuorumMet || !result.Delphi.MinResponsesMet {
+			return TerminalStateInsufficientEvidence
+		}
+		return TerminalStateUnresolvedConflict
+	default:
+		return TerminalStateRequiresHumanReview
+	}
+}
+
+func syncResultTerminalState(result *RunResult, terminalState WorkflowTerminalState) {
+	result.TerminalState = terminalState
+	if result.Adjudication != nil {
+		result.Adjudication.TerminalState = terminalState
+	}
+}
+
+func (e *Engine) appendActionEvidence(ctx context.Context, request StartRequest, run *workflowRun, action *ActionOutput) error {
+	if action == nil {
+		return nil
+	}
+	_, err := e.appendEvidence(ctx, request, run.sessionID, &run.ledgerEntries, &run.ledgerCursor, EvidenceRecord{
+		Kind:         EvidenceKindActionGenerated,
+		Source:       EvidenceSourceActor,
+		ProducerID:   action.ActorID,
+		ProducerRole: "actor",
+		Summary:      firstNonEmpty(action.Summary, action.Error),
+		Metadata: map[string]any{
+			"status":   action.Status,
+			"executed": action.Executed,
+		},
+	})
+	return err
+}
+
+func (e *Engine) finalizeWorkflow(ctx context.Context, request StartRequest, run *workflowRun, result *RunResult) (*RunResult, error) {
+	result.CaseManifest = ptr(run.manifest)
+	result.Degradations = append([]Degradation(nil), run.degradations...)
+	syncResultTerminalState(result, determineWorkflowTerminalState(request, run, result))
+
+	needsActionPhase := request.ActionPolicy != nil || result.Action != nil
+	if needsActionPhase && run.state.Current() != SessionPhaseAction && run.state.Current() != SessionPhaseObserve {
+		if err := e.advancePhase(ctx, request, run.sessionID, run.state, SessionPhaseAction, run.claimGraph, run.challengeTickets, run.ledgerCursor); err != nil {
+			return nil, err
+		}
+	}
+	if request.ActionPolicy != nil && result.Action == nil && run.state.Current() != SessionPhaseObserve {
+		result.Action = e.gatedAction(ctx, request, run, result)
+		if err := e.appendActionEvidence(ctx, request, run, result.Action); err != nil {
+			return nil, err
+		}
+	}
+	if result.Action != nil {
+		result.Action.Executed = result.Action.Status == "completed"
+	}
+	syncResultTerminalState(result, determineWorkflowTerminalState(request, run, result))
+	if run.state.Current() == SessionPhaseAction {
+		if err := e.saveWorkflowCheckpoint(ctx, request, run, result, SessionPhaseAction); err != nil {
+			return nil, err
+		}
+	}
+
+	if run.state.Current() != SessionPhaseObserve {
+		if err := e.advancePhase(ctx, request, run.sessionID, run.state, SessionPhaseObserve, run.claimGraph, run.challengeTickets, run.ledgerCursor); err != nil {
+			return nil, err
+		}
+	}
+	if len(run.observations) == 0 {
+		if err := e.runObservePhase(ctx, request, run, result); err != nil {
+			return nil, err
+		}
+	}
+	result.Observations = append([]ObservationRecord(nil), run.observations...)
+	result.Metrics = finalizeMetrics(run.metrics, run.startedAt, e.clock)
+	syncResultTerminalState(result, result.TerminalState)
+	if err := e.saveWorkflowCheckpoint(ctx, request, run, result, SessionPhaseObserve); err != nil {
+		return nil, err
+	}
+	if err := e.finishSession(ctx, run.sessionID, run.state, result, run.claimGraph, run.challengeTickets, run.ledgerCursor); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 func (e *Engine) runObservePhase(ctx context.Context, request StartRequest, run *workflowRun, result *RunResult) error {
 	observation := ObservationRecord{
 		ObservationID: e.ids.NewEntityID("observe"),
@@ -1455,6 +1529,7 @@ func (e *Engine) startFreeDebate(ctx context.Context, request StartRequest) (_ *
 		if err == nil {
 			return
 		}
+		_ = e.patchRunState(context.Background(), run, SessionPatch{})
 		_ = e.failSession(ctx, request, run.sessionID, run.state, nil, nil, &run.ledgerCursor, run.startedAt, err)
 	}()
 
@@ -1536,9 +1611,24 @@ func (e *Engine) startFreeDebate(ctx context.Context, request StartRequest) (_ *
 		initialRound.ParticipantOutputs = append(initialRound.ParticipantOutputs, participant)
 	}
 	rounds = append(rounds, initialRound)
+	if err := e.saveFreeDebateCheckpoint(ctx, run, SessionPhaseInitial, checkpointStepDebateInitialComplete, 0, claims, rounds, votes, nil); err != nil {
+		return nil, err
+	}
 	if len(claims) == 0 {
+		if err := e.advancePhase(ctx, request, run.sessionID, run.state, SessionPhaseReport, nil, nil, run.ledgerCursor); err != nil {
+			return nil, err
+		}
 		section := &FreeDebateResultSection{Outcome: FreeDebateOutcomeNoConsensus, Rounds: rounds}
 		report := buildFreeDebateReport(request, section)
+		if _, err := e.appendEvidence(ctx, request, run.sessionID, &run.ledgerEntries, &run.ledgerCursor, EvidenceRecord{
+			Kind:         EvidenceKindReportGenerated,
+			Source:       EvidenceSourceReporter,
+			ProducerID:   request.Roles.Reporter,
+			ProducerRole: "reporter",
+			Summary:      report.Summary,
+		}); err != nil {
+			return nil, err
+		}
 		result := &RunResult{
 			SchemaVersion: SchemaVersion,
 			Mode:          WorkflowModeFreeDebate,
@@ -1551,10 +1641,10 @@ func (e *Engine) startFreeDebate(ctx context.Context, request StartRequest) (_ *
 			Degradations:  run.degradations,
 			FreeDebate:    section,
 		}
-		if err := e.finishSession(ctx, run.sessionID, run.state, result, nil, nil, run.ledgerCursor); err != nil {
+		if err := e.saveFreeDebateCheckpoint(ctx, run, SessionPhaseReport, checkpointStepReportComplete, 0, claims, rounds, votes, &report); err != nil {
 			return nil, err
 		}
-		return result, nil
+		return e.finalizeWorkflow(ctx, request, run, result)
 	}
 
 	if err := e.advancePhase(ctx, request, run.sessionID, run.state, SessionPhaseDebate, nil, nil, run.ledgerCursor); err != nil {
@@ -1686,9 +1776,24 @@ func (e *Engine) startFreeDebate(ctx context.Context, request StartRequest) (_ *
 			// single failed dedup call only loses one round of consolidation.
 			claims = e.runDebateSemanticDedup(ctx, request, run, claims, round)
 		}
-		if request.DebatePolicy.EnableEarlyStop && round >= request.DebatePolicy.MinRounds && roundNewClaims == 0 && onlyAgree {
+		earlyStop := boolOrDefault(request.DebatePolicy.EnableEarlyStop, true) && round >= request.DebatePolicy.MinRounds && roundNewClaims == 0 && onlyAgree
+		checkpointStep := checkpointStepDebateRoundComplete
+		if earlyStop || round == request.DebatePolicy.MaxRounds {
+			checkpointStep = checkpointStepDebateRoundsComplete
+		}
+		if err := e.saveFreeDebateCheckpoint(ctx, run, SessionPhaseDebate, checkpointStep, round, claims, rounds, votes, nil); err != nil {
+			return nil, err
+		}
+		if earlyStop {
 			break
 		}
+	}
+	lastDebateRound := 0
+	if len(rounds) > 0 {
+		lastDebateRound = rounds[len(rounds)-1].Round
+	}
+	if err := e.saveFreeDebateCheckpoint(ctx, run, SessionPhaseDebate, checkpointStepDebateRoundsComplete, lastDebateRound, claims, rounds, votes, nil); err != nil {
+		return nil, err
 	}
 	if request.DebatePolicy.SemanticDedup.Cadence == DebateSemanticDedupCadenceFinal || len(rounds) <= 1 {
 		// final cadence keeps the single pre-vote pass; per_round already
@@ -1696,6 +1801,9 @@ func (e *Engine) startFreeDebate(ctx context.Context, request StartRequest) (_ *
 		claims = e.runDebateSemanticDedup(ctx, request, run, claims, len(rounds))
 	}
 	claims = e.runDebateSynthesis(ctx, request, run, claims, &rounds)
+	if err := e.saveFreeDebateCheckpoint(ctx, run, SessionPhaseDebate, checkpointStepDebateSynthesisComplete, lastDebateRound, claims, rounds, votes, nil); err != nil {
+		return nil, err
+	}
 
 	if err := e.advancePhase(ctx, request, run.sessionID, run.state, SessionPhaseFinalVote, nil, nil, run.ledgerCursor); err != nil {
 		return nil, err
@@ -1726,6 +1834,17 @@ func (e *Engine) startFreeDebate(ctx context.Context, request StartRequest) (_ *
 		output, ok := result.Awaited.Output.(FinalVoteTaskResult)
 		if !ok {
 			return nil, fmt.Errorf("final vote task returned unexpected result type")
+		}
+		if err := ValidateDebateVotes(activeClaims, output.Output.Votes); err != nil {
+			run.addDegradation(Degradation{
+				Kind:    DegradationParticipantAbsent,
+				Phase:   "final_vote",
+				Round:   len(rounds),
+				AgentID: participantID,
+				Reason:  err.Error(),
+				Impact:  "该参与者提交的 ballot 不完整或无效，整张 ballot 已拒绝且不计入 voters",
+			})
+			continue
 		}
 		voters = appendUnique(voters, participantID)
 		participantVotes := make([]DebateVoteRecord, 0, len(output.Output.Votes))
@@ -1768,9 +1887,20 @@ func (e *Engine) startFreeDebate(ctx context.Context, request StartRequest) (_ *
 		}
 	}
 	if quorum := request.DebatePolicy.VoteQuorum; quorum > 0 && len(request.Roles.Participants) > 0 {
-		required := quorum * float64(len(request.Roles.Participants))
-		if float64(len(voters)) < required {
-			impact := fmt.Sprintf("仅 %d/%d 参与者完成投票，低于 quorum %.2f，outcome 由 %s 降级为 %s", len(voters), len(request.Roles.Participants), quorum, outcome, FreeDebateOutcomeQuorumNotMet)
+		var quorumFailures []debateClaimQuorumFailure
+		resolutions, quorumFailures = enforceDebateClaimQuorum(resolutions, activeClaims, votes, request.Roles.Participants, quorum)
+		if len(quorumFailures) > 0 {
+			details := make([]string, 0, len(quorumFailures))
+			metadata := make([]map[string]any, 0, len(quorumFailures))
+			for _, failure := range quorumFailures {
+				details = append(details, fmt.Sprintf("%s=%d/%d", failure.ClaimID, failure.VoteCount, failure.RequiredVotes))
+				metadata = append(metadata, map[string]any{
+					"claimId":       failure.ClaimID,
+					"voteCount":     failure.VoteCount,
+					"requiredVotes": failure.RequiredVotes,
+				})
+			}
+			impact := fmt.Sprintf("active claims 未分别满足 quorum %.2f（%s），outcome 由 %s 降级为 %s", quorum, strings.Join(details, ", "), outcome, FreeDebateOutcomeQuorumNotMet)
 			outcome = FreeDebateOutcomeQuorumNotMet
 			run.addDegradation(Degradation{
 				Kind:   DegradationQuorumNotMet,
@@ -1788,11 +1918,15 @@ func (e *Engine) startFreeDebate(ctx context.Context, request StartRequest) (_ *
 					"voters":       voters,
 					"absentVoters": absentVoters,
 					"participants": len(request.Roles.Participants),
+					"claimQuorum":  metadata,
 				},
 			}); err != nil {
 				return nil, err
 			}
 		}
+	}
+	if err := e.saveFreeDebateCheckpoint(ctx, run, SessionPhaseFinalVote, checkpointStepDebateVoteComplete, lastDebateRound, claims, rounds, votes, nil); err != nil {
+		return nil, err
 	}
 	section := &FreeDebateResultSection{
 		Outcome:          outcome,
@@ -1803,6 +1937,9 @@ func (e *Engine) startFreeDebate(ctx context.Context, request StartRequest) (_ *
 		Voters:           voters,
 		AbsentVoters:     absentVoters,
 		BallotSize:       len(activeClaims),
+	}
+	if err := e.advancePhase(ctx, request, run.sessionID, run.state, SessionPhaseReport, nil, nil, run.ledgerCursor); err != nil {
+		return nil, err
 	}
 	report := buildFreeDebateReport(request, section)
 	report, reportArtifact, err := e.composeModeReport(ctx, request, run, WorkflowModeFreeDebate, report, TaskVerdictFromDebateOutcome(outcome), map[string]any{
@@ -1834,24 +1971,10 @@ func (e *Engine) startFreeDebate(ctx context.Context, request StartRequest) (_ *
 		Degradations:  run.degradations,
 		FreeDebate:    section,
 	}
-	if request.ActionPolicy != nil {
-		if err := e.advancePhase(ctx, request, run.sessionID, run.state, SessionPhaseAction, nil, nil, run.ledgerCursor); err != nil {
-			return nil, err
-		}
-		actionOutput, actionErr := e.executeAction(ctx, request, *result, run.startedAt)
-		if actionErr != nil {
-			actionOutput = &ActionOutput{
-				ActorID: firstNonEmpty(request.ActionPolicy.ActorID, request.Roles.Actor),
-				Status:  "failed",
-				Error:   actionErr.Error(),
-			}
-		}
-		result.Action = actionOutput
-	}
-	if err := e.finishSession(ctx, run.sessionID, run.state, result, nil, nil, run.ledgerCursor); err != nil {
+	if err := e.saveFreeDebateCheckpoint(ctx, run, SessionPhaseReport, checkpointStepReportComplete, lastDebateRound, claims, rounds, votes, &report); err != nil {
 		return nil, err
 	}
-	return result, nil
+	return e.finalizeWorkflow(ctx, request, run, result)
 }
 
 func (e *Engine) startDelphi(ctx context.Context, request StartRequest) (_ *RunResult, err error) {
@@ -1863,6 +1986,7 @@ func (e *Engine) startDelphi(ctx context.Context, request StartRequest) (_ *RunR
 		if err == nil {
 			return
 		}
+		_ = e.patchRunState(context.Background(), run, SessionPatch{})
 		_ = e.failSession(ctx, request, run.sessionID, run.state, nil, nil, &run.ledgerCursor, run.startedAt, err)
 	}()
 
@@ -1870,6 +1994,11 @@ func (e *Engine) startDelphi(ctx context.Context, request StartRequest) (_ *RunR
 	distributions := map[string][]float64{}
 	rounds := make([]DelphiRoundRecord, 0, request.DelphiPolicy.MaxRounds*2)
 	lastSummary := ""
+	stableRounds := 0
+	lastStableStatementID := ""
+	lastResponseQuorumMet := false
+	lastMinResponsesMet := false
+	ratingQuestion := delphiRatingQuestion(request)
 	for round := 1; round <= request.DelphiPolicy.MaxRounds; round++ {
 		var phase SessionPhase
 		if round == 1 {
@@ -1895,6 +2024,7 @@ func (e *Engine) startDelphi(ctx context.Context, request StartRequest) (_ *RunR
 			return nil, err
 		}
 		responses := make([]DelphiResponseRecord, 0, len(request.Roles.Participants))
+		responders := make([]string, 0, len(request.Roles.Participants))
 		tasks := make([]Task, 0, len(request.Roles.Participants))
 		for _, participantID := range request.Roles.Participants {
 			if round == 1 {
@@ -1908,6 +2038,9 @@ func (e *Engine) startDelphi(ctx context.Context, request StartRequest) (_ *RunR
 					TaskSpec:           request.TaskSpec,
 					Round:              round,
 					Questionnaire:      request.TaskSpec.Goal,
+					RatingQuestion:     ratingQuestion,
+					RatingScaleMin:     request.DelphiPolicy.RatingScaleMin,
+					RatingScaleMax:     request.DelphiPolicy.RatingScaleMax,
 					PreviousStatements: statements,
 					PreviousSummary:    lastSummary,
 				})
@@ -1921,6 +2054,9 @@ func (e *Engine) startDelphi(ctx context.Context, request StartRequest) (_ *RunR
 					},
 					TaskSpec:           request.TaskSpec,
 					Round:              round,
+					RatingQuestion:     ratingQuestion,
+					RatingScaleMin:     request.DelphiPolicy.RatingScaleMin,
+					RatingScaleMax:     request.DelphiPolicy.RatingScaleMax,
 					StatementSummaries: statements,
 					PreviousSummary:    lastSummary,
 				})
@@ -1944,11 +2080,20 @@ func (e *Engine) startDelphi(ctx context.Context, request StartRequest) (_ *RunR
 			default:
 				return nil, fmt.Errorf("delphi task returned unexpected result type")
 			}
+			if validationErr := ValidateDelphiResponses(outputResponses, request.DelphiPolicy.RatingScaleMin, request.DelphiPolicy.RatingScaleMax); validationErr != nil {
+				invalidResult := result
+				invalidResult.Err = fmt.Errorf("validate delphi responses: %w", validationErr)
+				run.addDegradation(participantAbsentDegradation(invalidResult, "delphi_round", round, "该参与者本轮响应违反评分契约，整份响应未计入 quorum 或聚合"))
+				continue
+			}
+			agentID := result.Task.Meta().AgentID
+			responders = append(responders, agentID)
 			for _, draft := range outputResponses {
 				record := DelphiResponseRecord{
+					agentID:     agentID,
 					StatementID: strings.TrimSpace(draft.StatementID),
 					Statement:   strings.TrimSpace(draft.Statement),
-					Rating:      draft.Rating,
+					Rating:      *draft.Rating,
 					Rationale:   draft.Rationale,
 				}
 				responses = append(responses, record)
@@ -1969,7 +2114,61 @@ func (e *Engine) startDelphi(ctx context.Context, request StartRequest) (_ *RunR
 				}
 			}
 		}
+		responders = dedupeStrings(responders)
+		absentResponders := make([]string, 0, len(request.Roles.Participants)-len(responders))
+		for _, participantID := range request.Roles.Participants {
+			if !slices.Contains(responders, participantID) {
+				absentResponders = append(absentResponders, participantID)
+			}
+		}
 		statements, distributions = aggregateDelphiResponses(statements, responses, round, request.DelphiPolicy)
+		requiredResponders := delphiRequiredResponders(len(request.Roles.Participants), request.DelphiPolicy.ResponseQuorum)
+		responseQuorumMet := len(responders) >= requiredResponders
+		minResponsesMet := delphiMinResponsesMet(statements, request.DelphiPolicy.MinResponsesPerStatement)
+		bestConsensus, _ := bestDelphiStatement(statements)
+		bestStatementID := ""
+		if len(statements) > 0 {
+			bestStatementID = statements[0].StatementID
+		}
+		stableThisRound := responseQuorumMet && minResponsesMet && bestConsensus >= request.DelphiPolicy.ConvergenceThreshold
+		if !stableThisRound {
+			stableRounds = 0
+			lastStableStatementID = ""
+		} else if bestStatementID == lastStableStatementID {
+			stableRounds++
+		} else {
+			stableRounds = 1
+			lastStableStatementID = bestStatementID
+		}
+		lastResponseQuorumMet = responseQuorumMet
+		lastMinResponsesMet = minResponsesMet
+		if !responseQuorumMet {
+			impact := fmt.Sprintf("Delphi 第 %d 轮有效响应者 %d/%d，低于 response_quorum %.2f 要求的 %d，不能计为稳定收敛轮", round, len(responders), len(request.Roles.Participants), request.DelphiPolicy.ResponseQuorum, requiredResponders)
+			run.addDegradation(Degradation{Kind: DegradationQuorumNotMet, Phase: "delphi_round", Round: round, Impact: impact})
+			if _, err := e.appendEvidence(ctx, request, run.sessionID, &run.ledgerEntries, &run.ledgerCursor, EvidenceRecord{
+				Kind:         EvidenceKindDelphiResponseQuorum,
+				Source:       EvidenceSourceCoordinator,
+				ProducerRole: "coordinator",
+				Summary:      impact,
+				Metadata: map[string]any{
+					"round": round, "responseQuorum": request.DelphiPolicy.ResponseQuorum,
+					"responderCount": len(responders), "absentResponderCount": len(absentResponders),
+					"requiredResponders": requiredResponders,
+				},
+			}); err != nil {
+				return nil, err
+			}
+		}
+		if !minResponsesMet {
+			counts := make([]string, 0, len(statements))
+			for _, statement := range statements {
+				if statement.ResponseCount < request.DelphiPolicy.MinResponsesPerStatement {
+					counts = append(counts, fmt.Sprintf("%s=%d", statement.StatementID, statement.ResponseCount))
+				}
+			}
+			impact := fmt.Sprintf("Delphi 第 %d 轮至少一个 active statement 未达到最小独立响应数 %d（%s），不能计为稳定收敛轮", round, request.DelphiPolicy.MinResponsesPerStatement, strings.Join(counts, ", "))
+			run.addDegradation(Degradation{Kind: DegradationDelphiSampleNotMet, Phase: "delphi_round", Round: round, Impact: impact})
+		}
 		lastSummary, recommendation, dissent, facilitatorArtifact, err := e.buildDelphiSummary(ctx, request, run, round, statements)
 		if err != nil {
 			return nil, err
@@ -1982,39 +2181,68 @@ func (e *Engine) startDelphi(ctx context.Context, request StartRequest) (_ *RunR
 			Summary:      lastSummary,
 			Artifact:     facilitatorArtifact,
 			Metadata: map[string]any{
-				"round":          round,
-				"recommendation": recommendation,
+				"round":             round,
+				"recommendation":    recommendation,
+				"responseQuorumMet": responseQuorumMet,
+				"minResponsesMet":   minResponsesMet,
+				"stableRounds":      stableRounds,
 			},
 		}); err != nil {
 			return nil, err
 		}
 		rounds = append(rounds, DelphiRoundRecord{
-			Round:      round,
-			Phase:      string(phase),
-			Summary:    lastSummary,
-			Responses:  responses,
-			Statements: cloneDelphiStatements(statements),
+			Round:                round,
+			Phase:                string(phase),
+			Summary:              lastSummary,
+			Responses:            responses,
+			Statements:           cloneDelphiStatements(statements),
+			ResponderCount:       len(responders),
+			AbsentResponderCount: len(absentResponders),
+			ResponseQuorumMet:    responseQuorumMet,
+			MinResponsesMet:      minResponsesMet,
+			StableRounds:         stableRounds,
 		})
-		bestConsensus, _ := bestDelphiStatement(statements)
-		if round >= request.DelphiPolicy.MinRounds && bestConsensus >= request.DelphiPolicy.ConvergenceThreshold {
+		converged := round >= request.DelphiPolicy.MinRounds && stableRounds >= request.DelphiPolicy.StabilityRounds
+		checkpointSection := &DelphiResultSection{
+			Rounds:              rounds,
+			Statements:          statements,
+			RatingDistributions: distributions,
+			ConsensusLevel:      bestConsensus,
+			Converged:           converged,
+			ResponseQuorumMet:   responseQuorumMet,
+			MinResponsesMet:     minResponsesMet,
+			StableRounds:        stableRounds,
+			Recommendation:      recommendation,
+			DissentSummary:      dissent,
+		}
+		checkpointStep := checkpointStepDelphiRoundComplete
+		if converged || round == request.DelphiPolicy.MaxRounds {
+			checkpointStep = checkpointStepDelphiRoundsComplete
+		}
+		if !converged && round == request.DelphiPolicy.MaxRounds {
+			checkpointSection.ConsensusLevel, checkpointSection.Recommendation = bestDelphiStatement(statements)
+			checkpointSection.DissentSummary = buildDelphiDissentSummary(statements)
+		}
+		if converged {
 			if _, err := e.appendEvidence(ctx, request, run.sessionID, &run.ledgerEntries, &run.ledgerCursor, EvidenceRecord{
 				Kind:         EvidenceKindDelphiConvergence,
 				Source:       EvidenceSourceCoordinator,
 				ProducerRole: "coordinator",
-				Summary:      "delphi convergence threshold reached",
-				Metadata:     map[string]any{"round": round, "consensusLevel": bestConsensus},
+				Summary:      "delphi sample, dispersion, and stability requirements reached",
+				Metadata: map[string]any{
+					"round": round, "consensusLevel": bestConsensus,
+					"responseQuorumMet": responseQuorumMet, "minResponsesMet": minResponsesMet,
+					"stableRounds": stableRounds,
+				},
 			}); err != nil {
 				return nil, err
 			}
-			section := &DelphiResultSection{
-				Rounds:              rounds,
-				Statements:          statements,
-				RatingDistributions: distributions,
-				ConsensusLevel:      bestConsensus,
-				Recommendation:      recommendation,
-				DissentSummary:      dissent,
-			}
-			return e.finishDelphi(ctx, request, run, section)
+		}
+		if err := e.saveDelphiCheckpoint(ctx, run, phase, checkpointStep, round, lastStableStatementID, checkpointSection, nil); err != nil {
+			return nil, err
+		}
+		if converged {
+			return e.finishDelphi(ctx, request, run, checkpointSection, lastStableStatementID)
 		}
 		if round < request.DelphiPolicy.MaxRounds {
 			if err := e.advancePhase(ctx, request, run.sessionID, run.state, SessionPhaseDelphiSummary, nil, nil, run.ledgerCursor); err != nil {
@@ -2028,13 +2256,17 @@ func (e *Engine) startDelphi(ctx context.Context, request StartRequest) (_ *RunR
 		Statements:          statements,
 		RatingDistributions: distributions,
 		ConsensusLevel:      bestConsensus,
+		Converged:           false,
+		ResponseQuorumMet:   lastResponseQuorumMet,
+		MinResponsesMet:     lastMinResponsesMet,
+		StableRounds:        stableRounds,
 		Recommendation:      recommendation,
 		DissentSummary:      buildDelphiDissentSummary(statements),
 	}
-	return e.finishDelphi(ctx, request, run, section)
+	return e.finishDelphi(ctx, request, run, section, lastStableStatementID)
 }
 
-func (e *Engine) finishDelphi(ctx context.Context, request StartRequest, run *workflowRun, section *DelphiResultSection) (*RunResult, error) {
+func (e *Engine) finishDelphi(ctx context.Context, request StartRequest, run *workflowRun, section *DelphiResultSection, stableStatementID string) (*RunResult, error) {
 	if run.state.Current() != SessionPhaseReport {
 		if err := e.advancePhase(ctx, request, run.sessionID, run.state, SessionPhaseReport, nil, nil, run.ledgerCursor); err != nil {
 			return nil, err
@@ -2069,24 +2301,10 @@ func (e *Engine) finishDelphi(ctx context.Context, request StartRequest, run *wo
 		Degradations:  run.degradations,
 		Delphi:        section,
 	}
-	if request.ActionPolicy != nil {
-		if err := e.advancePhase(ctx, request, run.sessionID, run.state, SessionPhaseAction, nil, nil, run.ledgerCursor); err != nil {
-			return nil, err
-		}
-		actionOutput, actionErr := e.executeAction(ctx, request, *result, run.startedAt)
-		if actionErr != nil {
-			actionOutput = &ActionOutput{
-				ActorID: firstNonEmpty(request.ActionPolicy.ActorID, request.Roles.Actor),
-				Status:  "failed",
-				Error:   actionErr.Error(),
-			}
-		}
-		result.Action = actionOutput
-	}
-	if err := e.finishSession(ctx, run.sessionID, run.state, result, nil, nil, run.ledgerCursor); err != nil {
+	if err := e.saveDelphiCheckpoint(ctx, run, SessionPhaseReport, checkpointStepReportComplete, lastDelphiRound(section.Rounds), stableStatementID, section, &report); err != nil {
 		return nil, err
 	}
-	return result, nil
+	return e.finalizeWorkflow(ctx, request, run, result)
 }
 
 func (e *Engine) composeModeReport(ctx context.Context, request StartRequest, run *workflowRun, mode WorkflowMode, builtin AdjudicationReport, verdict TaskVerdict, payload map[string]any) (AdjudicationReport, *ArtifactRef, error) {
@@ -2630,10 +2848,10 @@ func activeDebateClaims(claims []DebateClaim) []DebateClaim {
 
 // debateVoteCoherent reports whether the coarse vote label agrees with the
 // continuous confidence support score defined by the vote prompt contract:
-// accept requires confidence >= 0.5, reject requires confidence <= 0.5,
-// abstain is unconstrained. Votes that fail this (e.g. reject with 0.9,
-// typically a "confidence in my judgment" misreading) are excluded from
-// resolution math so they cannot flip an accept decision.
+// accept requires confidence >= 0.5 and reject requires confidence <= 0.5.
+// Abstentions are always coherent but do not contribute their confidence to
+// resolution math. Votes that fail this check are excluded so they cannot
+// flip an accept decision.
 func debateVoteCoherent(vote DebateVoteRecord) bool {
 	switch vote.Vote {
 	case DebateVoteAccept:
@@ -2645,6 +2863,62 @@ func debateVoteCoherent(vote DebateVoteRecord) bool {
 	default:
 		return false
 	}
+}
+
+type debateClaimQuorumFailure struct {
+	ClaimID       string
+	VoteCount     int
+	RequiredVotes int
+}
+
+func enforceDebateClaimQuorum(
+	resolutions []DebateClaimResolution,
+	activeClaims []DebateClaim,
+	votes []DebateVoteRecord,
+	participants []string,
+	quorum float64,
+) ([]DebateClaimResolution, []debateClaimQuorumFailure) {
+	participantIDs := dedupeStrings(participants)
+	if quorum <= 0 || len(participantIDs) == 0 {
+		return resolutions, nil
+	}
+	requiredVotes := int(math.Ceil(quorum * float64(len(participantIDs))))
+	allowedVoters := make(map[string]struct{}, len(participantIDs))
+	for _, participantID := range participantIDs {
+		allowedVoters[participantID] = struct{}{}
+	}
+	votersByClaim := make(map[string]map[string]struct{}, len(activeClaims))
+	for _, claim := range activeClaims {
+		votersByClaim[claim.ClaimID] = map[string]struct{}{}
+	}
+	for _, vote := range votes {
+		claimVoters, knownClaim := votersByClaim[vote.ClaimID]
+		_, knownVoter := allowedVoters[vote.AgentID]
+		if !knownClaim || !knownVoter || !debateVoteCoherent(vote) {
+			continue
+		}
+		claimVoters[vote.AgentID] = struct{}{}
+	}
+
+	failures := make([]debateClaimQuorumFailure, 0)
+	for _, claim := range activeClaims {
+		voteCount := len(votersByClaim[claim.ClaimID])
+		if voteCount >= requiredVotes {
+			continue
+		}
+		failures = append(failures, debateClaimQuorumFailure{
+			ClaimID:       claim.ClaimID,
+			VoteCount:     voteCount,
+			RequiredVotes: requiredVotes,
+		})
+		for idx := range resolutions {
+			if resolutions[idx].ClaimID == claim.ClaimID {
+				resolutions[idx].Accepted = false
+				break
+			}
+		}
+	}
+	return resolutions, failures
 }
 
 func aggregateSupportScore(values []float64, method DebateVoteAggregation) float64 {
@@ -2682,22 +2956,29 @@ func resolveDebateClaims(activeClaims []DebateClaim, allClaims []DebateClaim, vo
 		opposers := make([]string, 0)
 		abstainers := make([]string, 0)
 		confidences := make([]float64, 0)
+		seenVoters := make(map[string]struct{})
 		incoherent := 0
 		validVotes := 0
 		for _, vote := range votes {
 			if vote.ClaimID != claim.ClaimID {
 				continue
 			}
+			if _, duplicate := seenVoters[vote.AgentID]; duplicate {
+				incoherent++
+				continue
+			}
+			seenVoters[vote.AgentID] = struct{}{}
 			if !debateVoteCoherent(vote) {
 				incoherent++
 				continue
 			}
-			confidences = append(confidences, vote.Confidence)
 			switch vote.Vote {
 			case DebateVoteAccept:
+				confidences = append(confidences, vote.Confidence)
 				supporters = append(supporters, vote.AgentID)
 				validVotes++
 			case DebateVoteReject:
+				confidences = append(confidences, vote.Confidence)
 				opposers = append(opposers, vote.AgentID)
 				validVotes++
 			case DebateVoteAbstain:
@@ -2722,7 +3003,7 @@ func resolveDebateClaims(activeClaims []DebateClaim, allClaims []DebateClaim, vo
 			ConfidenceMean:     confidenceMean,
 			ConfidenceVariance: confidenceVariance,
 			ConfidenceStdDev:   math.Sqrt(confidenceVariance),
-			VoteCount:          len(confidences),
+			VoteCount:          len(supporters) + len(opposers) + len(abstainers),
 			IncoherentVotes:    incoherent,
 			SupportingVoters:   supporters,
 			OpposingVoters:     opposers,
@@ -2791,16 +3072,17 @@ func buildFreeDebateReport(request StartRequest, section *FreeDebateResultSectio
 
 func aggregateDelphiResponses(existing []DelphiStatement, responses []DelphiResponseRecord, round int, policy DelphiPolicy) ([]DelphiStatement, map[string][]float64) {
 	type aggregate struct {
-		statement string
-		ratings   []float64
-		reasons   []string
+		statement  string
+		ratings    []float64
+		reasons    []string
+		responders map[string]struct{}
 	}
 	index := map[string]int{}
 	for idx := range existing {
 		index[existing[idx].StatementID] = idx
 	}
 	aggregates := map[string]*aggregate{}
-	for _, response := range responses {
+	for responseIndex, response := range responses {
 		statementID := strings.TrimSpace(response.StatementID)
 		statementText := strings.TrimSpace(response.Statement)
 		if statementID == "" {
@@ -2816,9 +3098,17 @@ func aggregateDelphiResponses(existing []DelphiStatement, responses []DelphiResp
 		}
 		agg, ok := aggregates[statementID]
 		if !ok {
-			agg = &aggregate{statement: statementText}
+			agg = &aggregate{statement: statementText, responders: map[string]struct{}{}}
 			aggregates[statementID] = agg
 		}
+		responderKey := strings.TrimSpace(response.agentID)
+		if responderKey == "" {
+			responderKey = fmt.Sprintf("anonymous-response-%d", responseIndex)
+		}
+		if _, duplicate := agg.responders[responderKey]; duplicate {
+			continue
+		}
+		agg.responders[responderKey] = struct{}{}
 		agg.ratings = append(agg.ratings, response.Rating)
 		if reason := strings.TrimSpace(response.Rationale); reason != "" {
 			agg.reasons = append(agg.reasons, reason)
@@ -2869,7 +3159,10 @@ func findDelphiStatementID(existing []DelphiStatement, statement string) string 
 }
 
 func consensusFromRatings(ratings []float64, scaleMin int, scaleMax int) float64 {
-	if len(ratings) == 0 {
+	// Dispersion cannot be estimated from a singleton sample. Returning zero
+	// prevents a lone response from looking like perfect consensus even before
+	// the explicit quorum and per-statement sample gates are applied.
+	if len(ratings) < 2 {
 		return 0
 	}
 	minRating := ratings[0]
@@ -2974,6 +3267,36 @@ func bestDelphiStatement(statements []DelphiStatement) (float64, string) {
 	return statements[0].ConsensusLevel, statements[0].Statement
 }
 
+func delphiRequiredResponders(participantCount int, quorum float64) int {
+	if participantCount <= 0 || quorum <= 0 {
+		return 0
+	}
+	return int(math.Ceil(float64(participantCount) * quorum))
+}
+
+func delphiMinResponsesMet(statements []DelphiStatement, minimum int) bool {
+	if len(statements) == 0 || minimum < 1 {
+		return false
+	}
+	for _, statement := range statements {
+		if statement.ResponseCount < minimum {
+			return false
+		}
+	}
+	return true
+}
+
+func delphiRatingQuestion(request StartRequest) string {
+	return fmt.Sprintf(
+		"请按 %d–%d 分评价每个候选陈述对任务目标“%s”的适切性、可行性与证据充分度；%d 表示最低，%d 表示最高。",
+		request.DelphiPolicy.RatingScaleMin,
+		request.DelphiPolicy.RatingScaleMax,
+		request.TaskSpec.Goal,
+		request.DelphiPolicy.RatingScaleMin,
+		request.DelphiPolicy.RatingScaleMax,
+	)
+}
+
 func buildDelphiDissentSummary(statements []DelphiStatement) []string {
 	out := make([]string, 0)
 	for _, statement := range statements {
@@ -2991,7 +3314,7 @@ func buildDelphiReport(request StartRequest, section *DelphiResultSection) Adjud
 		highlights = append(highlights, fmt.Sprintf("%s: %.2f / %.2f", item.Statement, item.MeanRating, item.ConsensusLevel))
 	}
 	nextActions := make([]string, 0)
-	if section.ConsensusLevel < request.DelphiPolicy.ConvergenceThreshold {
+	if !section.Converged {
 		nextActions = append(nextActions, "继续补充材料后再发起下一轮 Delphi")
 	}
 	return AdjudicationReport{
@@ -3005,7 +3328,9 @@ func TaskVerdictFromDelphi(section *DelphiResultSection) TaskVerdict {
 	switch {
 	case section == nil || len(section.Statements) == 0:
 		return TaskVerdictFailed
-	case section.ConsensusLevel >= 0.8:
+	case !section.ResponseQuorumMet || !section.MinResponsesMet:
+		return TaskVerdictUndetermined
+	case section.Converged:
 		return TaskVerdictSupported
 	case section.ConsensusLevel >= 0.5:
 		return TaskVerdictPartiallySupported

@@ -4,12 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/suchasplus/til-consensus/consensus"
+	"github.com/suchasplus/til-consensus/internal/securefs"
 )
 
 type JSONLObserver struct {
@@ -26,10 +25,7 @@ func (o *JSONLObserver) OnEvent(_ context.Context, event consensus.RunEvent) err
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
-	if err := os.MkdirAll(filepath.Dir(o.path), 0o755); err != nil {
-		return fmt.Errorf("create observer dir: %w", err)
-	}
-	file, err := os.OpenFile(o.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	file, err := securefs.OpenAppend(o.path)
 	if err != nil {
 		return fmt.Errorf("open jsonl file: %w", err)
 	}

@@ -6,28 +6,31 @@ import (
 )
 
 func TestMergeDebatePolicyVoteQuorum(t *testing.T) {
-	base := DebatePolicyConfig{VoteQuorum: 0.5}
-	if out := mergeDebatePolicy(base, DebatePolicyConfig{}); out.VoteQuorum != 0.5 {
-		t.Fatalf("expected base vote_quorum preserved, got %.2f", out.VoteQuorum)
+	base := DebatePolicyConfig{VoteQuorum: float64Ptr(0.5)}
+	if out := mergeDebatePolicy(base, DebatePolicyConfig{}); optionalValue(0.0, out.VoteQuorum) != 0.5 {
+		t.Fatalf("expected base vote_quorum preserved, got %#v", out.VoteQuorum)
 	}
-	if out := mergeDebatePolicy(base, DebatePolicyConfig{VoteQuorum: 0.8}); out.VoteQuorum != 0.8 {
-		t.Fatalf("expected overlay vote_quorum to win, got %.2f", out.VoteQuorum)
+	if out := mergeDebatePolicy(base, DebatePolicyConfig{VoteQuorum: float64Ptr(0.8)}); optionalValue(0.0, out.VoteQuorum) != 0.8 {
+		t.Fatalf("expected overlay vote_quorum to win, got %#v", out.VoteQuorum)
+	}
+	if out := mergeDebatePolicy(base, DebatePolicyConfig{VoteQuorum: float64Ptr(0)}); out.VoteQuorum == nil || *out.VoteQuorum != 0 {
+		t.Fatalf("expected explicit zero vote_quorum to disable inherited quorum, got %#v", out.VoteQuorum)
 	}
 }
 
 func TestValidateDefaultsVoteQuorumRange(t *testing.T) {
 	cfg := Config{}
-	cfg.Defaults.DebatePolicy.VoteQuorum = 1.5
+	cfg.Defaults.DebatePolicy.VoteQuorum = float64Ptr(1.5)
 	err := validateDefaults(cfg)
 	if err == nil || !strings.Contains(err.Error(), "vote_quorum") {
 		t.Fatalf("expected vote_quorum range error, got %v", err)
 	}
-	cfg.Defaults.DebatePolicy.VoteQuorum = -0.1
+	cfg.Defaults.DebatePolicy.VoteQuorum = float64Ptr(-0.1)
 	err = validateDefaults(cfg)
 	if err == nil || !strings.Contains(err.Error(), "vote_quorum") {
 		t.Fatalf("expected vote_quorum range error for negative value, got %v", err)
 	}
-	cfg.Defaults.DebatePolicy.VoteQuorum = 0.6
+	cfg.Defaults.DebatePolicy.VoteQuorum = float64Ptr(0.6)
 	if err := validateDefaults(cfg); err != nil {
 		t.Fatalf("expected valid vote_quorum to pass, got %v", err)
 	}
@@ -42,8 +45,8 @@ func TestFreeDebateTemplateSetsVoteQuorum(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildTemplateConfig failed: %v", err)
 	}
-	if cfg.Defaults.DebatePolicy.VoteQuorum != 0.6 {
-		t.Fatalf("expected free-debate template vote_quorum 0.6, got %.2f", cfg.Defaults.DebatePolicy.VoteQuorum)
+	if optionalValue(0.0, cfg.Defaults.DebatePolicy.VoteQuorum) != 0.6 {
+		t.Fatalf("expected free-debate template vote_quorum 0.6, got %#v", cfg.Defaults.DebatePolicy.VoteQuorum)
 	}
 	if cfg.Defaults.DebatePolicy.SupportThreshold != 0.67 {
 		t.Fatalf("expected free-debate template support_threshold 0.67, got %.2f", cfg.Defaults.DebatePolicy.SupportThreshold)

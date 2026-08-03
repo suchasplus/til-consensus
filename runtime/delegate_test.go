@@ -142,8 +142,19 @@ func TestDelegatePersistsInputAndFailureArtifacts(t *testing.T) {
 		t.Fatalf("expected failed task with artifact, got %#v", awaited)
 	}
 	inputPath := filepath.Join(tmp, "input-proposer-a-propose-"+receipt.TaskID+".json")
-	if _, err := os.Stat(inputPath); err != nil {
+	inputInfo, err := os.Stat(inputPath)
+	if err != nil {
 		t.Fatalf("expected input artifact: %v", err)
+	}
+	if got := inputInfo.Mode().Perm(); got != 0o600 {
+		t.Fatalf("input artifact mode: got=%#o want=0600", got)
+	}
+	failureInfo, err := os.Stat(awaited.Artifact.Path)
+	if err != nil {
+		t.Fatalf("stat failure artifact: %v", err)
+	}
+	if got := failureInfo.Mode().Perm(); got != 0o600 {
+		t.Fatalf("provider artifact mode: got=%#o want=0600", got)
 	}
 	body, err := os.ReadFile(awaited.Artifact.Path)
 	if err != nil {

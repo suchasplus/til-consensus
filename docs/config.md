@@ -76,6 +76,7 @@ include:
 - map 字段深合并，例如 `providers`、`providers.<id>.models`、`headers`、`env`、`options`。
 - `agents` 按 `id` 合并。
 - slice 字段整体替换，例如 `roles.*.participants`、`success_criteria`、`required_checks`。
+- 可关闭/可清零的 policy 字段区分“未指定”和显式零值：省略字段表示继承；写出 `false` 或 `0` 表示覆盖父配置。适用于 `allow_semantic_verifier`、arbiter 布尔项、`enable_early_stop`、`semantic_dedup.enabled`、`synthesis.enabled`、`synthesis.amendment_rounds`、`vote_quorum` 和 Delphi `anonymous`。
 - 最终合并后的配置仍会执行 `Normalize` 和 `Validate`。
 
 注意：`output.directory` 的相对路径按当前执行目录解析，不按配置文件所在目录解析。`include` 路径才按配置文件所在目录解析。
@@ -116,6 +117,24 @@ profiles:
 - `profile preflight` 为避免和 provider profile 混淆，使用 `--config-profile <name>`。
 - profile overlay 支持覆盖 `defaults`、`output`、`providers`、`agents`、`roles`。
 - overlay 会在最终 normalize/validate 前合并。
+
+例如，下面的 profile 会明确关闭父配置中的自动步骤和 quorum；这些值不会被当成“未配置”丢弃：
+
+```yaml
+profiles:
+  manual:
+    defaults:
+      debate_policy:
+        vote_quorum: 0
+        enable_early_stop: false
+        semantic_dedup:
+          enabled: false
+        synthesis:
+          enabled: false
+          amendment_rounds: 0
+      delphi_policy:
+        anonymous: false
+```
 
 **mode 与 profile 错位时的 success_criteria**：如果运行时用 `--mode`（或 `debate`/`delphi` 快捷命令、run 输入文件）把 mode 改成了与 active profile 不同的模式，profile 继承下来的 `success_criteria` 不会被原样注入 prompt——另一个模式的协议词汇会误导参与者（典型案例：adjudication 的"必须标注 keep、revise、reject"会让 debate 参与者把"裁决：keep"写进 claim 正文）。此时 plan 会自动改用 `profiles` 里 mode 匹配的 profile 的 criteria；找不到匹配 profile 就用该 mode 的内置 criteria，并在 `run` 输出和 `--dry-run` 里打一行 `notice:` 说明替换来源。通过 CLI `--success-criteria` 或 run 输入文件显式给出的 criteria 永远原样保留、不做替换。
 
@@ -176,13 +195,13 @@ profiles:
 
 启用 `semantic_dedup` 时，还必须配置 `roles.free_debate.semantic_deduper`。这个 agent 会走正常的 CLI/API provider 调用链路，并输出结构化的 claim merge 建议；系统不会使用本地文本相似度 fallback。如果希望强制外部 API 依赖，把 semantic deduper agent 绑定到 `type: api` provider 即可。
 
-`free_debate` 的 final vote 使用连续 `confidence` 支持分数聚合：每个 voter 对每个 active claim 输出 `vote` 粗标签和 `confidence` 支持分数（0=强烈拒绝，0.5=不确定/弃权，1=强烈支持）。接受判定是 `supportScore >= support_threshold`，其中 `supportScore` 由 `vote_aggregation` 聚合（默认 `median`，对小评审团里的单个极端投票者更稳健；`mean` 恢复旧行为）。标签与分数矛盾的投票（accept<0.5 或 reject>0.5）会在 provider 边界被校验拒绝并进入 repair 流程；万一经由 library 直接注入，计票时也会剔除并计入 `incoherentVotes`。`supportRatio`（accept/reject 标签比例）仅作诊断展示，不参与判定。
+`free_debate` 的 final vote 使用连续 `confidence` 支持分数聚合：每个 voter 必须对每个 active claim 恰好投一票，返回 claim ID 集合与 ballot 不等价时整张 ballot 无效，且该参与者不计入 `voters`。accept/reject 的 `confidence`（0=强烈拒绝，1=强烈支持）由 `vote_aggregation` 聚合为 `supportScore`；abstain 的分数只作诊断，不进入 supportScore、均值或方差。标签与分数矛盾的票（accept<0.5 或 reject>0.5）会在 provider 边界被拒绝；计票层仍会剔除直接注入的矛盾票和同一参与者的重复票。`supportRatio` 仅作诊断展示。
 
-`vote_quorum` 是投票法定人数：成功返回 final vote 的参与者比例低于该值时，outcome 会被降级为 `quorum_not_met`（task verdict 记为 `undetermined`），并写入一条 `quorum_not_met` degradation 和 `debate_vote_quorum` ledger 记录。取值范围 `[0, 1]`，`0`（默认）表示关闭检查；`setup`/`config init` 生成的 free-debate 模板默认 `0.6`。已投出的票仍会正常参与每条 claim 的 resolution 计算。
+`vote_quorum` 是逐 claim 的投票法定人数：每条 active claim 的唯一投票者数都必须达到 `ceil(vote_quorum × participants)`；未达标的 claim 强制不接受，整体 outcome 降级为 `quorum_not_met`（task verdict 为 `undetermined`），并在 degradation 和 ledger 中记录缺额。取值范围 `[0, 1]`，`0`（默认）关闭检查；生成的 free-debate 模板默认 `0.6`。
 
 claim 预算控制冗余膨胀：`max_new_claims_per_round` 限制每个参与者每轮的新 claim 数量（超出部分被 coordinator 丢弃，round output 的 ledger metadata 记 `truncatedNewClaims`）；`max_active_claims` 是总量保险丝，达到后当轮所有参与者被告知 claim 预算已满、只能通过 judgements 修订与合并。revise 型 judgement 产生的修订 claim 不计入预算——合并与修订正是预算希望鼓励的行为。
 
-final vote 还有一条校准约束：ballot ≥ 5 条时，如果一个 voter 给所有 claim 打了完全相同的 confidence，该输出会被判为无效并进入 repair（要求把分数按相对强弱铺开）。小 ballot（<5）与至少有两个不同分数的 ballot 不受影响。
+final vote 还有一条校准约束：support-bearing（accept/reject）票达到 5 条时，如果一个 voter 给它们完全相同的 confidence，该输出会被判为无效并进入 repair。abstain 不参与这项分数校准。
 
 `delphi` 常用 policy：
 
@@ -191,8 +210,13 @@ final vote 还有一条校准约束：ballot ≥ 5 条时，如果一个 voter �
 - `delphi_policy.convergence_threshold`
 - `delphi_policy.rating_scale_min`
 - `delphi_policy.rating_scale_max`
+- `delphi_policy.response_quorum`（默认 `0.6`，每轮有效响应者比例）
+- `delphi_policy.min_responses_per_statement`（默认 `2`，每个 active statement 的独立响应数）
+- `delphi_policy.stability_rounds`（默认 `2`，连续满足样本量和离散度要求的轮数）
 - `delphi_policy.anonymous`
 - `delphi_policy.facilitator_summary_style`
+
+Delphi 的 `rating` 是必填数值，且必须落在配置量表的闭区间内。空响应、缺失/越界评分以及同一参与者对同一 statement 的重复评分不会进入聚合，也不会计入 `response_quorum`。`consensus_level` 只描述评分离散度；最终收敛还要求本轮响应 quorum、每个 statement 的最小样本量全部达标，并对同一最高候选连续稳定至少两轮。单个响应不会产生可测量的 consensus。
 
 ## Providers / agents / roles
 
@@ -268,7 +292,9 @@ output:
   directory: ./out/{requestId}
 ```
 
-`{requestId}` 会替换成本次 request id。相对路径按当前执行目录解析。
+`{requestId}` 会替换成本次 request id。相对路径按当前执行目录解析。自定义
+`request_id` 必须是单一路径段，不能包含 `/`、`\\` 或 `..`；不合法的值会在
+解析 run plan 时被拒绝，不会进入输出路径模板。
 
 命令行可覆盖本次输出：
 

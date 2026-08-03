@@ -19,6 +19,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/suchasplus/til-consensus/internal/securefs"
 )
 
 type CompositeVerifierDeps struct {
@@ -47,7 +49,7 @@ func (v *CompositeVerifier) Run(ctx context.Context, req VerificationRequest) ([
 		result := v.runCheck(ctx, req, check)
 		results = append(results, result)
 	}
-	if req.Request.VerificationPolicy.AllowSemanticVerifier && req.Request.Roles.SemanticVerifier != "" && v.deps.TaskDelegate != nil {
+	if boolOrDefault(req.Request.VerificationPolicy.AllowSemanticVerifier, true) && req.Request.Roles.SemanticVerifier != "" && v.deps.TaskDelegate != nil {
 		result := v.runSemanticVerification(ctx, req)
 		results = append(results, result...)
 	}
@@ -481,7 +483,7 @@ func (v *CompositeVerifier) writeCommandArtifact(claimID string, checkName strin
 	if strings.TrimSpace(v.deps.ArtifactDir) == "" {
 		return nil, nil
 	}
-	if err := os.MkdirAll(v.deps.ArtifactDir, 0o755); err != nil {
+	if err := securefs.TightenPrivateDir(v.deps.ArtifactDir); err != nil {
 		return nil, err
 	}
 	body := bytes.NewBuffer(nil)
@@ -490,7 +492,7 @@ func (v *CompositeVerifier) writeCommandArtifact(claimID string, checkName strin
 	_, _ = body.WriteString("\n# stderr\n")
 	_, _ = body.Write(stderr)
 	name := filepath.Join(v.deps.ArtifactDir, sanitizeFilename(claimID+"-"+checkName)+".log")
-	if err := os.WriteFile(name, body.Bytes(), 0o644); err != nil {
+	if err := securefs.WriteFile(name, body.Bytes()); err != nil {
 		return nil, err
 	}
 	hash := sha256.Sum256(body.Bytes())

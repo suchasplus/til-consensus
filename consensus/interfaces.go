@@ -2,8 +2,11 @@ package consensus
 
 import (
 	"context"
+	"errors"
 	"time"
 )
+
+var ErrSessionVersionConflict = errors.New("session version conflict")
 
 type DispatchReceipt struct {
 	TaskID  string
@@ -57,73 +60,87 @@ type Ledger interface {
 }
 
 type SessionSnapshot struct {
-	SessionID                 string
-	RequestID                 string
-	Request                   *StartRequest
-	Phase                     SessionPhase
-	Checkpoint                *SessionCheckpoint
-	CaseManifest              *CaseManifest
-	ClaimGraph                []ClaimNode
-	ChallengeTickets          []ChallengeTicket
-	LedgerEntries             []EvidenceRecord
-	LedgerCursor              int
-	VerificationResults       []VerificationResult
-	RevisionRecords           []ClaimRevisionRecord
-	AdjudicationRecords       []AdjudicationRecord
-	Observations              []ObservationRecord
-	Metrics                   Metrics
-	ResumeCount               int
-	LastResumedAt             string
-	ArbiterReport             *ArbiterReport
-	Report                    *AdjudicationReport
-	Action                    *ActionOutput
-	DebateClaims              []DebateClaim
-	DebateRounds              []DebateRoundRecord
-	DebateVotes               []DebateVoteRecord
-	DelphiRounds              []DelphiRoundRecord
-	DelphiStatements          []DelphiStatement
-	DelphiRatingDistributions map[string][]float64
-	DelphiConsensusLevel      float64
-	DelphiRecommendation      string
-	DelphiDissentSummary      []string
-	StartedAt                 string
-	FinishedAt                string
-	FailedAt                  string
-	Result                    *RunResult
-	Error                     *FailureInfo
+	Version                     uint64
+	SessionID                   string
+	RequestID                   string
+	Request                     *StartRequest
+	Phase                       SessionPhase
+	Checkpoint                  *SessionCheckpoint
+	CaseManifest                *CaseManifest
+	ClaimGraph                  []ClaimNode
+	ChallengeTickets            []ChallengeTicket
+	LedgerEntries               []EvidenceRecord
+	LedgerCursor                int
+	VerificationResults         []VerificationResult
+	RevisionRecords             []ClaimRevisionRecord
+	AdjudicationRecords         []AdjudicationRecord
+	Observations                []ObservationRecord
+	Metrics                     Metrics
+	Degradations                []Degradation
+	ResumeCount                 int
+	LastResumedAt               string
+	ArbiterReport               *ArbiterReport
+	Report                      *AdjudicationReport
+	Action                      *ActionOutput
+	DebateClaims                []DebateClaim
+	DebateRounds                []DebateRoundRecord
+	DebateVotes                 []DebateVoteRecord
+	DelphiRounds                []DelphiRoundRecord
+	DelphiStatements            []DelphiStatement
+	DelphiRatingDistributions   map[string][]float64
+	DelphiConsensusLevel        float64
+	DelphiConverged             bool
+	DelphiResponseQuorumMet     bool
+	DelphiMinResponsesMet       bool
+	DelphiStableRounds          int
+	DelphiLastStableStatementID string
+	DelphiRecommendation        string
+	DelphiDissentSummary        []string
+	StartedAt                   string
+	FinishedAt                  string
+	FailedAt                    string
+	Result                      *RunResult
+	Error                       *FailureInfo
 }
 
 type SessionPatch struct {
-	Phase                     *SessionPhase
-	Checkpoint                *SessionCheckpoint
-	CaseManifest              *CaseManifest
-	ClaimGraph                []ClaimNode
-	ChallengeTickets          []ChallengeTicket
-	LedgerEntries             []EvidenceRecord
-	LedgerCursor              *int
-	VerificationResults       []VerificationResult
-	RevisionRecords           []ClaimRevisionRecord
-	AdjudicationRecords       []AdjudicationRecord
-	Observations              []ObservationRecord
-	Metrics                   *Metrics
-	ResumeCount               *int
-	LastResumedAt             *string
-	ArbiterReport             *ArbiterReport
-	Report                    *AdjudicationReport
-	Action                    *ActionOutput
-	DebateClaims              []DebateClaim
-	DebateRounds              []DebateRoundRecord
-	DebateVotes               []DebateVoteRecord
-	DelphiRounds              []DelphiRoundRecord
-	DelphiStatements          []DelphiStatement
-	DelphiRatingDistributions map[string][]float64
-	DelphiConsensusLevel      *float64
-	DelphiRecommendation      *string
-	DelphiDissentSummary      []string
-	FinishedAt                *string
-	FailedAt                  *string
-	Result                    *RunResult
-	Error                     *FailureInfo
+	ExpectedVersion             *uint64
+	Phase                       *SessionPhase
+	Checkpoint                  *SessionCheckpoint
+	CaseManifest                *CaseManifest
+	ClaimGraph                  []ClaimNode
+	ChallengeTickets            []ChallengeTicket
+	LedgerEntries               []EvidenceRecord
+	LedgerCursor                *int
+	VerificationResults         []VerificationResult
+	RevisionRecords             []ClaimRevisionRecord
+	AdjudicationRecords         []AdjudicationRecord
+	Observations                []ObservationRecord
+	Metrics                     *Metrics
+	Degradations                []Degradation
+	ResumeCount                 *int
+	LastResumedAt               *string
+	ArbiterReport               *ArbiterReport
+	Report                      *AdjudicationReport
+	Action                      *ActionOutput
+	DebateClaims                []DebateClaim
+	DebateRounds                []DebateRoundRecord
+	DebateVotes                 []DebateVoteRecord
+	DelphiRounds                []DelphiRoundRecord
+	DelphiStatements            []DelphiStatement
+	DelphiRatingDistributions   map[string][]float64
+	DelphiConsensusLevel        *float64
+	DelphiConverged             *bool
+	DelphiResponseQuorumMet     *bool
+	DelphiMinResponsesMet       *bool
+	DelphiStableRounds          *int
+	DelphiLastStableStatementID *string
+	DelphiRecommendation        *string
+	DelphiDissentSummary        []string
+	FinishedAt                  *string
+	FailedAt                    *string
+	Result                      *RunResult
+	Error                       *FailureInfo
 }
 
 type SessionStore interface {

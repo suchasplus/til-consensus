@@ -167,18 +167,26 @@ type ArtifactRef struct {
 }
 
 type ArtifactManifestEntry struct {
-	SchemaVersion  int          `json:"schemaVersion"`
-	Seq            int          `json:"seq"`
-	EntryID        string       `json:"entryId"`
-	RequestID      string       `json:"requestId"`
-	SessionID      string       `json:"sessionId"`
-	ClaimID        string       `json:"claimId,omitempty"`
-	ChallengeID    string       `json:"challengeId,omitempty"`
-	VerificationID string       `json:"verificationId,omitempty"`
-	Kind           EvidenceKind `json:"kind"`
-	ProducerRole   string       `json:"producerRole,omitempty"`
-	Artifact       ArtifactRef  `json:"artifact"`
-	LoggedAt       string       `json:"loggedAt"`
+	SchemaVersion   int          `json:"schemaVersion"`
+	Seq             int          `json:"seq"`
+	EntryID         string       `json:"entryId"`
+	LedgerEntryHash string       `json:"ledgerEntryHash"`
+	RequestID       string       `json:"requestId"`
+	SessionID       string       `json:"sessionId"`
+	ClaimID         string       `json:"claimId,omitempty"`
+	ChallengeID     string       `json:"challengeId,omitempty"`
+	VerificationID  string       `json:"verificationId,omitempty"`
+	Kind            EvidenceKind `json:"kind"`
+	ProducerRole    string       `json:"producerRole,omitempty"`
+	Artifact        ArtifactRef  `json:"artifact"`
+	LoggedAt        string       `json:"loggedAt"`
+}
+
+type LedgerRoot struct {
+	SchemaVersion int    `json:"schemaVersion"`
+	HashAlgorithm string `json:"hashAlgorithm"`
+	EntryCount    int    `json:"entryCount"`
+	RootHash      string `json:"rootHash"`
 }
 
 type ClaimNode struct {
@@ -270,6 +278,7 @@ const (
 	EvidenceKindDebateVoteQuorum     EvidenceKind = "debate_vote_quorum"
 	EvidenceKindDelphiRoundOpened    EvidenceKind = "delphi_round_opened"
 	EvidenceKindDelphiResponse       EvidenceKind = "delphi_response_recorded"
+	EvidenceKindDelphiResponseQuorum EvidenceKind = "delphi_response_quorum"
 	EvidenceKindDelphiRoundSummary   EvidenceKind = "delphi_round_summary"
 	EvidenceKindDelphiConvergence    EvidenceKind = "delphi_convergence_reached"
 )
@@ -278,6 +287,8 @@ type EvidenceRecord struct {
 	SchemaVersion         int                 `json:"schemaVersion"`
 	Seq                   int                 `json:"seq"`
 	EntryID               string              `json:"entryId"`
+	PrevHash              string              `json:"prevHash,omitempty"`
+	EntryHash             string              `json:"entryHash,omitempty"`
 	RequestID             string              `json:"requestId"`
 	SessionID             string              `json:"sessionId"`
 	ClaimID               string              `json:"claimId,omitempty"`
@@ -405,9 +416,12 @@ const (
 	// DegradationStepSkipped records an optional step (semantic dedup, reporter)
 	// that failed and was skipped or replaced by a builtin fallback.
 	DegradationStepSkipped DegradationKind = "step_skipped"
-	// DegradationQuorumNotMet records a final vote that collected fewer voters
-	// than DebatePolicy.VoteQuorum requires.
+	// DegradationQuorumNotMet records a debate vote or Delphi response round
+	// that collected fewer participants than its policy requires.
 	DegradationQuorumNotMet DegradationKind = "quorum_not_met"
+	// DegradationDelphiSampleNotMet records a round where at least one active
+	// statement did not receive the configured independent response count.
+	DegradationDelphiSampleNotMet DegradationKind = "delphi_sample_not_met"
 )
 
 // Degradation is the result-level rollup of a failure that did not abort the
@@ -483,10 +497,10 @@ const (
 	FreeDebateOutcomeConsensus        FreeDebateOutcome = "consensus"
 	FreeDebateOutcomePartialConsensus FreeDebateOutcome = "partial_consensus"
 	FreeDebateOutcomeNoConsensus      FreeDebateOutcome = "no_consensus"
-	// FreeDebateOutcomeQuorumNotMet means the final vote did not collect enough
-	// voters to satisfy DebatePolicy.VoteQuorum; it is procedural, distinct from
-	// participants voting and failing to agree (no_consensus). Only produced
-	// when vote_quorum is explicitly enabled.
+	// FreeDebateOutcomeQuorumNotMet means at least one active claim did not
+	// collect enough unique voters to satisfy DebatePolicy.VoteQuorum; it is
+	// procedural, distinct from participants voting and failing to agree
+	// (no_consensus). Only produced when vote_quorum is explicitly enabled.
 	FreeDebateOutcomeQuorumNotMet FreeDebateOutcome = "quorum_not_met"
 )
 
@@ -560,9 +574,9 @@ type DebateClaimResolution struct {
 	ConfidenceVariance float64 `json:"confidenceVariance"`
 	ConfidenceStdDev   float64 `json:"confidenceStdDev"`
 	VoteCount          int     `json:"voteCount"`
-	// IncoherentVotes counts votes whose label contradicts their support
-	// score (accept < 0.5 or reject > 0.5); they are excluded from all
-	// resolution math but remain visible in the raw votes list.
+	// IncoherentVotes counts votes whose label contradicts their support score
+	// or duplicate an earlier vote from the same participant for this claim;
+	// they are excluded from resolution math but remain visible in raw votes.
 	IncoherentVotes  int      `json:"incoherentVotes,omitempty"`
 	SupportingVoters []string `json:"supportingVoters,omitempty"`
 	OpposingVoters   []string `json:"opposingVoters,omitempty"`
@@ -585,6 +599,9 @@ type FreeDebateResultSection struct {
 }
 
 type DelphiResponseRecord struct {
+	// agentID is coordinator-only and intentionally omitted from JSON so an
+	// anonymous Delphi result cannot reveal which participant cast a rating.
+	agentID     string
 	StatementID string  `json:"statementId,omitempty"`
 	Statement   string  `json:"statement,omitempty"`
 	Rating      float64 `json:"rating"`
@@ -592,11 +609,16 @@ type DelphiResponseRecord struct {
 }
 
 type DelphiRoundRecord struct {
-	Round      int                    `json:"round"`
-	Phase      string                 `json:"phase"`
-	Summary    string                 `json:"summary,omitempty"`
-	Responses  []DelphiResponseRecord `json:"responses,omitempty"`
-	Statements []DelphiStatement      `json:"statements,omitempty"`
+	Round                int                    `json:"round"`
+	Phase                string                 `json:"phase"`
+	Summary              string                 `json:"summary,omitempty"`
+	Responses            []DelphiResponseRecord `json:"responses,omitempty"`
+	Statements           []DelphiStatement      `json:"statements,omitempty"`
+	ResponderCount       int                    `json:"responderCount"`
+	AbsentResponderCount int                    `json:"absentResponderCount"`
+	ResponseQuorumMet    bool                   `json:"responseQuorumMet"`
+	MinResponsesMet      bool                   `json:"minResponsesMet"`
+	StableRounds         int                    `json:"stableRounds"`
 }
 
 type DelphiStatement struct {
@@ -614,6 +636,10 @@ type DelphiResultSection struct {
 	Statements          []DelphiStatement    `json:"statements"`
 	RatingDistributions map[string][]float64 `json:"ratingDistributions,omitempty"`
 	ConsensusLevel      float64              `json:"consensusLevel"`
+	Converged           bool                 `json:"converged"`
+	ResponseQuorumMet   bool                 `json:"responseQuorumMet"`
+	MinResponsesMet     bool                 `json:"minResponsesMet"`
+	StableRounds        int                  `json:"stableRounds"`
 	Recommendation      string               `json:"recommendation"`
 	DissentSummary      []string             `json:"dissentSummary,omitempty"`
 }

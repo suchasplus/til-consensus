@@ -83,7 +83,7 @@ func TestResolveRunPlanCarriesSynthesizerAndPolicy(t *testing.T) {
 	loaded := mismatchScaffoldConfig()
 	loaded.Config.Agents = append(loaded.Config.Agents, AgentConfig{ID: "syn-1", Provider: "mock", Model: "default"})
 	loaded.Config.Roles.FreeDebate.Synthesizer = "syn-1"
-	loaded.Config.Defaults.DebatePolicy.Synthesis = DebateSynthesisConfig{Enabled: true, AmendmentRounds: 2}
+	loaded.Config.Defaults.DebatePolicy.Synthesis = DebateSynthesisConfig{Enabled: boolPtr(true), AmendmentRounds: intPtr(2)}
 	loaded.Config = Normalize(loaded.Config)
 	plan, err := ResolveRunPlan(loaded, RunInput{TaskSpec: TaskSpecInput{Goal: "debate this"}}, RunOverrides{
 		Mode: consensus.WorkflowModeFreeDebate,
@@ -102,7 +102,7 @@ func TestResolveRunPlanCarriesSynthesizerAndPolicy(t *testing.T) {
 
 func TestValidateDefaultsSynthesisAmendmentRounds(t *testing.T) {
 	cfg := Config{}
-	cfg.Defaults.DebatePolicy.Synthesis.AmendmentRounds = 4
+	cfg.Defaults.DebatePolicy.Synthesis.AmendmentRounds = intPtr(4)
 	if err := validateDefaults(cfg); err == nil || !strings.Contains(err.Error(), "amendment_rounds") {
 		t.Fatalf("expected amendment_rounds range error, got %v", err)
 	}

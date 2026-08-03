@@ -324,7 +324,7 @@ func validateDefaults(cfg Config) error {
 	if cfg.Defaults.TaskRetryAttempts < 0 {
 		return fmt.Errorf("defaults.task_retry_attempts must be >= 0")
 	}
-	if quorum := cfg.Defaults.DebatePolicy.VoteQuorum; quorum < 0 || quorum > 1 {
+	if quorum := optionalValue(0.0, cfg.Defaults.DebatePolicy.VoteQuorum); quorum < 0 || quorum > 1 {
 		return fmt.Errorf("defaults.debate_policy.vote_quorum must be within [0, 1]")
 	}
 	if threshold := cfg.Defaults.DebatePolicy.SupportThreshold; threshold < 0 || threshold > 1 {
@@ -346,7 +346,23 @@ func validateDefaults(cfg Config) error {
 	if cfg.Defaults.DebatePolicy.MaxActiveClaims < 0 {
 		return fmt.Errorf("defaults.debate_policy.max_active_claims must be >= 0")
 	}
-	if rounds := cfg.Defaults.DebatePolicy.Synthesis.AmendmentRounds; rounds < 0 || rounds > 3 {
+	if quorum := cfg.Defaults.DelphiPolicy.ResponseQuorum; quorum < 0 || quorum > 1 {
+		return fmt.Errorf("defaults.delphi_policy.response_quorum must be within [0, 1]")
+	}
+	if cfg.Defaults.DelphiPolicy.MinResponsesPerStatement < 0 {
+		return fmt.Errorf("defaults.delphi_policy.min_responses_per_statement must be >= 0")
+	}
+	if rounds := cfg.Defaults.DelphiPolicy.StabilityRounds; rounds < 0 || rounds == 1 {
+		return fmt.Errorf("defaults.delphi_policy.stability_rounds must be 0 or >= 2")
+	}
+	stableRounds := cfg.Defaults.DelphiPolicy.StabilityRounds
+	if stableRounds == 0 {
+		stableRounds = consensus.DefaultDelphiStabilityRounds
+	}
+	if maxRounds := cfg.Defaults.DelphiPolicy.MaxRounds; maxRounds > 0 && maxRounds < stableRounds {
+		return fmt.Errorf("defaults.delphi_policy.max_rounds must be >= stability_rounds")
+	}
+	if rounds := optionalValue(0, cfg.Defaults.DebatePolicy.Synthesis.AmendmentRounds); rounds < 0 || rounds > 3 {
 		return fmt.Errorf("defaults.debate_policy.synthesis.amendment_rounds must be within [0, 3]")
 	}
 	return nil

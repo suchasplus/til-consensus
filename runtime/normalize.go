@@ -87,12 +87,26 @@ func TaskOutputJSONSchema(task consensus.Task) map[string]any {
 				"votes":   arraySchema(debateVoteSchema()),
 			},
 		)
-	case consensus.DelphiQuestionnaireTask, consensus.DelphiRevisionTask:
+	case consensus.DelphiQuestionnaireTask:
+		typed := task.(consensus.DelphiQuestionnaireTask)
+		responses := arraySchema(delphiResponseSchema(typed.RatingScaleMin, typed.RatingScaleMax))
+		responses["minItems"] = 1
 		return objectSchema(
 			[]string{"summary", "responses"},
 			map[string]any{
 				"summary":   schemaString(),
-				"responses": arraySchema(delphiResponseSchema()),
+				"responses": responses,
+			},
+		)
+	case consensus.DelphiRevisionTask:
+		typed := task.(consensus.DelphiRevisionTask)
+		responses := arraySchema(delphiResponseSchema(typed.RatingScaleMin, typed.RatingScaleMax))
+		responses["minItems"] = 1
+		return objectSchema(
+			[]string{"summary", "responses"},
+			map[string]any{
+				"summary":   schemaString(),
+				"responses": responses,
 			},
 		)
 	case consensus.DelphiFacilitatorSummaryTask:
@@ -418,6 +432,7 @@ func decodeTaskOutputFromJSON(task consensus.Task, payload []byte) (consensus.Ta
 		}
 		return consensus.SynthesisTaskResult{Output: output}, nil
 	case consensus.FinalVoteTask:
+		voteTask := task.(consensus.FinalVoteTask)
 		var output consensus.FinalVoteOutput
 		if err := json.Unmarshal(payload, &output); err != nil {
 			return nil, fmt.Errorf("decode final vote output: %w", err)
@@ -425,7 +440,7 @@ func decodeTaskOutputFromJSON(task consensus.Task, payload []byte) (consensus.Ta
 		if strings.TrimSpace(output.Summary) == "" {
 			return nil, fmt.Errorf("final vote output missing summary")
 		}
-		if err := validateDebateVotes(output.Votes); err != nil {
+		if err := consensus.ValidateDebateVotes(voteTask.Claims, output.Votes); err != nil {
 			return nil, fmt.Errorf("validate final vote output: %w", err)
 		}
 		if err := validateDebateVoteCalibration(output.Votes); err != nil {
@@ -446,6 +461,7 @@ func decodeTaskOutputFromJSON(task consensus.Task, payload []byte) (consensus.Ta
 		}
 		return consensus.SemanticVerificationTaskResult{Output: output}, nil
 	case consensus.DelphiQuestionnaireTask:
+		delphiTask := task.(consensus.DelphiQuestionnaireTask)
 		var output consensus.DelphiQuestionnaireOutput
 		if err := json.Unmarshal(payload, &output); err != nil {
 			return nil, fmt.Errorf("decode delphi questionnaire output: %w", err)
@@ -453,11 +469,12 @@ func decodeTaskOutputFromJSON(task consensus.Task, payload []byte) (consensus.Ta
 		if strings.TrimSpace(output.Summary) == "" {
 			return nil, fmt.Errorf("delphi questionnaire output missing summary")
 		}
-		if err := validateDelphiResponses(output.Responses); err != nil {
+		if err := consensus.ValidateDelphiResponses(output.Responses, delphiTask.RatingScaleMin, delphiTask.RatingScaleMax); err != nil {
 			return nil, fmt.Errorf("validate delphi questionnaire output: %w", err)
 		}
 		return consensus.DelphiQuestionnaireTaskResult{Output: output}, nil
 	case consensus.DelphiRevisionTask:
+		delphiTask := task.(consensus.DelphiRevisionTask)
 		var output consensus.DelphiRevisionOutput
 		if err := json.Unmarshal(payload, &output); err != nil {
 			return nil, fmt.Errorf("decode delphi revision output: %w", err)
@@ -465,7 +482,7 @@ func decodeTaskOutputFromJSON(task consensus.Task, payload []byte) (consensus.Ta
 		if strings.TrimSpace(output.Summary) == "" {
 			return nil, fmt.Errorf("delphi revision output missing summary")
 		}
-		if err := validateDelphiResponses(output.Responses); err != nil {
+		if err := consensus.ValidateDelphiResponses(output.Responses, delphiTask.RatingScaleMin, delphiTask.RatingScaleMax); err != nil {
 			return nil, fmt.Errorf("validate delphi revision output: %w", err)
 		}
 		return consensus.DelphiRevisionTaskResult{Output: output}, nil
@@ -619,13 +636,16 @@ func debateClaimMergeSchema() map[string]any {
 	)
 }
 
-func delphiResponseSchema() map[string]any {
+func delphiResponseSchema(scaleMin, scaleMax int) map[string]any {
+	rating := schemaNumber()
+	rating["minimum"] = scaleMin
+	rating["maximum"] = scaleMax
 	return objectSchema(
-		nil,
+		[]string{"rating"},
 		map[string]any{
 			"statementId": schemaString(),
 			"statement":   schemaString(),
-			"rating":      schemaNumber(),
+			"rating":      rating,
 			"rationale":   schemaString(),
 		},
 	)
@@ -971,52 +991,31 @@ func validateDebateJudgements(judgements []consensus.DebateJudgementDraft) error
 	return nil
 }
 
-func validateDebateVotes(votes []consensus.DebateVoteDraft) error {
-	for idx, vote := range votes {
-		if strings.TrimSpace(vote.ClaimID) == "" {
-			return fmt.Errorf("votes[%d].claimId is required", idx)
-		}
-		if !isAllowedDebateVote(vote.Vote) {
-			return fmt.Errorf("votes[%d].vote must be one of accept|reject|abstain", idx)
-		}
-		if vote.Confidence == nil {
-			return fmt.Errorf("votes[%d].confidence is required", idx)
-		}
-		if *vote.Confidence < 0 || *vote.Confidence > 1 {
-			return fmt.Errorf("votes[%d].confidence must be within [0,1]", idx)
-		}
-		// confidence is the continuous support score (0=strong reject,
-		// 1=strong accept), not certainty in the vote label; a label that
-		// contradicts the score is a contract violation.
-		if vote.Vote == consensus.DebateVoteAccept && *vote.Confidence < 0.5 {
-			return fmt.Errorf("votes[%d]: vote=accept requires confidence >= 0.5 because confidence is the continuous support score, got %.2f", idx, *vote.Confidence)
-		}
-		if vote.Vote == consensus.DebateVoteReject && *vote.Confidence > 0.5 {
-			return fmt.Errorf("votes[%d]: vote=reject requires confidence <= 0.5 because confidence is the continuous support score, got %.2f", idx, *vote.Confidence)
-		}
-	}
-	return nil
-}
-
 // validateDebateVoteCalibration rejects only the laziest ballots: five or
-// more votes that all carry the exact same confidence carry no comparative
-// signal. Smaller ballots and any ballot with at least two distinct scores
-// pass, so an honest uniformly-positive voter is not forced to fake spread.
+// more support-bearing votes that all carry the exact same confidence carry
+// no comparative signal. Abstentions are diagnostic and their confidence is
+// intentionally ignored here and by support-score aggregation.
 func validateDebateVoteCalibration(votes []consensus.DebateVoteDraft) error {
 	const minBallotForCalibration = 5
-	if len(votes) < minBallotForCalibration {
+	supportVotes := make([]consensus.DebateVoteDraft, 0, len(votes))
+	for _, vote := range votes {
+		if vote.Vote != consensus.DebateVoteAbstain {
+			supportVotes = append(supportVotes, vote)
+		}
+	}
+	if len(supportVotes) < minBallotForCalibration {
 		return nil
 	}
-	first := votes[0].Confidence
+	first := supportVotes[0].Confidence
 	if first == nil {
 		return nil
 	}
-	for _, vote := range votes[1:] {
+	for _, vote := range supportVotes[1:] {
 		if vote.Confidence == nil || *vote.Confidence != *first {
 			return nil
 		}
 	}
-	return fmt.Errorf("all %d votes share confidence %.2f; calibrate scores comparatively so stronger claims score higher than weaker ones", len(votes), *first)
+	return fmt.Errorf("all %d support-bearing votes share confidence %.2f; calibrate scores comparatively so stronger claims score higher than weaker ones", len(supportVotes), *first)
 }
 
 // validateDebateNewClaims only checks the category label. Process/meta
@@ -1081,15 +1080,6 @@ func validateDebateClaimMerges(claims []consensus.DebateClaim, merges []consensu
 	return nil
 }
 
-func validateDelphiResponses(responses []consensus.DelphiResponseDraft) error {
-	for idx, response := range responses {
-		if strings.TrimSpace(response.StatementID) == "" && strings.TrimSpace(response.Statement) == "" {
-			return fmt.Errorf("responses[%d] requires statementId or statement", idx)
-		}
-	}
-	return nil
-}
-
 func validateArbiterOutput(output consensus.ArbiterTaskOutput) error {
 	if !isAllowedTaskVerdict(output.TaskVerdict) {
 		return fmt.Errorf("taskVerdict must be one of supported|partially_supported|undetermined|failed")
@@ -1144,15 +1134,6 @@ func isAllowedRevisionAction(value consensus.RevisionAction) bool {
 func isAllowedDebateJudgement(value consensus.DebateJudgement) bool {
 	switch value {
 	case consensus.DebateJudgementAgree, consensus.DebateJudgementDisagree, consensus.DebateJudgementRevise, consensus.DebateJudgementNoChange:
-		return true
-	default:
-		return false
-	}
-}
-
-func isAllowedDebateVote(value consensus.DebateVoteChoice) bool {
-	switch value {
-	case consensus.DebateVoteAccept, consensus.DebateVoteReject, consensus.DebateVoteAbstain:
 		return true
 	default:
 		return false

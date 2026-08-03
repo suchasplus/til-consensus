@@ -110,13 +110,28 @@ func TestResolveRunArtifactsRelativeOutputUsesWorkingDirectory(t *testing.T) {
 			Output:        OutputConfig{Directory: "./out/{requestId}"},
 		}),
 	}
-	paths := ResolveRunArtifacts(loaded, "req-1")
+	paths, err := ResolveRunArtifactsChecked(loaded, "req-1")
+	if err != nil {
+		t.Fatalf("ResolveRunArtifacts failed: %v", err)
+	}
 	want := filepath.Join(resolvedCWD, "out", "req-1", "result.json")
 	if paths.ResultPath != want {
 		t.Fatalf("relative output should resolve from cwd: got=%s want=%s", paths.ResultPath, want)
 	}
 	if strings.HasPrefix(paths.ResultPath, configDir) {
 		t.Fatalf("relative output should not resolve from config dir: %s", paths.ResultPath)
+	}
+}
+
+func TestResolveRunArtifactsRejectsRequestIDPathEscape(t *testing.T) {
+	loaded := LoadedConfig{Config: Normalize(Config{
+		SchemaVersion: 1,
+		Output:        OutputConfig{Directory: filepath.Join(t.TempDir(), "out", "{requestId}")},
+	})}
+	for _, requestID := range []string{"../escape", "a/b", `a\b`, "a..b"} {
+		if _, err := ResolveRunArtifactsChecked(loaded, requestID); err == nil {
+			t.Fatalf("expected unsafe request id %q to fail", requestID)
+		}
 	}
 }
 
@@ -148,6 +163,11 @@ func TestResolveRunPlanSupportsDebateAndDelphiModes(t *testing.T) {
 			SchemaVersion: 1,
 			Defaults: DefaultsConfig{
 				Mode: consensus.WorkflowModeFreeDebate,
+				DebatePolicy: DebatePolicyConfig{
+					VoteQuorum:      float64Ptr(0.6),
+					EnableEarlyStop: boolPtr(true),
+				},
+				DelphiPolicy: DelphiPolicyConfig{Anonymous: boolPtr(true)},
 			},
 			Output: OutputConfig{Directory: "./out/{requestId}"},
 			Providers: map[string]ProviderConfig{
@@ -167,6 +187,10 @@ func TestResolveRunPlanSupportsDebateAndDelphiModes(t *testing.T) {
 
 	debatePlan, err := ResolveRunPlan(loaded, RunInput{
 		TaskSpec: TaskSpecInput{Goal: "debate goal"},
+		DebatePolicy: DebatePolicyConfig{
+			VoteQuorum:      float64Ptr(0),
+			EnableEarlyStop: boolPtr(false),
+		},
 	}, RunOverrides{}, time.Unix(1700000000, 0))
 	if err != nil {
 		t.Fatalf("ResolveRunPlan debate failed: %v", err)
@@ -174,16 +198,29 @@ func TestResolveRunPlanSupportsDebateAndDelphiModes(t *testing.T) {
 	if debatePlan.Mode != consensus.WorkflowModeFreeDebate || len(debatePlan.StartRequest.Roles.Participants) != 2 {
 		t.Fatalf("unexpected debate plan: %#v", debatePlan)
 	}
+	if debatePlan.StartRequest.DebatePolicy.VoteQuorum != 0 || debatePlan.StartRequest.DebatePolicy.EnableEarlyStop == nil || *debatePlan.StartRequest.DebatePolicy.EnableEarlyStop {
+		t.Fatalf("explicit false/zero debate input must override defaults: %#v", debatePlan.StartRequest.DebatePolicy)
+	}
 
 	delphiPlan, err := ResolveRunPlan(loaded, RunInput{
-		Mode:     consensus.WorkflowModeDelphi,
-		TaskSpec: TaskSpecInput{Goal: "delphi goal"},
+		Mode:         consensus.WorkflowModeDelphi,
+		TaskSpec:     TaskSpecInput{Goal: "delphi goal"},
+		DelphiPolicy: DelphiPolicyConfig{Anonymous: boolPtr(false)},
 	}, RunOverrides{}, time.Unix(1700000000, 0))
 	if err != nil {
 		t.Fatalf("ResolveRunPlan delphi failed: %v", err)
 	}
 	if delphiPlan.Mode != consensus.WorkflowModeDelphi || delphiPlan.StartRequest.Roles.Facilitator != "f1" {
 		t.Fatalf("unexpected delphi plan: %#v", delphiPlan)
+	}
+	if delphiPlan.StartRequest.DelphiPolicy.Anonymous == nil || *delphiPlan.StartRequest.DelphiPolicy.Anonymous {
+		t.Fatalf("explicit anonymous=false must survive plan normalization: %#v", delphiPlan.StartRequest.DelphiPolicy)
+	}
+	policy := delphiPlan.StartRequest.DelphiPolicy
+	if policy.ResponseQuorum != consensus.DefaultDelphiResponseQuorum ||
+		policy.MinResponsesPerStatement != consensus.DefaultDelphiMinResponses ||
+		policy.StabilityRounds != consensus.DefaultDelphiStabilityRounds {
+		t.Fatalf("unexpected Delphi sample/stability defaults: %#v", policy)
 	}
 }
 
@@ -343,7 +380,7 @@ func TestResolveRunPlanForRequestAndSessionStoreDir(t *testing.T) {
 		VerificationPolicy: consensus.VerificationPolicy{
 			MaxParallelChecks: 1,
 		},
-		ArbiterPolicy: consensus.ArbiterPolicy{AllowUndetermined: true, BlindReview: true},
+		ArbiterPolicy: consensus.ArbiterPolicy{},
 		ReportPolicy:  consensus.ReportPolicy{Style: "builtin"},
 		WaitingPolicy: consensus.WaitingPolicy{PerTaskTimeout: time.Second},
 	})

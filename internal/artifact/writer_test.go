@@ -48,6 +48,15 @@ func TestWriteRunArtifacts(t *testing.T) {
 	if _, err := os.Stat(resultPath); err != nil {
 		t.Fatalf("result artifact missing: %v", err)
 	}
+	for _, path := range []string{resultPath, summaryPath} {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("stat artifact: %v", err)
+		}
+		if got := info.Mode().Perm(); got != 0o600 {
+			t.Fatalf("artifact mode for %s: got=%#o want=0600", path, got)
+		}
+	}
 	summary, err := os.ReadFile(summaryPath)
 	if err != nil {
 		t.Fatalf("read summary: %v", err)

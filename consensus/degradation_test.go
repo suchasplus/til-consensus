@@ -16,7 +16,7 @@ func newDebateDegradationRequest(participants ...string) StartRequest {
 		MinRounds:       1,
 		MaxRounds:       1,
 		VoteThreshold:   1.0,
-		EnableEarlyStop: true,
+		EnableEarlyStop: ptr(true),
 		PeerContextMode: "summary+active_claims",
 	}
 	return request
@@ -98,15 +98,12 @@ func TestFreeDebateQuorumNotMetOverridesOutcome(t *testing.T) {
 	if absences := degradationsByKind(result, DegradationParticipantAbsent); len(absences) != 1 {
 		t.Fatalf("expected one participant_absent degradation, got %#v", result.Degradations)
 	}
-	// Per-claim resolutions still reflect the votes that were cast.
-	accepted := 0
+	// Quorum is enforced on every claim, so no under-quorum claim remains
+	// accepted even when its support score would otherwise pass.
 	for _, resolution := range section.ClaimResolutions {
 		if resolution.Accepted {
-			accepted++
+			t.Fatalf("expected under-quorum claim to be rejected, got %#v", resolution)
 		}
-	}
-	if accepted == 0 {
-		t.Fatal("expected cast votes to still resolve claims under quorum failure")
 	}
 }
 
@@ -124,6 +121,37 @@ func TestFreeDebateQuorumSatisfiedKeepsOutcome(t *testing.T) {
 	}
 	if quorumRecords := degradationsByKind(result, DegradationQuorumNotMet); len(quorumRecords) != 0 {
 		t.Fatalf("expected no quorum degradation, got %#v", quorumRecords)
+	}
+}
+
+func TestFreeDebateRejectsEmptySuccessfulBallotBeforeQuorum(t *testing.T) {
+	delegate := &stubDelegate{
+		finalVoteDrafts: map[string][]DebateVoteDraft{
+			"debater-3": {},
+		},
+	}
+	engine := newDegradationEngine(delegate)
+	request := newDebateDegradationRequest("debater-1", "debater-2", "debater-3")
+	request.DebatePolicy.VoteQuorum = 0.75
+	result, err := engine.Start(context.Background(), request)
+	if err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	section := result.FreeDebate
+	if !slices.Equal(section.Voters, []string{"debater-1", "debater-2"}) || !slices.Equal(section.AbsentVoters, []string{"debater-3"}) {
+		t.Fatalf("empty ballot must not count as a voter: %#v", section)
+	}
+	if section.Outcome != FreeDebateOutcomeQuorumNotMet {
+		t.Fatalf("expected claim-level quorum failure, got %s", section.Outcome)
+	}
+	for _, vote := range section.Votes {
+		if vote.AgentID == "debater-3" {
+			t.Fatalf("invalid ballot must be rejected atomically, got %#v", section.Votes)
+		}
+	}
+	absences := degradationsByKind(result, DegradationParticipantAbsent)
+	if len(absences) != 1 || absences[0].AgentID != "debater-3" || !strings.Contains(absences[0].Reason, "ballot is empty") {
+		t.Fatalf("expected invalid-ballot degradation, got %#v", absences)
 	}
 }
 

@@ -3,11 +3,10 @@ package artifact
 import (
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/suchasplus/til-consensus/consensus"
+	"github.com/suchasplus/til-consensus/internal/securefs"
 )
 
 func WriteRunArtifacts(result *consensus.RunResult, resultPath, summaryPath string) error {
@@ -38,10 +37,7 @@ func writeJSON(path string, value any) error {
 }
 
 func writeText(path, value string) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("create artifact dir: %w", err)
-	}
-	if err := os.WriteFile(path, []byte(value), 0o644); err != nil {
+	if err := securefs.WriteFile(path, []byte(value)); err != nil {
 		return fmt.Errorf("write artifact: %w", err)
 	}
 	return nil

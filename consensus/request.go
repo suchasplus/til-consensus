@@ -28,6 +28,9 @@ const (
 	DefaultConvergence                = 0.8
 	DefaultRatingScaleMin             = 1
 	DefaultRatingScaleMax             = 5
+	DefaultDelphiResponseQuorum       = 0.6
+	DefaultDelphiMinResponses         = 2
+	DefaultDelphiStabilityRounds      = 2
 )
 
 type WorkflowMode string
@@ -180,13 +183,13 @@ type VerificationCheck struct {
 
 type VerificationPolicy struct {
 	RequiredChecks        []VerificationCheck `json:"requiredChecks,omitempty" yaml:"required_checks,omitempty"`
-	AllowSemanticVerifier bool                `json:"allowSemanticVerifier" yaml:"allow_semantic_verifier"`
+	AllowSemanticVerifier *bool               `json:"allowSemanticVerifier,omitempty" yaml:"allow_semantic_verifier,omitempty"`
 	MaxParallelChecks     int                 `json:"maxParallelChecks,omitempty" yaml:"max_parallel_checks,omitempty"`
 }
 
 type ArbiterPolicy struct {
-	AllowUndetermined bool `json:"allowUndetermined" yaml:"allow_undetermined"`
-	BlindReview       bool `json:"blindReview" yaml:"blind_review"`
+	AllowUndetermined *bool `json:"allowUndetermined,omitempty" yaml:"allow_undetermined,omitempty"`
+	BlindReview       *bool `json:"blindReview,omitempty" yaml:"blind_review,omitempty"`
 }
 
 // DebateVoteAggregation selects how per-voter support scores are aggregated
@@ -213,8 +216,8 @@ type DebatePolicy struct {
 	// score; empty means median.
 	VoteAggregation DebateVoteAggregation `json:"voteAggregation,omitempty" yaml:"vote_aggregation,omitempty"`
 	// VoteQuorum is the minimum fraction (0..1] of configured participants that
-	// must return a final vote for the computed outcome to stand. 0 disables
-	// the check and keeps the pre-quorum behavior.
+	// must cast a vote on each active claim for the computed outcome to stand.
+	// 0 disables the check and keeps the pre-quorum behavior.
 	VoteQuorum float64 `json:"voteQuorum,omitempty" yaml:"vote_quorum,omitempty"`
 	// MaxNewClaimsPerRound caps how many newClaims one participant may add in
 	// one debate round; extras are discarded by the coordinator. 0 means the
@@ -224,7 +227,7 @@ type DebatePolicy struct {
 	// rounds forbid new claims entirely (judgements and merges only). 0 means
 	// the default (DefaultDebateMaxActiveClaims).
 	MaxActiveClaims int                       `json:"maxActiveClaims,omitempty" yaml:"max_active_claims,omitempty"`
-	EnableEarlyStop bool                      `json:"enableEarlyStop" yaml:"enable_early_stop"`
+	EnableEarlyStop *bool                     `json:"enableEarlyStop,omitempty" yaml:"enable_early_stop,omitempty"`
 	PeerContextMode string                    `json:"peerContextMode,omitempty" yaml:"peer_context_mode,omitempty"`
 	SemanticDedup   DebateSemanticDedupPolicy `json:"semanticDedup,omitempty" yaml:"semantic_dedup,omitempty"`
 	Synthesis       DebateSynthesisPolicy     `json:"synthesis,omitempty" yaml:"synthesis,omitempty"`
@@ -262,13 +265,16 @@ type DebateSemanticDedupPolicy struct {
 }
 
 type DelphiPolicy struct {
-	MinRounds               int     `json:"minRounds,omitempty" yaml:"min_rounds,omitempty"`
-	MaxRounds               int     `json:"maxRounds,omitempty" yaml:"max_rounds,omitempty"`
-	ConvergenceThreshold    float64 `json:"convergenceThreshold,omitempty" yaml:"convergence_threshold,omitempty"`
-	RatingScaleMin          int     `json:"ratingScaleMin,omitempty" yaml:"rating_scale_min,omitempty"`
-	RatingScaleMax          int     `json:"ratingScaleMax,omitempty" yaml:"rating_scale_max,omitempty"`
-	Anonymous               bool    `json:"anonymous" yaml:"anonymous"`
-	FacilitatorSummaryStyle string  `json:"facilitatorSummaryStyle,omitempty" yaml:"facilitator_summary_style,omitempty"`
+	MinRounds                int     `json:"minRounds,omitempty" yaml:"min_rounds,omitempty"`
+	MaxRounds                int     `json:"maxRounds,omitempty" yaml:"max_rounds,omitempty"`
+	ConvergenceThreshold     float64 `json:"convergenceThreshold,omitempty" yaml:"convergence_threshold,omitempty"`
+	RatingScaleMin           int     `json:"ratingScaleMin,omitempty" yaml:"rating_scale_min,omitempty"`
+	RatingScaleMax           int     `json:"ratingScaleMax,omitempty" yaml:"rating_scale_max,omitempty"`
+	ResponseQuorum           float64 `json:"responseQuorum,omitempty" yaml:"response_quorum,omitempty"`
+	MinResponsesPerStatement int     `json:"minResponsesPerStatement,omitempty" yaml:"min_responses_per_statement,omitempty"`
+	StabilityRounds          int     `json:"stabilityRounds,omitempty" yaml:"stability_rounds,omitempty"`
+	Anonymous                *bool   `json:"anonymous,omitempty" yaml:"anonymous,omitempty"`
+	FacilitatorSummaryStyle  string  `json:"facilitatorSummaryStyle,omitempty" yaml:"facilitator_summary_style,omitempty"`
 }
 
 type ReportPolicy struct {
@@ -278,7 +284,7 @@ type ReportPolicy struct {
 type ActionPolicy struct {
 	Prompt        string         `json:"prompt" yaml:"prompt"`
 	ActorID       string         `json:"actorId,omitempty" yaml:"actor_id,omitempty"`
-	IncludeResult bool           `json:"includeResult" yaml:"include_result"`
+	IncludeResult *bool          `json:"includeResult,omitempty" yaml:"include_result,omitempty"`
 	RiskGate      ActionRiskGate `json:"riskGate,omitempty" yaml:"risk_gate,omitempty"`
 }
 
@@ -298,13 +304,18 @@ type RunLineage struct {
 type SessionCheckpoint struct {
 	Mode               WorkflowMode `json:"mode,omitempty"`
 	LastCompletedPhase SessionPhase `json:"lastCompletedPhase,omitempty"`
-	ActiveClaimIDs     []string     `json:"activeClaimIds,omitempty"`
-	RevisionRound      int          `json:"revisionRound,omitempty"`
-	VerifyRounds       int          `json:"verifyRounds,omitempty"`
-	FallbacksUsed      int          `json:"fallbacksUsed,omitempty"`
-	MaterialChange     bool         `json:"materialChange,omitempty"`
-	DebateRound        int          `json:"debateRound,omitempty"`
-	DelphiRound        int          `json:"delphiRound,omitempty"`
+	// Step identifies a durable sub-phase boundary for workflows whose main
+	// phase contains multiple externally-dispatched rounds. Resume always
+	// continues after this boundary rather than replaying completed work.
+	Step                    string   `json:"step,omitempty"`
+	ActiveClaimIDs          []string `json:"activeClaimIds,omitempty"`
+	RevisionRound           int      `json:"revisionRound,omitempty"`
+	VerifyRounds            int      `json:"verifyRounds,omitempty"`
+	FallbacksUsed           int      `json:"fallbacksUsed,omitempty"`
+	MaterialChange          bool     `json:"materialChange,omitempty"`
+	DebateRound             int      `json:"debateRound,omitempty"`
+	DelphiRound             int      `json:"delphiRound,omitempty"`
+	DelphiStableStatementID string   `json:"delphiStableStatementId,omitempty"`
 }
 
 type StartRequest struct {
@@ -434,16 +445,14 @@ func NormalizeStartRequest(in StartRequest) (StartRequest, error) {
 	if out.ObservePolicy.OnContradiction == "" {
 		out.ObservePolicy.OnContradiction = ObserveContradictionReopen
 	}
-	if out.VerificationPolicy.AllowSemanticVerifier || out.Roles.SemanticVerifier == "" {
-		// preserve explicit true, otherwise infer below
-	} else {
-		out.VerificationPolicy.AllowSemanticVerifier = true
+	if out.VerificationPolicy.AllowSemanticVerifier == nil {
+		out.VerificationPolicy.AllowSemanticVerifier = ptr(true)
 	}
-	if !out.ArbiterPolicy.AllowUndetermined {
-		out.ArbiterPolicy.AllowUndetermined = true
+	if out.ArbiterPolicy.AllowUndetermined == nil {
+		out.ArbiterPolicy.AllowUndetermined = ptr(true)
 	}
-	if !out.ArbiterPolicy.BlindReview {
-		out.ArbiterPolicy.BlindReview = true
+	if out.ArbiterPolicy.BlindReview == nil {
+		out.ArbiterPolicy.BlindReview = ptr(true)
 	}
 	if out.DebatePolicy.MinRounds == 0 {
 		out.DebatePolicy.MinRounds = DefaultDebateMinRounds
@@ -466,8 +475,8 @@ func NormalizeStartRequest(in StartRequest) (StartRequest, error) {
 	if out.DebatePolicy.SemanticDedup.Cadence == "" {
 		out.DebatePolicy.SemanticDedup.Cadence = DebateSemanticDedupCadencePerRound
 	}
-	if !out.DebatePolicy.EnableEarlyStop {
-		out.DebatePolicy.EnableEarlyStop = true
+	if out.DebatePolicy.EnableEarlyStop == nil {
+		out.DebatePolicy.EnableEarlyStop = ptr(true)
 	}
 	if strings.TrimSpace(out.DebatePolicy.PeerContextMode) == "" {
 		out.DebatePolicy.PeerContextMode = "summary+active_claims"
@@ -490,8 +499,17 @@ func NormalizeStartRequest(in StartRequest) (StartRequest, error) {
 	if out.DelphiPolicy.RatingScaleMax == 0 {
 		out.DelphiPolicy.RatingScaleMax = DefaultRatingScaleMax
 	}
-	if !out.DelphiPolicy.Anonymous {
-		out.DelphiPolicy.Anonymous = true
+	if out.DelphiPolicy.ResponseQuorum == 0 {
+		out.DelphiPolicy.ResponseQuorum = DefaultDelphiResponseQuorum
+	}
+	if out.DelphiPolicy.MinResponsesPerStatement == 0 {
+		out.DelphiPolicy.MinResponsesPerStatement = DefaultDelphiMinResponses
+	}
+	if out.DelphiPolicy.StabilityRounds == 0 {
+		out.DelphiPolicy.StabilityRounds = DefaultDelphiStabilityRounds
+	}
+	if out.DelphiPolicy.Anonymous == nil {
+		out.DelphiPolicy.Anonymous = ptr(true)
 	}
 	if strings.TrimSpace(out.DelphiPolicy.FacilitatorSummaryStyle) == "" {
 		out.DelphiPolicy.FacilitatorSummaryStyle = "anonymous-aggregate"
@@ -506,8 +524,8 @@ func NormalizeStartRequest(in StartRequest) (StartRequest, error) {
 		clone := *out.ActionPolicy
 		clone.Prompt = strings.TrimSpace(clone.Prompt)
 		clone.ActorID = strings.TrimSpace(clone.ActorID)
-		if !clone.IncludeResult {
-			clone.IncludeResult = true
+		if clone.IncludeResult == nil {
+			clone.IncludeResult = ptr(true)
 		}
 		if clone.RiskGate == "" {
 			clone.RiskGate = ActionRiskGateLowOnly
@@ -521,8 +539,8 @@ func NormalizeStartRequest(in StartRequest) (StartRequest, error) {
 }
 
 func ValidateStartRequest(in StartRequest) error {
-	if strings.TrimSpace(in.RequestID) == "" {
-		return fmt.Errorf("request_id is required")
+	if err := ValidateRequestID(in.RequestID); err != nil {
+		return err
 	}
 	if strings.TrimSpace(in.TaskSpec.Goal) == "" {
 		return fmt.Errorf("task_spec.goal is required")
@@ -580,6 +598,21 @@ func ValidateStartRequest(in StartRequest) error {
 		}
 		if in.DelphiPolicy.RatingScaleMin >= in.DelphiPolicy.RatingScaleMax {
 			return fmt.Errorf("delphi_policy.rating_scale_min must be < rating_scale_max")
+		}
+		if in.DelphiPolicy.ResponseQuorum <= 0 || in.DelphiPolicy.ResponseQuorum > 1 {
+			return fmt.Errorf("delphi_policy.response_quorum must be in (0,1]")
+		}
+		if in.DelphiPolicy.MinResponsesPerStatement < 1 {
+			return fmt.Errorf("delphi_policy.min_responses_per_statement must be >= 1")
+		}
+		if in.DelphiPolicy.MinResponsesPerStatement > len(in.Roles.Participants) {
+			return fmt.Errorf("delphi_policy.min_responses_per_statement must not exceed participant count")
+		}
+		if in.DelphiPolicy.StabilityRounds < 2 {
+			return fmt.Errorf("delphi_policy.stability_rounds must be >= 2")
+		}
+		if in.DelphiPolicy.MaxRounds < in.DelphiPolicy.StabilityRounds {
+			return fmt.Errorf("delphi_policy.max_rounds must be >= stability_rounds")
 		}
 	default:
 		return fmt.Errorf("unsupported mode: %s", in.Mode)
@@ -763,6 +796,13 @@ func dedupeStrings(items []string) []string {
 		out = append(out, trimmed)
 	}
 	return out
+}
+
+func boolOrDefault(value *bool, fallback bool) bool {
+	if value == nil {
+		return fallback
+	}
+	return *value
 }
 
 func cloneAnyMap(in map[string]any) map[string]any {

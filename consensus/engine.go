@@ -82,11 +82,18 @@ func (e *Engine) Resume(ctx context.Context, snapshot SessionSnapshot) (_ *RunRe
 	if err != nil {
 		return nil, err
 	}
+	if snapshot.Phase == SessionPhaseFinished && snapshot.Result != nil {
+		return snapshot.Result, nil
+	}
 	switch request.Mode {
 	case WorkflowModeAdjudication:
 		return e.resumeAdjudication(ctx, request, snapshot)
+	case WorkflowModeFreeDebate:
+		return e.resumeFreeDebate(ctx, request, snapshot)
+	case WorkflowModeDelphi:
+		return e.resumeDelphi(ctx, request, snapshot)
 	default:
-		return nil, fmt.Errorf("phase 级 resume 目前仅支持 adjudication 模式，当前模式=%s", request.Mode)
+		return nil, fmt.Errorf("unsupported resume mode: %s", request.Mode)
 	}
 }
 
@@ -154,6 +161,10 @@ func (e *Engine) executeAction(ctx context.Context, request StartRequest, input 
 		return nil, ErrGlobalDeadlineExceeded
 	}
 	defer cancel()
+	var actionInput *RunResult
+	if request.ActionPolicy.IncludeResult == nil || *request.ActionPolicy.IncludeResult {
+		actionInput = &input
+	}
 	_, awaited, err := e.executeTask(actionCtx, request, input.SessionID, ActionTask{
 		TaskMeta: TaskMeta{
 			SessionID: input.SessionID,
@@ -162,7 +173,7 @@ func (e *Engine) executeAction(ctx context.Context, request StartRequest, input 
 			Role:      "actor",
 		},
 		Prompt: request.ActionPolicy.Prompt,
-		Input:  input,
+		Input:  actionInput,
 	}, startedAt, request.WaitingPolicy.PerTaskTimeout)
 	if err != nil {
 		return nil, err

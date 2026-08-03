@@ -160,13 +160,13 @@ type ProposalPolicyConfig struct {
 
 type VerificationPolicyConfig struct {
 	RequiredChecks        []consensus.VerificationCheck `yaml:"required_checks,omitempty"`
-	AllowSemanticVerifier bool                          `yaml:"allow_semantic_verifier"`
+	AllowSemanticVerifier *bool                         `yaml:"allow_semantic_verifier,omitempty"`
 	MaxParallelChecks     int                           `yaml:"max_parallel_checks,omitempty"`
 }
 
 type ArbiterPolicyConfig struct {
-	AllowUndetermined bool `yaml:"allow_undetermined"`
-	BlindReview       bool `yaml:"blind_review"`
+	AllowUndetermined *bool `yaml:"allow_undetermined,omitempty"`
+	BlindReview       *bool `yaml:"blind_review,omitempty"`
 }
 
 type DebatePolicyConfig struct {
@@ -181,23 +181,23 @@ type DebatePolicyConfig struct {
 	// VoteAggregation aggregates per-voter support scores into the claim
 	// score: "median" (default) or "mean".
 	VoteAggregation string `yaml:"vote_aggregation,omitempty"`
-	// VoteQuorum is the minimum fraction (0..1] of participants that must
-	// return a final vote; 0 disables the check.
-	VoteQuorum float64 `yaml:"vote_quorum,omitempty"`
+	// VoteQuorum is the minimum fraction (0..1] of participants that must cast
+	// one vote on each active claim; 0 disables the check.
+	VoteQuorum *float64 `yaml:"vote_quorum,omitempty"`
 	// MaxNewClaimsPerRound caps how many newClaims one participant may add
 	// per debate round; 0 means the built-in default (5).
 	MaxNewClaimsPerRound int `yaml:"max_new_claims_per_round,omitempty"`
 	// MaxActiveClaims is the active-claim ceiling: once reached, rounds only
 	// allow judgements and merges; 0 means the built-in default (30).
 	MaxActiveClaims int                       `yaml:"max_active_claims,omitempty"`
-	EnableEarlyStop bool                      `yaml:"enable_early_stop"`
+	EnableEarlyStop *bool                     `yaml:"enable_early_stop,omitempty"`
 	PeerContextMode string                    `yaml:"peer_context_mode,omitempty"`
 	SemanticDedup   DebateSemanticDedupConfig `yaml:"semantic_dedup,omitempty"`
 	Synthesis       DebateSynthesisConfig     `yaml:"synthesis,omitempty"`
 }
 
 type DebateSemanticDedupConfig struct {
-	Enabled             bool    `yaml:"enabled"`
+	Enabled             *bool   `yaml:"enabled,omitempty"`
 	SimilarityThreshold float64 `yaml:"similarity_threshold,omitempty"`
 	// Cadence is per_round (default) or final.
 	Cadence string `yaml:"cadence,omitempty"`
@@ -206,18 +206,21 @@ type DebateSemanticDedupConfig struct {
 // DebateSynthesisConfig enables the pre-vote synthesis phase; it requires
 // roles.free_debate.synthesizer to be configured.
 type DebateSynthesisConfig struct {
-	Enabled         bool `yaml:"enabled"`
-	AmendmentRounds int  `yaml:"amendment_rounds,omitempty"`
+	Enabled         *bool `yaml:"enabled,omitempty"`
+	AmendmentRounds *int  `yaml:"amendment_rounds,omitempty"`
 }
 
 type DelphiPolicyConfig struct {
-	MinRounds               int     `yaml:"min_rounds,omitempty"`
-	MaxRounds               int     `yaml:"max_rounds,omitempty"`
-	ConvergenceThreshold    float64 `yaml:"convergence_threshold,omitempty"`
-	RatingScaleMin          int     `yaml:"rating_scale_min,omitempty"`
-	RatingScaleMax          int     `yaml:"rating_scale_max,omitempty"`
-	Anonymous               bool    `yaml:"anonymous"`
-	FacilitatorSummaryStyle string  `yaml:"facilitator_summary_style,omitempty"`
+	MinRounds                int     `yaml:"min_rounds,omitempty"`
+	MaxRounds                int     `yaml:"max_rounds,omitempty"`
+	ConvergenceThreshold     float64 `yaml:"convergence_threshold,omitempty"`
+	RatingScaleMin           int     `yaml:"rating_scale_min,omitempty"`
+	RatingScaleMax           int     `yaml:"rating_scale_max,omitempty"`
+	ResponseQuorum           float64 `yaml:"response_quorum,omitempty"`
+	MinResponsesPerStatement int     `yaml:"min_responses_per_statement,omitempty"`
+	StabilityRounds          int     `yaml:"stability_rounds,omitempty"`
+	Anonymous                *bool   `yaml:"anonymous,omitempty"`
+	FacilitatorSummaryStyle  string  `yaml:"facilitator_summary_style,omitempty"`
 }
 
 type OutputConfig struct {

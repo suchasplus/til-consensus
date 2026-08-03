@@ -11,30 +11,66 @@ import (
 	"sync"
 
 	"github.com/suchasplus/til-consensus/consensus"
+	"github.com/suchasplus/til-consensus/internal/securefs"
+	"golang.org/x/sys/unix"
 )
 
 type Store struct {
-	dir string
-	mu  sync.Mutex
+	dir          string
+	mu           sync.Mutex
+	canonicalDir string
 }
 
 func New(dir string) *Store {
 	return &Store{dir: strings.TrimSpace(dir)}
 }
 
-func (s *Store) Save(_ context.Context, session consensus.SessionSnapshot) error {
+func (s *Store) Save(ctx context.Context, session consensus.SessionSnapshot) error {
 	if strings.TrimSpace(session.SessionID) == "" {
 		return fmt.Errorf("session id is required")
 	}
-	return s.write(session)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	root, unlock, err := s.lockStoreLocked(ctx, true)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	path, err := sessionPath(root, session.SessionID)
+	if err != nil {
+		return err
+	}
+	if err := securefs.ValidateRegularTarget(path); err != nil {
+		return err
+	}
+	existing, err := loadLocked(root, session.SessionID)
+	if err != nil {
+		return err
+	}
+	session.Version = 1
+	if existing != nil {
+		session.Version = existing.Version + 1
+	}
+	return writeLocked(root, path, session)
 }
 
-func (s *Store) Load(_ context.Context, sessionID string) (*consensus.SessionSnapshot, error) {
-	path, err := s.sessionPath(sessionID)
+func (s *Store) Load(ctx context.Context, sessionID string) (*consensus.SessionSnapshot, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	root, unlock, err := s.lockStoreLocked(ctx, false)
 	if err != nil {
 		return nil, err
 	}
-	body, err := os.ReadFile(path)
+	defer unlock()
+	return loadLocked(root, sessionID)
+}
+
+func loadLocked(root string, sessionID string) (*consensus.SessionSnapshot, error) {
+	path, err := sessionPath(root, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	body, err := securefs.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -49,12 +85,22 @@ func (s *Store) Load(_ context.Context, sessionID string) (*consensus.SessionSna
 }
 
 func (s *Store) Patch(ctx context.Context, sessionID string, patch consensus.SessionPatch) error {
-	snapshot, err := s.Load(ctx, sessionID)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	root, unlock, err := s.lockStoreLocked(ctx, true)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	snapshot, err := loadLocked(root, sessionID)
 	if err != nil {
 		return err
 	}
 	if snapshot == nil {
 		return fmt.Errorf("unknown session id: %s", sessionID)
+	}
+	if patch.ExpectedVersion != nil && snapshot.Version != *patch.ExpectedVersion {
+		return fmt.Errorf("%w: session=%s expected=%d actual=%d", consensus.ErrSessionVersionConflict, sessionID, *patch.ExpectedVersion, snapshot.Version)
 	}
 	if patch.Phase != nil {
 		snapshot.Phase = *patch.Phase
@@ -98,6 +144,9 @@ func (s *Store) Patch(ctx context.Context, sessionID string, patch consensus.Ses
 	if patch.Metrics != nil {
 		snapshot.Metrics = *patch.Metrics
 	}
+	if patch.Degradations != nil {
+		snapshot.Degradations = append([]consensus.Degradation(nil), patch.Degradations...)
+	}
 	if patch.ResumeCount != nil {
 		snapshot.ResumeCount = *patch.ResumeCount
 	}
@@ -137,6 +186,21 @@ func (s *Store) Patch(ctx context.Context, sessionID string, patch consensus.Ses
 	if patch.DelphiConsensusLevel != nil {
 		snapshot.DelphiConsensusLevel = *patch.DelphiConsensusLevel
 	}
+	if patch.DelphiConverged != nil {
+		snapshot.DelphiConverged = *patch.DelphiConverged
+	}
+	if patch.DelphiResponseQuorumMet != nil {
+		snapshot.DelphiResponseQuorumMet = *patch.DelphiResponseQuorumMet
+	}
+	if patch.DelphiMinResponsesMet != nil {
+		snapshot.DelphiMinResponsesMet = *patch.DelphiMinResponsesMet
+	}
+	if patch.DelphiStableRounds != nil {
+		snapshot.DelphiStableRounds = *patch.DelphiStableRounds
+	}
+	if patch.DelphiLastStableStatementID != nil {
+		snapshot.DelphiLastStableStatementID = *patch.DelphiLastStableStatementID
+	}
 	if patch.DelphiRecommendation != nil {
 		snapshot.DelphiRecommendation = *patch.DelphiRecommendation
 	}
@@ -149,26 +213,39 @@ func (s *Store) Patch(ctx context.Context, sessionID string, patch consensus.Ses
 	if patch.Error != nil {
 		snapshot.Error = patch.Error
 	}
-	return s.write(*snapshot)
+	snapshot.Version++
+	path, err := sessionPath(root, sessionID)
+	if err != nil {
+		return err
+	}
+	return writeLocked(root, path, *snapshot)
 }
 
-func (s *Store) List(_ context.Context) ([]consensus.SessionSnapshot, error) {
-	if strings.TrimSpace(s.dir) == "" {
-		return nil, fmt.Errorf("session store dir is required")
+func (s *Store) List(ctx context.Context) ([]consensus.SessionSnapshot, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	root, unlock, err := s.lockStoreLocked(ctx, false)
+	if err != nil {
+		return nil, err
 	}
-	if err := os.MkdirAll(s.dir, 0o755); err != nil {
-		return nil, fmt.Errorf("create session store dir: %w", err)
-	}
-	entries, err := os.ReadDir(s.dir)
+	defer unlock()
+	entries, err := os.ReadDir(root)
 	if err != nil {
 		return nil, fmt.Errorf("read session store dir: %w", err)
 	}
 	out := make([]consensus.SessionSnapshot, 0, len(entries))
 	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+		if filepath.Ext(entry.Name()) != ".json" {
 			continue
 		}
-		body, err := os.ReadFile(filepath.Join(s.dir, entry.Name()))
+		if entry.Type()&os.ModeSymlink != 0 || !entry.Type().IsRegular() {
+			return nil, fmt.Errorf("session snapshot is not a regular file: %s", entry.Name())
+		}
+		path := filepath.Join(root, entry.Name())
+		if err := securefs.EnsureContained(root, path); err != nil {
+			return nil, err
+		}
+		body, err := securefs.ReadFile(path)
 		if err != nil {
 			return nil, fmt.Errorf("read session snapshot %s: %w", entry.Name(), err)
 		}
@@ -201,38 +278,132 @@ func (s *Store) ListByRequestID(ctx context.Context, requestID string) ([]consen
 	return out, nil
 }
 
-func (s *Store) write(session consensus.SessionSnapshot) error {
-	path, err := s.sessionPath(session.SessionID)
-	if err != nil {
+func writeLocked(root string, path string, session consensus.SessionSnapshot) error {
+	if err := securefs.EnsureContained(root, path); err != nil {
 		return err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("create session store dir: %w", err)
+	if err := securefs.ValidateRegularTarget(path); err != nil {
+		return err
 	}
 	body, err := json.MarshalIndent(session, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal session snapshot: %w", err)
 	}
 	body = append(body, '\n')
-	tmpPath := path + ".tmp"
-	if err := os.WriteFile(tmpPath, body, 0o644); err != nil {
+	tmp, err := os.CreateTemp(root, ".session-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create session snapshot temp file: %w", err)
+	}
+	tmpPath := tmp.Name()
+	keepTemp := true
+	defer func() {
+		_ = tmp.Close()
+		if keepTemp {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+	if err := tmp.Chmod(securefs.PrivateFileMode); err != nil {
+		return fmt.Errorf("chmod session snapshot temp file: %w", err)
+	}
+	if _, err := tmp.Write(body); err != nil {
 		return fmt.Errorf("write session snapshot temp file: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		return fmt.Errorf("sync session snapshot temp file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close session snapshot temp file: %w", err)
+	}
+	if err := securefs.ValidateRegularTarget(path); err != nil {
+		return err
 	}
 	if err := os.Rename(tmpPath, path); err != nil {
 		return fmt.Errorf("replace session snapshot file: %w", err)
 	}
+	keepTemp = false
+	if err := syncDirectory(root); err != nil {
+		return fmt.Errorf("sync session store dir: %w", err)
+	}
 	return nil
 }
 
-func (s *Store) sessionPath(sessionID string) (string, error) {
-	if strings.TrimSpace(s.dir) == "" {
-		return "", fmt.Errorf("session store dir is required")
-	}
+func sessionPath(root string, sessionID string) (string, error) {
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
 		return "", fmt.Errorf("session id is required")
 	}
-	return filepath.Join(s.dir, sessionID+".json"), nil
+	if sessionID == "." || strings.Contains(sessionID, "..") {
+		return "", fmt.Errorf("session id must not contain ..")
+	}
+	if strings.ContainsAny(sessionID, `/\\`) {
+		return "", fmt.Errorf("session id must not contain path separators")
+	}
+	if strings.ContainsRune(sessionID, '\x00') {
+		return "", fmt.Errorf("session id must not contain NUL")
+	}
+	path := filepath.Join(root, sessionID+".json")
+	if err := securefs.EnsureContained(root, path); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+func (s *Store) lockStoreLocked(ctx context.Context, exclusive bool) (string, func(), error) {
+	select {
+	case <-ctx.Done():
+		return "", nil, ctx.Err()
+	default:
+	}
+	root, err := s.secureRootLocked()
+	if err != nil {
+		return "", nil, err
+	}
+	lockFile, err := securefs.OpenLock(filepath.Join(root, ".store.lock"))
+	if err != nil {
+		return "", nil, fmt.Errorf("open session store lock: %w", err)
+	}
+	operation := unix.LOCK_SH
+	if exclusive {
+		operation = unix.LOCK_EX
+	}
+	if err := unix.Flock(int(lockFile.Fd()), operation); err != nil {
+		_ = lockFile.Close()
+		return "", nil, fmt.Errorf("lock session store: %w", err)
+	}
+	unlock := func() {
+		_ = unix.Flock(int(lockFile.Fd()), unix.LOCK_UN)
+		_ = lockFile.Close()
+	}
+	return root, unlock, nil
+}
+
+func (s *Store) secureRootLocked() (string, error) {
+	if strings.TrimSpace(s.dir) == "" {
+		return "", fmt.Errorf("session store dir is required")
+	}
+	root, err := filepath.Abs(filepath.Clean(s.dir))
+	if err != nil {
+		return "", fmt.Errorf("resolve session store dir: %w", err)
+	}
+	if err := securefs.TightenPrivateDir(root); err != nil {
+		return "", fmt.Errorf("create session store dir: %w", err)
+	}
+	canonical, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", fmt.Errorf("resolve session store symlinks: %w", err)
+	}
+	if s.canonicalDir != "" && s.canonicalDir != canonical {
+		return "", fmt.Errorf("session store directory changed: was=%s now=%s", s.canonicalDir, canonical)
+	}
+	s.canonicalDir = canonical
+	return canonical, nil
+}
+
+func syncDirectory(path string) error {
+	dir, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = dir.Close() }()
+	return dir.Sync()
 }

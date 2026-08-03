@@ -78,7 +78,7 @@ func TestResolveDebateClaimsMedianResistsSingleOutlier(t *testing.T) {
 	}
 }
 
-func TestResolveDebateClaimsCountsAbstainIntoScoreNotRatio(t *testing.T) {
+func TestResolveDebateClaimsExcludesAbstainFromSupportScore(t *testing.T) {
 	claims := singleActiveClaim()
 	votes := []DebateVoteRecord{
 		{ClaimID: "claim-1", AgentID: "voter-1", Vote: DebateVoteAccept, Confidence: 0.90},
@@ -89,14 +89,51 @@ func TestResolveDebateClaimsCountsAbstainIntoScoreNotRatio(t *testing.T) {
 	if resolution.SupportRatio != 1.0 {
 		t.Fatalf("expected abstain excluded from label ratio, got %#v", resolution)
 	}
-	if resolution.SupportScore != 0.70 {
-		t.Fatalf("expected abstain 0.5 to pull the median to 0.70, got %#v", resolution)
+	if resolution.SupportScore != 0.90 || resolution.ConfidenceMean != 0.90 {
+		t.Fatalf("expected abstain excluded from support aggregation, got %#v", resolution)
 	}
 	if len(resolution.AbstainingVoters) != 1 || resolution.AbstainingVoters[0] != "voter-2" {
 		t.Fatalf("expected abstaining voter recorded, got %#v", resolution)
 	}
 	if resolution.VoteCount != 2 {
-		t.Fatalf("expected both coherent votes counted, got %#v", resolution)
+		t.Fatalf("expected abstain retained in diagnostic vote count, got %#v", resolution)
+	}
+}
+
+func TestResolveDebateClaimsDeduplicatesParticipantWeight(t *testing.T) {
+	claims := singleActiveClaim()
+	votes := []DebateVoteRecord{
+		{ClaimID: "claim-1", AgentID: "voter-1", Vote: DebateVoteAccept, Confidence: 0.90},
+		{ClaimID: "claim-1", AgentID: "voter-1", Vote: DebateVoteAccept, Confidence: 0.80},
+		{ClaimID: "claim-1", AgentID: "voter-2", Vote: DebateVoteReject, Confidence: 0.10},
+	}
+	resolutions, _ := resolveDebateClaims(claims, claims, votes, DebatePolicy{VoteThreshold: 0.67})
+	resolution := resolutions[0]
+	if resolution.SupportScore != 0.50 || resolution.VoteCount != 2 || resolution.IncoherentVotes != 1 {
+		t.Fatalf("expected duplicate voter excluded from weighting, got %#v", resolution)
+	}
+}
+
+func TestEnforceDebateClaimQuorumChecksEachClaim(t *testing.T) {
+	claims := []DebateClaim{
+		{ClaimID: "claim-1", Active: true},
+		{ClaimID: "claim-2", Active: true},
+	}
+	resolutions := []DebateClaimResolution{
+		{ClaimID: "claim-1", Accepted: true},
+		{ClaimID: "claim-2", Accepted: true},
+	}
+	votes := []DebateVoteRecord{
+		{ClaimID: "claim-1", AgentID: "voter-1", Vote: DebateVoteAccept, Confidence: 0.9},
+		{ClaimID: "claim-1", AgentID: "voter-2", Vote: DebateVoteAccept, Confidence: 0.8},
+		{ClaimID: "claim-2", AgentID: "voter-1", Vote: DebateVoteAccept, Confidence: 0.9},
+	}
+	resolutions, failures := enforceDebateClaimQuorum(resolutions, claims, votes, []string{"voter-1", "voter-2", "voter-3"}, 0.6)
+	if len(failures) != 1 || failures[0].ClaimID != "claim-2" || failures[0].VoteCount != 1 || failures[0].RequiredVotes != 2 {
+		t.Fatalf("expected only claim-2 to miss independent quorum, got %#v", failures)
+	}
+	if !resolutions[0].Accepted || resolutions[1].Accepted {
+		t.Fatalf("expected quorum enforcement to reject only claim-2, got %#v", resolutions)
 	}
 }
 

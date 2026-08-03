@@ -47,6 +47,27 @@ func TestBuildTaskPromptAddsProposalFieldRestrictions(t *testing.T) {
 	}
 }
 
+func TestBuildTaskPromptIncludesDelphiQuestionAndScaleContract(t *testing.T) {
+	prompt := BuildTaskPrompt(consensus.DelphiQuestionnaireTask{
+		TaskMeta:       consensus.TaskMeta{AgentID: "participant-a"},
+		RatingQuestion: "请评价候选方案的可行性",
+		RatingScaleMin: 2,
+		RatingScaleMax: 7,
+	}, ResolvedAgentRuntime{}, true)
+
+	for _, fragment := range []string{
+		`"ratingQuestion": "请评价候选方案的可行性"`,
+		`"minimum": 2`,
+		`"maximum": 7`,
+		"Every responses[] row requires rating",
+		"Do not return an empty responses array.",
+	} {
+		if !strings.Contains(prompt, fragment) {
+			t.Fatalf("expected Delphi prompt to contain %q, got:\n%s", fragment, prompt)
+		}
+	}
+}
+
 func TestBuildRepairPromptAddsProposalRepairHints(t *testing.T) {
 	prompt := BuildRepairPrompt(consensus.ProposalTask{
 		TaskMeta: consensus.TaskMeta{AgentID: "proposer-a"},

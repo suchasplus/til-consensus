@@ -349,6 +349,9 @@ func DetermineTerminalState(claims []ClaimNode, tickets []ChallengeTicket, manif
 	if action != nil && action.Status == string(TerminalStateActionBlockedByRisk) {
 		return TerminalStateActionBlockedByRisk
 	}
+	if len(claims) == 0 {
+		return TerminalStateInsufficientEvidence
+	}
 	openTickets := 0
 	for _, ticket := range tickets {
 		if ticket.Status == ChallengeStatusOpen {

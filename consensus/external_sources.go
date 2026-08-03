@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/suchasplus/til-consensus/internal/securefs"
 	"gopkg.in/yaml.v3"
 )
 
@@ -174,7 +175,7 @@ func writeExternalSourceArtifact(dir string, ids IDFactory, sourceName string, s
 	if dir == "" {
 		return nil, nil
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := securefs.TightenPrivateDir(dir); err != nil {
 		return nil, err
 	}
 	body := bytes.NewBuffer(nil)
@@ -187,7 +188,7 @@ func writeExternalSourceArtifact(dir string, ids IDFactory, sourceName string, s
 		prefix = ids.NewEntityID("external")
 	}
 	name := filepath.Join(dir, sanitizeFilename(prefix+"-"+stage+"-"+sourceName)+".log")
-	if err := os.WriteFile(name, body.Bytes(), 0o644); err != nil {
+	if err := securefs.WriteFile(name, body.Bytes()); err != nil {
 		return nil, err
 	}
 	hash := sha256.Sum256(body.Bytes())
