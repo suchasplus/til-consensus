@@ -2,6 +2,8 @@
 
 这篇只讲 provider、model、agent 以及如何确认它们真的可用。workflow roles 和 policy 见 [配置](config.md)，日常命令见 [操作手册](operations.md)。
 
+桌面等嵌入宿主的模型目录、原生推理参数及请求/实际报告边界见 [CLI 模型与推理参数契约](cli-model-settings.md)。
+
 ## Provider 类型
 
 当前支持：
@@ -39,7 +41,7 @@ Provider 只描述“怎么调用模型”。Agent 描述“用哪个 provider/m
   - 通过 `agy --input-format stream-json --output-format stream-json` 非交互调用，prompt 以原生 `event: user` JSONL 从 stdin 传入，并用 `--model` 指定模型。
   - 使用原生 JSONL 事件流；不能将 `-p` 当成通用的 print 参数，也不能直接把完整 stdout 当成业务 JSON。
   - `read-only` 使用计划模式和终端 sandbox；这不等于操作系统级只读。桌面应用仍应为每次讨论提供私有 cwd，并按需要增加文件系统或容器隔离，防止计划文件、会话记录或 CLI 自身行为写入项目目录。
-  - thinking level 通常体现在 Antigravity 的模型名或 CLI 自身配置中。
+  - thinking level 通常编码在 `agy models` 返回的完整 ID 中；`models.<id>.reasoning` 也可映射到原生 `--effort`，但不能与 ID 后缀冲突。宿主按目录选择具体变体时应留空独立 reasoning，避免重复配置。
 - `pi`
   - 通过 `pi --mode json --print --no-session` 做一次性调用，prompt 从 stdin 传入。
   - JSONL 只提取 assistant `text_delta`；assistant `errorMessage`、空文本或损坏事件流都会失败。
