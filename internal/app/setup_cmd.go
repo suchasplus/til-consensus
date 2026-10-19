@@ -64,7 +64,7 @@ func setupFlags() []cli.Flag {
 		&cli.StringFlag{Name: "profile", Usage: "默认 profile 名称", Value: "default"},
 		&cli.StringFlag{Name: "preset", Usage: "模板别名(quickstart|openai|coding|debate|delphi|generic|codex|claude|gemini|antigravity|pi)"},
 		&cli.StringFlag{Name: "mode", Usage: "workflow 模式(adjudication|free-debate|delphi)"},
-		&cli.StringFlag{Name: "provider-profile", Usage: "provider profile(mock|openai|generic|codex|claude|gemini|antigravity|pi)"},
+		&cli.StringFlag{Name: "provider-profile", Usage: "provider profile(mock|openai|generic|codex|claude|grok|gemini|antigravity|pi)"},
 		&cli.StringFlag{Name: "task-profile", Usage: "task profile(general|coding)", Value: config.TemplateTaskProfileGeneral},
 		&cli.StringFlag{Name: "output", Usage: "默认输出目录模板", Value: "./out/{requestId}"},
 		&cli.BoolFlag{Name: "stdout", Usage: "只打印将写入的文件，不落盘"},

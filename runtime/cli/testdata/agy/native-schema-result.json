@@ -1,0 +1,71 @@
+{
+  "status": "SUCCESS",
+  "response": "{\"consensus_version\":\"v0.0.0-20260803125524-b505773800a4\",\"electron_version\":\"44.9.0\",\"go_version\":\"1.26.1\",\"project_name\":\"newtc\",\"react_version\":\"19.3.1\",\"risk\":\"真实 CLI 执行交互式提示或长耗时任务可能导致宿主服务 RPC 响应阻塞与超时。\",\"scripts\":[\"dev\",\"start\",\"build\",\"build:host\",\"check\",\"test:host\",\"test:rpc\",\"test:e2e\",\"test\"],\"toolAction\":\"Completing project analysis\",\"toolSummary\":\"Project analysis completion\"}\n",
+  "duration_seconds": 54.77148,
+  "num_turns": 1,
+  "structured_output": {
+    "consensus_version": "v0.0.0-20260803125524-b505773800a4",
+    "electron_version": "44.9.0",
+    "go_version": "1.26.1",
+    "project_name": "newtc",
+    "react_version": "19.3.1",
+    "risk": "真实 CLI 执行交互式提示或长耗时任务可能导致宿主服务 RPC 响应阻塞与超时。",
+    "scripts": [
+      "dev",
+      "start",
+      "build",
+      "build:host",
+      "check",
+      "test:host",
+      "test:rpc",
+      "test:e2e",
+      "test"
+    ]
+  },
+  "json_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "project_name",
+      "electron_version",
+      "react_version",
+      "go_version",
+      "consensus_version",
+      "scripts",
+      "risk"
+    ],
+    "properties": {
+      "project_name": {
+        "type": "string"
+      },
+      "electron_version": {
+        "type": "string"
+      },
+      "react_version": {
+        "type": "string"
+      },
+      "go_version": {
+        "type": "string"
+      },
+      "consensus_version": {
+        "type": "string"
+      },
+      "scripts": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "risk": {
+        "type": "string"
+      }
+    }
+  },
+  "usage": {
+    "input_tokens": 17082,
+    "output_tokens": 7879,
+    "thinking_tokens": 7687,
+    "cache_read_tokens": 0,
+    "total_tokens": 24961
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "source": "codex-cli 0.163.0 real exec --json --output-schema",
+  "sourceSha256": "33c194c176d4ef443170b541e614cbc20895d01b42766904a0f3a79a7892edc6",
+  "fixtureSha256": "d5ed8d8b5d5bfff6926b98ef20b9e7b5befde0e04bc86160cbe84aae35cb22fa",
+  "redactions": [
+    "thread_id",
+    "item.id"
+  ],
+  "mock": false
+}

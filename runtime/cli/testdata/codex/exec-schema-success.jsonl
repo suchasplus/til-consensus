@@ -1,0 +1,4 @@
+{"type":"thread.started","thread_id":"redacted-real-thread"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"redacted-real-item","type":"agent_message","text":"{\"project_name\":\"newtc\",\"electron_version\":\"44.9.0\",\"react_version\":\"19.3.1\",\"go_version\":\"1.26.1\",\"consensus_version\":\"v0.0.0-20260803125524-b505773800a4\",\"scripts\":[\"dev\",\"start\",\"build\",\"build:host\",\"check\",\"test:host\",\"test:rpc\",\"test:e2e\",\"test\"],\"risk\":\"所示依赖未固定真实 CLI 的版本，M0 接入时可能因 CLI 输出格式变化而解析失败。\"}"}}
+{"type":"turn.completed","usage":{"input_tokens":21558,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":421,"reasoning_output_tokens":293}}

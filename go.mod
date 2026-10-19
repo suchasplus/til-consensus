@@ -4,6 +4,7 @@ go 1.26.1
 
 require (
 	github.com/openai/openai-go/v3 v3.41.0
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	github.com/urfave/cli/v3 v3.8.0
 	golang.org/x/sys v0.31.0
 	google.golang.org/genai v1.62.0

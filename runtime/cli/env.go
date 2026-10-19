@@ -28,6 +28,7 @@ var windowsBaselineEnvironmentKeys = []string{
 var knownCLIEnvironmentKeys = map[string][]string{
 	config.CLITypeCodex:       {"OPENAI_API_KEY", "OPENAI_BASE_URL"},
 	config.CLITypeClaude:      {"ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"},
+	config.CLITypeGrok:        {"XAI_API_KEY"},
 	config.CLITypeGemini:      {"GEMINI_API_KEY"},
 	config.CLITypeAntigravity: {"GEMINI_API_KEY"},
 }

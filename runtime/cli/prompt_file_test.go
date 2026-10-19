@@ -2,8 +2,10 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -14,16 +16,17 @@ import (
 	"github.com/suchasplus/til-consensus/consensus"
 )
 
-func TestPreparePromptTransportAntigravityUsesPrivateFile(t *testing.T) {
+func TestPreparePromptTransportGrokUsesPrivateFile(t *testing.T) {
 	prompt := "private and very long task prompt"
-	transport, err := preparePromptTransport("antigravity", "Gemini 3.5 Flash (High)", prompt, "medium")
+	transport, err := preparePromptTransport(config.CLITypeGrok, "transport-test-model", prompt, "medium")
 	if err != nil {
 		t.Fatalf("preparePromptTransport failed: %v", err)
 	}
-	dir := argumentAfter(transport.Args, "--add-dir")
-	if dir == "" {
-		t.Fatalf("missing --add-dir in %#v", transport.Args)
+	path := argumentAfter(transport.Args, "--prompt-file")
+	if path == "" {
+		t.Fatalf("missing --prompt-file in %#v", transport.Args)
 	}
+	dir := filepath.Dir(path)
 	if transport.Stdin != "" {
 		t.Fatalf("expected empty stdin, got %q", transport.Stdin)
 	}
@@ -31,10 +34,9 @@ func TestPreparePromptTransportAntigravityUsesPrivateFile(t *testing.T) {
 	if strings.Contains(joined, prompt) {
 		t.Fatalf("prompt leaked into argv: %#v", transport.Args)
 	}
-	if !strings.Contains(joined, "--dangerously-skip-permissions") {
-		t.Fatalf("missing automatic approval flag: %#v", transport.Args)
+	if strings.Contains(joined, "--dangerously-skip-permissions") {
+		t.Fatalf("private prompt transport must not bypass permissions: %#v", transport.Args)
 	}
-	path := filepath.Join(dir, "prompt.txt")
 	body, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read prompt file: %v", err)
@@ -61,8 +63,8 @@ func TestPreparePromptTransportAntigravityUsesPrivateFile(t *testing.T) {
 	}
 }
 
-func TestPreviewPromptTransportAntigravityDoesNotCreateFile(t *testing.T) {
-	transport, err := previewPromptTransport("antigravity", "model", "secret prompt", "")
+func TestPreviewPromptTransportGrokDoesNotCreateFile(t *testing.T) {
+	transport, err := previewPromptTransport(config.CLITypeGrok, "model", "secret prompt", "")
 	if err != nil {
 		t.Fatalf("previewPromptTransport failed: %v", err)
 	}
@@ -72,6 +74,77 @@ func TestPreviewPromptTransportAntigravityDoesNotCreateFile(t *testing.T) {
 	}
 	if strings.Contains(joined, "secret prompt") {
 		t.Fatalf("preview leaked prompt into argv: %#v", transport.Args)
+	}
+	if transport.Stdin != "" {
+		t.Fatalf("Grok prompt-file transport should not duplicate stdin: %q", transport.Stdin)
+	}
+}
+
+func TestPreparePromptTransportAntigravityUsesOneNativeUserMessage(t *testing.T) {
+	const prompt = "真实项目内容：第一行\n第二行包含引号 \" 和反斜线 \\。"
+	for _, preview := range []bool{false, true} {
+		name := "real"
+		if preview {
+			name = "preview"
+		}
+		t.Run(name, func(t *testing.T) {
+			provision := func(string) (string, string, func() error, error) {
+				t.Fatal("Antigravity 原生 stdin 不应分配 prompt 文件")
+				return "", "", nil, errors.New("unexpected file transport")
+			}
+			var transport promptTransport
+			var err error
+			if preview {
+				transport, err = previewPromptTransport(config.CLITypeAntigravity, "", prompt, "")
+			} else {
+				transport, err = buildPromptTransport(config.CLITypeAntigravity, "", prompt, "", provision)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = transport.Cleanup() }()
+			if strings.Count(transport.Stdin, "\n") != 1 || !strings.HasSuffix(transport.Stdin, "\n") {
+				t.Fatalf("必须恰好发送一行完整 NDJSON: %q", transport.Stdin)
+			}
+			decoder := json.NewDecoder(strings.NewReader(transport.Stdin))
+			var input struct {
+				Event   string `json:"event"`
+				Message struct {
+					Content string `json:"content"`
+				} `json:"message"`
+			}
+			if err := decoder.Decode(&input); err != nil {
+				t.Fatal(err)
+			}
+			if input.Event != "user" || input.Message.Content != prompt {
+				t.Fatalf("真实 stdin envelope 不匹配: %#v", input)
+			}
+			var extra any
+			if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+				t.Fatalf("单个 user 后必须结束 stdin，got extra=%v err=%v", extra, err)
+			}
+			if argumentAfter(transport.Args, "--input-format") != "stream-json" ||
+				argumentAfter(transport.Args, "--output-format") != "stream-json" ||
+				argumentAfter(transport.Args, "--mode") != "plan" {
+				t.Fatalf("原生单轮协议参数错误: %#v", transport.Args)
+			}
+			hasSandbox := false
+			for _, arg := range transport.Args {
+				if arg == "--sandbox" {
+					hasSandbox = true
+				}
+				switch arg {
+				case "--dangerously-skip-permissions", "--disable-slash-commands", "-p", "--print", "--prompt-file", "--add-dir":
+					t.Fatalf("原生 stream stdin 不得使用此参数: %q", arg)
+				}
+				if strings.Contains(arg, prompt) {
+					t.Fatal("prompt 不应泄漏到 argv")
+				}
+			}
+			if !hasSandbox {
+				t.Fatal("缺少默认 sandbox")
+			}
+		})
 	}
 }
 
@@ -103,7 +176,7 @@ func TestPromptTransportCleanupReportsFailure(t *testing.T) {
 	original := removePromptDir
 	t.Cleanup(func() { removePromptDir = original })
 	removePromptDir = func(string) error { return errors.New("forced cleanup failure") }
-	transport, err := preparePromptTransport("antigravity", "model", "prompt", "")
+	transport, err := preparePromptTransport(config.CLITypeGrok, "model", "prompt", "")
 	if err != nil {
 		t.Fatalf("preparePromptTransport failed: %v", err)
 	}
@@ -114,11 +187,11 @@ func TestPromptTransportCleanupReportsFailure(t *testing.T) {
 	_ = transport.Cleanup()
 }
 
-func TestRunTaskDetailedCleansAntigravityPromptAfterExecutionFailure(t *testing.T) {
+func TestRunTaskDetailedCleansGrokPromptAfterExecutionFailure(t *testing.T) {
 	runner := NewRunner(config.ProviderConfig{
 		Type:    config.ProviderTypeCLI,
-		CLIType: config.CLITypeAntigravity,
-		Command: "til-consensus-missing-agy-for-cleanup-test",
+		CLIType: config.CLITypeGrok,
+		Command: "til-consensus-missing-grok-for-cleanup-test",
 	})
 	result, err := runner.RunTaskDetailed(context.Background(), realPromptTransportTestTask{
 		TaskMeta: consensus.TaskMeta{RequestID: "req", SessionID: "session", AgentID: "agent"},
@@ -126,10 +199,11 @@ func TestRunTaskDetailedCleansAntigravityPromptAfterExecutionFailure(t *testing.
 	if err == nil {
 		t.Fatal("expected missing command to fail")
 	}
-	dir := argumentAfter(result.Command, "--add-dir")
-	if dir == "" {
-		t.Fatalf("missing prompt directory in command: %#v", result.Command)
+	path := argumentAfter(result.Command, "--prompt-file")
+	if path == "" {
+		t.Fatalf("missing prompt file in command: %#v", result.Command)
 	}
+	dir := filepath.Dir(path)
 	if _, statErr := os.Stat(dir); !os.IsNotExist(statErr) {
 		t.Fatalf("expected prompt directory cleanup, stat err=%v", statErr)
 	}
@@ -159,13 +233,10 @@ func argumentAfter(args []string, name string) string {
 // run, so its argv structure must be identical to the executed one. Only the
 // prompt directory and file path may differ.
 func TestPreviewPromptTransportMatchesRealArgvStructure(t *testing.T) {
-	const model = "Gemini 3.5 Flash (High)"
-	// Distinctive on purpose: the agy bootstrap text itself talks about "task
-	// instructions", so a natural-language prompt would false-positive the
-	// leak assertion below.
+	const model = "transport-test-model"
 	const prompt = "PROMPT-BODY-SENTINEL-9f3a"
 
-	real, err := preparePromptTransport(config.CLITypeAntigravity, model, prompt, "medium")
+	real, err := preparePromptTransport(config.CLITypeGrok, model, prompt, "medium")
 	if err != nil {
 		t.Fatalf("preparePromptTransport failed: %v", err)
 	}
@@ -174,7 +245,7 @@ func TestPreviewPromptTransportMatchesRealArgvStructure(t *testing.T) {
 			t.Errorf("cleanup failed: %v", cleanupErr)
 		}
 	}()
-	preview, err := previewPromptTransport(config.CLITypeAntigravity, model, prompt, "medium")
+	preview, err := previewPromptTransport(config.CLITypeGrok, model, prompt, "medium")
 	if err != nil {
 		t.Fatalf("previewPromptTransport failed: %v", err)
 	}
@@ -197,17 +268,17 @@ func TestPreviewPromptTransportMatchesRealArgvStructure(t *testing.T) {
 		t.Fatalf("argv skeleton differs:\n real=%s\n prev=%s", skeleton(real.Args), skeleton(preview.Args))
 	}
 	if real.Stdin != "" || preview.Stdin != "" {
-		t.Fatal("antigravity must not carry the prompt on stdin")
+		t.Fatal("Grok prompt-file transport must not carry a duplicate prompt on stdin")
 	}
 	for _, arg := range real.Args {
 		if strings.Contains(arg, prompt) {
 			t.Fatalf("prompt leaked into real argv: %q", arg)
 		}
 	}
-	// Non-antigravity types must stay byte-identical between preview and real.
+	// 非私有文件传输的 CLI，preview 与实际传输应逐字节一致。
 	for _, cliType := range []string{
 		config.CLITypeClaude, config.CLITypeCodex, config.CLITypeGemini,
-		config.CLITypeOpenCode, config.CLITypePi, config.CLITypeGeneric,
+		config.CLITypeOpenCode, config.CLITypePi, config.CLITypeGeneric, config.CLITypeAntigravity,
 	} {
 		realArgs, err := preparePromptTransport(cliType, "model-x", prompt, "medium")
 		if err != nil {

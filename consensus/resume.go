@@ -35,6 +35,13 @@ func (e *Engine) resumeAdjudication(ctx context.Context, request StartRequest, s
 
 	switch checkpoint.LastCompletedPhase {
 	case SessionPhaseCreated, SessionPhaseFrame, SessionPhaseIngest:
+		// 早期检查点尚未完成 framing/ingest，不能从 created 直接跳到 propose。
+		// 已完成 ingest（包括回退 ingest）保留原检查点的轮次与证据状态。
+		if run.state.Current() == SessionPhaseCreated || run.state.Current() == SessionPhaseFrame {
+			if err := e.resumeModePrelude(ctx, request, run); err != nil {
+				return nil, err
+			}
+		}
 		if len(run.claimGraph) == 0 {
 			if err := e.advancePhase(ctx, request, run.sessionID, run.state, SessionPhasePropose, run.claimGraph, run.challengeTickets, run.ledgerCursor); err != nil {
 				return nil, err

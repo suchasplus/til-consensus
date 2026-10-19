@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -18,11 +19,13 @@ import (
 type Runner struct {
 	provider        config.ProviderConfig
 	hostEnvironment HostEnvironment
+	options         RunnerOptions
 }
 
 type RunTaskResult struct {
-	Output  string
-	Command []string
+	Output    string
+	Command   []string
+	RawOutput string
 }
 
 func NewRunner(provider config.ProviderConfig) *Runner {
@@ -31,6 +34,12 @@ func NewRunner(provider config.ProviderConfig) *Runner {
 
 func NewRunnerWithHostEnvironment(provider config.ProviderConfig, hostEnvironment HostEnvironment) *Runner {
 	return &Runner{provider: provider, hostEnvironment: hostEnvironment}
+}
+
+// NewRunnerWithOptions keeps the one-task process lifecycle while exposing
+// public progress to an embedding application. Reasoning events are filtered.
+func NewRunnerWithOptions(provider config.ProviderConfig, options RunnerOptions) *Runner {
+	return &Runner{provider: provider, hostEnvironment: SnapshotHostEnvironment(os.Environ()), options: options}
 }
 
 func PreviewCommand(
@@ -48,7 +57,14 @@ func PreviewCommand(
 	if cliType == "" {
 		cliType = config.CLITypeGeneric
 	}
+	if err := validateOneShotArgs(provider); err != nil {
+		return nil, err
+	}
 	finalPrompt, err := buildFinalPrompt(cliType, task, prompt, agentID, role, providerModel, reasoning, temperature)
+	if err != nil {
+		return nil, err
+	}
+	finalPrompt, err = streamingSchemaPrompt(provider, finalPrompt, outputSchema)
 	if err != nil {
 		return nil, err
 	}
@@ -61,11 +77,14 @@ func PreviewCommand(
 		return nil, err
 	}
 	args := transport.Args
+	args = applyExecutionProfile(provider, args)
 	schemaArgs, err := buildStructuredOutputArgsPreview(cliType, outputSchema)
 	if err != nil {
 		return nil, err
 	}
-	args = append(args, schemaArgs...)
+	if cliType != config.CLITypeGrok || provider.OutputFormat != "stream-json" {
+		args = append(args, schemaArgs...)
+	}
 	args = append(args, buildFinalOutputCaptureArgsPreview(cliType)...)
 	args = append(args, renderArgs(provider.Args, task, agentID, role, providerModel)...)
 	return append([]string{commandName}, args...), nil
@@ -108,6 +127,13 @@ func (r *Runner) RunTaskDetailed(
 	if err != nil {
 		return RunTaskResult{}, err
 	}
+	if err := validateOneShotArgs(r.provider); err != nil {
+		return RunTaskResult{}, err
+	}
+	finalPrompt, err = streamingSchemaPrompt(r.provider, finalPrompt, outputSchema)
+	if err != nil {
+		return RunTaskResult{}, err
+	}
 	commandName := r.provider.Command
 	if commandName == "" {
 		commandName = cliType
@@ -116,18 +142,24 @@ func (r *Runner) RunTaskDetailed(
 	if err != nil {
 		return RunTaskResult{}, err
 	}
-	defer func() {
-		if cleanupErr := transport.Cleanup(); cleanupErr != nil {
+	defer func(cleanup func() error) {
+		if cleanupErr := cleanup(); cleanupErr != nil {
 			resultErr = errors.Join(resultErr, fmt.Errorf("cleanup cli prompt transport: %w", cleanupErr))
 		}
-	}()
+	}(transport.Cleanup)
 	args := transport.Args
+	args = applyExecutionProfile(r.provider, args)
 	schemaArgs, cleanup, err := buildStructuredOutputArgs(cliType, outputSchema)
 	if err != nil {
 		return RunTaskResult{}, err
 	}
 	defer cleanup()
-	args = append(args, schemaArgs...)
+	if cliType == config.CLITypeGrok && r.provider.OutputFormat == "stream-json" && len(outputSchema) > 0 {
+		// Grok native schema forces JSON mode. The streaming result is checked
+		// against the supplied schema locally after the successful end event.
+	} else {
+		args = append(args, schemaArgs...)
+	}
 	captureArgs, readCapturedOutput, cleanupCapture, err := buildFinalOutputCaptureArgs(cliType)
 	if err != nil {
 		return RunTaskResult{}, err
@@ -137,9 +169,17 @@ func (r *Runner) RunTaskDetailed(
 	args = append(args, renderArgs(r.provider.Args, task, agentID, role, providerModel)...)
 	command := append([]string{commandName}, args...)
 	env := BuildEnvironment(r.hostEnvironment, r.provider, task, agentID, role, providerModel).Values
-	raw, err := runCommand(ctx, cliType, commandName, args, env, transport.Stdin)
+	raw, err := runCommandWithOptions(ctx, cliType, commandName, args, env, transport.Stdin, r.provider.Workdir, r.options)
 	if err != nil {
 		return RunTaskResult{Command: command}, err
+	}
+	originalRaw := raw
+	if cliType == config.CLITypeCodex {
+		output, err := normalizeCodexExecOutput(raw)
+		if err != nil {
+			return RunTaskResult{Command: command, RawOutput: originalRaw}, err
+		}
+		raw = output
 	}
 	if captured, err := readCapturedOutput(); err != nil {
 		return RunTaskResult{Command: command}, err
@@ -148,9 +188,14 @@ func (r *Runner) RunTaskDetailed(
 	}
 	output, err := normalizeStructuredCLIOutput(cliType, outputSchema, raw)
 	if err != nil {
-		return RunTaskResult{Command: command}, err
+		return RunTaskResult{Command: command, RawOutput: originalRaw}, err
 	}
-	return RunTaskResult{Output: output, Command: command}, nil
+	if cliType == config.CLITypeGrok && r.provider.OutputFormat == "stream-json" && len(outputSchema) > 0 {
+		if err := validateStreamingSchema(outputSchema, output); err != nil {
+			return RunTaskResult{Command: command, RawOutput: originalRaw}, err
+		}
+	}
+	return RunTaskResult{Output: output, Command: command, RawOutput: originalRaw}, nil
 }
 
 func buildFinalPrompt(cliType string, task consensus.Task, prompt string, agentID string, role string, providerModel string, reasoning string, temperature *float64) (string, error) {
@@ -181,12 +226,12 @@ func buildStructuredOutputArgs(cliType string, outputSchema map[string]any) ([]s
 		return nil, func() {}, nil
 	}
 	switch cliType {
-	case config.CLITypeClaude:
+	case config.CLITypeClaude, config.CLITypeAntigravity, config.CLITypeGrok:
 		body, err := json.Marshal(outputSchema)
 		if err != nil {
 			return nil, nil, fmt.Errorf("marshal claude json schema: %w", err)
 		}
-		return []string{"--json-schema", string(body), "--output-format", "json"}, func() {}, nil
+		return []string{"--json-schema", string(body)}, func() {}, nil
 	case config.CLITypeCodex:
 		body, err := json.MarshalIndent(outputSchema, "", "  ")
 		if err != nil {
@@ -216,12 +261,12 @@ func buildStructuredOutputArgsPreview(cliType string, outputSchema map[string]an
 		return nil, nil
 	}
 	switch cliType {
-	case config.CLITypeClaude:
+	case config.CLITypeClaude, config.CLITypeAntigravity, config.CLITypeGrok:
 		body, err := json.Marshal(outputSchema)
 		if err != nil {
 			return nil, fmt.Errorf("marshal claude json schema preview: %w", err)
 		}
-		return []string{"--json-schema", string(body), "--output-format", "json"}, nil
+		return []string{"--json-schema", string(body)}, nil
 	case config.CLITypeCodex:
 		return []string{"--output-schema", "<schema-file>"}, nil
 	default:
@@ -267,51 +312,56 @@ func normalizeStructuredCLIOutput(cliType string, outputSchema map[string]any, r
 	case config.CLITypePi:
 		return reducePiJSONLOutput(raw)
 	case config.CLITypeClaude:
+		return normalizeClaudeCLIOutput(raw)
+	case config.CLITypeAntigravity:
+		return normalizeAntigravityCLIOutput(raw)
+	case config.CLITypeGrok:
+		return normalizeGrokCLIOutput(raw)
 	default:
 		return raw, nil
 	}
-	if len(outputSchema) == 0 {
-		return raw, nil
-	}
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return raw, nil
-	}
-	var envelope map[string]any
-	if err := json.Unmarshal([]byte(trimmed), &envelope); err != nil {
-		return raw, nil
-	}
-	if structured, ok := envelope["structured_output"]; ok && structured != nil {
-		body, err := json.Marshal(structured)
-		if err != nil {
-			return "", fmt.Errorf("marshal claude structured_output: %w", err)
-		}
-		return string(body), nil
-	}
-	if result, ok := envelope["result"].(string); ok && strings.TrimSpace(result) != "" {
-		return result, nil
-	}
-	return raw, nil
 }
 
 func buildBaseArgs(cliType string, providerModel string, reasoning string) []string {
 	switch cliType {
 	case config.CLITypeClaude:
-		args := []string{"--print", "--model", providerModel}
+		args := []string{"--print", "--output-format", "json"}
+		if providerModel != "" {
+			args = append(args, "--model", providerModel)
+		}
 		if reasoning != "" {
 			args = append(args, "--effort", reasoning)
 		}
 		return args
 	case config.CLITypeCodex:
-		args := []string{"exec", "-m", providerModel, "--sandbox", "workspace-write", "-c", `approval_policy="never"`, "--color", "never", "--skip-git-repo-check"}
-		if reasoning != "" {
-			args = []string{"exec", "-m", providerModel, "-c", "model_reasoning_effort=" + reasoning, "--sandbox", "workspace-write", "-c", `approval_policy="never"`, "--color", "never", "--skip-git-repo-check"}
+		args := []string{"exec"}
+		if providerModel != "" {
+			args = append(args, "-m", providerModel)
 		}
-		return args
+		if reasoning != "" {
+			args = append(args, "-c", "model_reasoning_effort="+reasoning)
+		}
+		return append(args, "--sandbox", "workspace-write", "-c", `approval_policy="never"`, "--color", "never", "--skip-git-repo-check", "--json")
 	case config.CLITypeGemini:
 		return []string{"--approval-mode", "yolo", "-m", providerModel}
 	case config.CLITypeAntigravity:
-		return nil
+		args := []string{"--input-format", "stream-json", "--output-format", "stream-json", "--mode", "plan", "--sandbox"}
+		if providerModel != "" {
+			args = append(args, "--model", providerModel)
+		}
+		if reasoning != "" {
+			args = append(args, "--effort", reasoning)
+		}
+		return args
+	case config.CLITypeGrok:
+		args := []string{"--output-format", "json", "--permission-mode", "plan", "--no-subagents"}
+		if providerModel != "" {
+			args = append(args, "--model", providerModel)
+		}
+		if reasoning != "" {
+			args = append(args, "--reasoning-effort", reasoning)
+		}
+		return args
 	case config.CLITypeOpenCode:
 		return []string{"run", "--yolo", "-m", providerModel}
 	case config.CLITypePi:
@@ -335,7 +385,7 @@ func hardenPromptForCLI(cliType string, task consensus.Task, prompt string) stri
 
 func buildCLIOutputContract(cliType string, task consensus.Task) string {
 	switch cliType {
-	case config.CLITypeCodex, config.CLITypeClaude, config.CLITypeGemini, config.CLITypeAntigravity, config.CLITypePi:
+	case config.CLITypeCodex, config.CLITypeClaude, config.CLITypeGemini, config.CLITypeAntigravity, config.CLITypeGrok, config.CLITypePi:
 	default:
 		return ""
 	}
@@ -504,9 +554,36 @@ func renderTemplate(value string, task consensus.Task, agentID string, role stri
 }
 
 func runCommand(ctx context.Context, cliType string, command string, args []string, env []string, stdin string) (string, error) {
-	cmd := exec.CommandContext(ctx, command, args...)
+	return runCommandDetailed(ctx, cliType, command, args, env, stdin, "", RunnerOptions{}, false)
+}
+
+func runCommandWithOptions(ctx context.Context, cliType string, command string, args []string, env []string, stdin, workdir string, options RunnerOptions) (string, error) {
+	return runCommandDetailed(ctx, cliType, command, args, env, stdin, workdir, options, true)
+}
+
+func runCommandDetailed(ctx context.Context, cliType string, command string, args []string, env []string, stdin, workdir string, options RunnerOptions, graceful bool) (string, error) {
+	processCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	cmd := exec.CommandContext(processCtx, command, args...)
+	cmd.Dir = workdir
 	prepareCmdForKill(cmd)
+	finished := make(chan struct{})
+	defer close(finished)
 	cmd.Cancel = func() error {
+		if graceful {
+			_ = interruptCmd(cmd)
+			go func() {
+				timer := time.NewTimer(1200 * time.Millisecond)
+				defer timer.Stop()
+				select {
+				case <-finished:
+					return
+				case <-timer.C:
+					_ = forceKillCmd(cmd)
+				}
+			}()
+			return nil
+		}
 		return forceKillCmd(cmd)
 	}
 	cmd.WaitDelay = 2 * time.Second
@@ -515,8 +592,29 @@ func runCommand(ctx context.Context, cliType string, command string, args []stri
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout
+	var progress *progressWriter
+	if options.OnEvent != nil {
+		document := (cliType == config.CLITypeGrok || cliType == config.CLITypeClaude) && !hasOutputFormat(args, "stream-json") && !hasOutputFormat(args, "streaming-json")
+		progress = &progressWriter{cliType: cliType, callback: options.OnEvent, cancel: cancel, document: document}
+		cmd.Stdout = io.MultiWriter(&stdout, progress)
+	}
 	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
+	runErr := cmd.Run()
+	if processCtx.Err() != nil {
+		_ = forceKillCmd(cmd)
+	}
+	if ctx.Err() != nil {
+		return "", &CommandError{CLIType: cliType, Command: append([]string{command}, args...), ExitCode: -1, Stdout: strings.TrimSpace(stdout.String()), Stderr: strings.TrimSpace(stderr.String()), Err: ctx.Err()}
+	}
+	if progress != nil {
+		if err := progress.flush(); err != nil {
+			return "", err
+		}
+	}
+	if runErr == nil && ctx.Err() != nil {
+		runErr = ctx.Err()
+	}
+	if err := runErr; err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			// Preserve whatever the CLI managed to emit before it was killed.
 			// Timeouts are the most common batch failure and the partial output

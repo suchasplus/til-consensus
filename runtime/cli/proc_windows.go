@@ -15,6 +15,8 @@ import (
 
 const createNewProcessGroup = 0x00000200
 
+func interruptCmd(cmd *exec.Cmd) error { return forceKillCmd(cmd) }
+
 var runTaskkill = func(pid int) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()

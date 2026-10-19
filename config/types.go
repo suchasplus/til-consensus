@@ -254,6 +254,9 @@ type ProviderConfig struct {
 	Model          string                             `yaml:"model,omitempty"`
 	Models         map[string]ProviderModelConfig     `yaml:"models,omitempty"`
 	Command        string                             `yaml:"command,omitempty"`
+	Workdir        string                             `yaml:"workdir,omitempty"`
+	PermissionMode string                             `yaml:"permission_mode,omitempty"`
+	OutputFormat   string                             `yaml:"output_format,omitempty"`
 	Args           []string                           `yaml:"args,omitempty"`
 	Env            map[string]string                  `yaml:"env,omitempty"`
 	EnvPassthrough *[]string                          `yaml:"env_passthrough,omitempty"`

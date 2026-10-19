@@ -37,3 +37,13 @@ func forceKillCmd(cmd *exec.Cmd) error {
 	}
 	return err
 }
+
+func interruptCmd(cmd *exec.Cmd) error {
+	if cmd == nil || cmd.Process == nil {
+		return nil
+	}
+	if cmd.SysProcAttr != nil && cmd.SysProcAttr.Setpgid {
+		return syscall.Kill(-cmd.Process.Pid, syscall.SIGINT)
+	}
+	return cmd.Process.Signal(os.Interrupt)
+}

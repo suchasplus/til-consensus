@@ -36,6 +36,9 @@ func validateProviderProfiles(cfg Config) error {
 		return fmt.Errorf("providers must not be empty")
 	}
 	for name, provider := range cfg.Providers {
+		if err := validateCLIExecutionSettings(name, provider); err != nil {
+			return err
+		}
 		switch provider.Type {
 		case ProviderTypeMock:
 		case ProviderTypeAPI:
@@ -83,6 +86,44 @@ func validateProviderProfiles(cfg Config) error {
 			}
 			if model.Temperature != nil && (*model.Temperature < 0 || *model.Temperature > 2) {
 				return fmt.Errorf("provider %s model %s: temperature must be in [0,2]", name, modelID)
+			}
+		}
+	}
+	return nil
+}
+
+func validateCLIExecutionSettings(name string, provider ProviderConfig) error {
+	if provider.Type != ProviderTypeCLI {
+		for _, field := range []struct{ name, value string }{
+			{"workdir", provider.Workdir},
+			{"permission_mode", provider.PermissionMode},
+			{"output_format", provider.OutputFormat},
+		} {
+			if field.value != "" {
+				return fmt.Errorf("provider %s: %s is only supported by cli providers", name, field.name)
+			}
+		}
+		return nil
+	}
+	switch provider.PermissionMode {
+	case "", "read-only", "workspace-write":
+	default:
+		return fmt.Errorf("provider %s: unsupported permission_mode %q; use read-only or workspace-write", name, provider.PermissionMode)
+	}
+	switch provider.OutputFormat {
+	case "", "json", "stream-json":
+	default:
+		return fmt.Errorf("provider %s: unsupported output_format %q; use json or stream-json", name, provider.OutputFormat)
+	}
+	switch provider.CLIType {
+	case CLITypeCodex, CLITypeClaude, CLITypeGrok, CLITypeAntigravity:
+	default:
+		for _, field := range []struct{ name, value string }{
+			{"permission_mode", provider.PermissionMode},
+			{"output_format", provider.OutputFormat},
+		} {
+			if field.value != "" {
+				return fmt.Errorf("provider %s: %s is not supported for cli_type %q; supported cli types are codex, claude, grok, antigravity", name, field.name, provider.CLIType)
 			}
 		}
 	}

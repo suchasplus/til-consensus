@@ -15,6 +15,7 @@ const (
 	TemplatePresetDelphi      = "delphi"
 	TemplatePresetGeneric     = "generic"
 	TemplatePresetCodex       = "codex"
+	TemplatePresetGrok        = "grok"
 	TemplatePresetClaude      = "claude"
 	TemplatePresetGemini      = "gemini"
 	TemplatePresetAntigravity = "antigravity"

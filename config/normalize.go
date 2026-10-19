@@ -27,6 +27,7 @@ const (
 	CLITypeGeneric     = "generic"
 	CLITypeClaude      = "claude"
 	CLITypeCodex       = "codex"
+	CLITypeGrok        = "grok"
 	CLITypeGemini      = "gemini"
 	CLITypeAntigravity = "antigravity"
 	CLITypeOpenCode    = "opencode"

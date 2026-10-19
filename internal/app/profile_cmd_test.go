@@ -327,9 +327,8 @@ providers:
 	}
 	output := stdout.String()
 	for _, needle := range []string{
-		`command: til-consensus-missing-agy-for-test --add-dir`,
-		`--dangerously-skip-permissions --model "Gemini 3.5 Flash (High)" -p`,
-		"Read the complete task instructions from the absolute file",
+		`command: til-consensus-missing-agy-for-test --input-format stream-json --output-format stream-json --mode plan --sandbox`,
+		`--model "Gemini 3.5 Flash (High)" --json-schema`,
 		"provider: type=cli protocol=antigravity",
 	} {
 		if !strings.Contains(output, needle) {
@@ -368,7 +367,7 @@ providers:
 	}
 	output := stdout.String()
 	for _, needle := range []string{
-		"command: til-consensus-missing-claude-for-test --print --model claude-opus-4-6 --effort max",
+		"command: til-consensus-missing-claude-for-test --print --output-format json --model claude-opus-4-6 --effort max",
 		"--json-schema ",
 		"--output-format json",
 	} {

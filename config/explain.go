@@ -28,14 +28,17 @@ type ExplainReport struct {
 }
 
 type ExplainProvider struct {
-	ID        string   `json:"id"`
-	Type      string   `json:"type"`
-	Protocol  string   `json:"protocol,omitempty"`
-	CLIType   string   `json:"cliType,omitempty"`
-	Command   []string `json:"command,omitempty"`
-	BaseURL   string   `json:"baseUrl,omitempty"`
-	APIKeyEnv string   `json:"apiKeyEnv,omitempty"`
-	Models    []string `json:"models,omitempty"`
+	ID             string   `json:"id"`
+	Type           string   `json:"type"`
+	Protocol       string   `json:"protocol,omitempty"`
+	CLIType        string   `json:"cliType,omitempty"`
+	Command        []string `json:"command,omitempty"`
+	Workdir        string   `json:"workdir,omitempty"`
+	PermissionMode string   `json:"permissionMode,omitempty"`
+	OutputFormat   string   `json:"outputFormat,omitempty"`
+	BaseURL        string   `json:"baseUrl,omitempty"`
+	APIKeyEnv      string   `json:"apiKeyEnv,omitempty"`
+	Models         []string `json:"models,omitempty"`
 }
 
 type ExplainAgent struct {
@@ -103,13 +106,16 @@ func BuildExplainReport(loaded LoadedConfig, opts ExplainOptions) ExplainReport 
 		}
 		provider := loaded.Config.Providers[id]
 		item := ExplainProvider{
-			ID:        id,
-			Type:      provider.Type,
-			Protocol:  provider.Protocol,
-			CLIType:   provider.CLIType,
-			BaseURL:   provider.BaseURL,
-			APIKeyEnv: provider.APIKeyEnv,
-			Models:    ModelIDs(provider),
+			ID:             id,
+			Type:           provider.Type,
+			Protocol:       provider.Protocol,
+			CLIType:        provider.CLIType,
+			Workdir:        provider.Workdir,
+			PermissionMode: provider.PermissionMode,
+			OutputFormat:   provider.OutputFormat,
+			BaseURL:        provider.BaseURL,
+			APIKeyEnv:      provider.APIKeyEnv,
+			Models:         ModelIDs(provider),
 		}
 		if provider.Command != "" || len(provider.Args) > 0 {
 			item.Command = append([]string{provider.Command}, provider.Args...)
@@ -210,6 +216,15 @@ func RenderExplainText(report ExplainReport) string {
 		}
 		if provider.CLIType != "" {
 			parts = append(parts, "cliType="+provider.CLIType)
+		}
+		if provider.Workdir != "" {
+			parts = append(parts, "workdir="+provider.Workdir)
+		}
+		if provider.PermissionMode != "" {
+			parts = append(parts, "permissionMode="+provider.PermissionMode)
+		}
+		if provider.OutputFormat != "" {
+			parts = append(parts, "outputFormat="+provider.OutputFormat)
 		}
 		if provider.BaseURL != "" {
 			parts = append(parts, "baseUrl="+provider.BaseURL)

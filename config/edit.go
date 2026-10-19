@@ -22,6 +22,9 @@ type AddProviderInput struct {
 	Headers         map[string]string
 	CLIType         string
 	Command         string
+	Workdir         string
+	PermissionMode  string
+	OutputFormat    string
 	Args            []string
 	Env             map[string]string
 	EnvPassthrough  []string
@@ -171,20 +174,23 @@ func BuildProvider(input AddProviderInput) (ProviderConfig, error) {
 		return ProviderConfig{}, fmt.Errorf("provider type is required")
 	}
 	provider := ProviderConfig{
-		Type:      providerType,
-		Protocol:  input.Protocol,
-		CLIType:   input.CLIType,
-		BaseURL:   input.BaseURL,
-		APIKeyEnv: input.APIKeyEnv,
-		Headers:   cloneStringMap(input.Headers),
-		Command:   input.Command,
-		Args:      append([]string(nil), input.Args...),
-		Env:       cloneStringMap(input.Env),
-		Adapter:   input.Adapter,
-		Options:   cloneAnyMap(input.Options),
-		Behavior:  input.Behavior,
-		Delay:     input.Delay,
-		Error:     input.Error,
+		Type:           providerType,
+		Protocol:       input.Protocol,
+		CLIType:        input.CLIType,
+		BaseURL:        input.BaseURL,
+		APIKeyEnv:      input.APIKeyEnv,
+		Headers:        cloneStringMap(input.Headers),
+		Command:        input.Command,
+		Workdir:        input.Workdir,
+		PermissionMode: input.PermissionMode,
+		OutputFormat:   input.OutputFormat,
+		Args:           append([]string(nil), input.Args...),
+		Env:            cloneStringMap(input.Env),
+		Adapter:        input.Adapter,
+		Options:        cloneAnyMap(input.Options),
+		Behavior:       input.Behavior,
+		Delay:          input.Delay,
+		Error:          input.Error,
 	}
 	if input.EnvPassthrough != nil {
 		values := append([]string{}, input.EnvPassthrough...)

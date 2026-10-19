@@ -16,6 +16,7 @@ const (
 	TemplateProviderProfileOpenAI      = "openai"
 	TemplateProviderProfileGeneric     = "generic"
 	TemplateProviderProfileCodex       = "codex"
+	TemplateProviderProfileGrok        = "grok"
 	TemplateProviderProfileClaude      = "claude"
 	TemplateProviderProfileGemini      = "gemini"
 	TemplateProviderProfileAntigravity = "antigravity"
@@ -365,6 +366,18 @@ func buildTemplateProvider(profile string) (string, string, ProviderConfig, erro
 				},
 			},
 		}, nil
+	case TemplateProviderProfileGrok:
+		return "grok-cli", "default", ProviderConfig{
+			Type:           ProviderTypeCLI,
+			CLIType:        CLITypeGrok,
+			Command:        "grok",
+			PermissionMode: "read-only",
+			OutputFormat:   "json",
+			EnvPassthrough: stringSlicePtr("XAI_API_KEY"),
+			Models: map[string]ProviderModelConfig{
+				"default": {ProviderModel: "grok-4.7"},
+			},
+		}, nil
 	case TemplateProviderProfileGemini:
 		return "gemini-cli", "default", ProviderConfig{
 			Type:           ProviderTypeCLI,
@@ -415,44 +428,44 @@ func buildTemplateAgents(mode consensus.WorkflowMode, providerID string, modelID
 	switch mode {
 	case consensus.WorkflowModeFreeDebate:
 		return []AgentConfig{
-				{ID: "participant-a", Provider: providerID, Model: modelID, Role: "participant"},
-				{ID: "participant-b", Provider: providerID, Model: modelID, Role: "participant"},
-				{ID: "participant-c", Provider: providerID, Model: modelID, Role: "participant"},
-				{ID: "reporter-a", Provider: providerID, Model: modelID, Role: "reporter"},
-				{ID: "actor-a", Provider: providerID, Model: modelID, Role: "actor"},
-			}, RolesConfig{
-				Participants: []string{"participant-a", "participant-b", "participant-c"},
-				Reporter:     "reporter-a",
-				Actor:        "actor-a",
-			}
+			{ID: "participant-a", Provider: providerID, Model: modelID, Role: "participant"},
+			{ID: "participant-b", Provider: providerID, Model: modelID, Role: "participant"},
+			{ID: "participant-c", Provider: providerID, Model: modelID, Role: "participant"},
+			{ID: "reporter-a", Provider: providerID, Model: modelID, Role: "reporter"},
+			{ID: "actor-a", Provider: providerID, Model: modelID, Role: "actor"},
+		}, RolesConfig{
+			Participants: []string{"participant-a", "participant-b", "participant-c"},
+			Reporter:     "reporter-a",
+			Actor:        "actor-a",
+		}
 	case consensus.WorkflowModeDelphi:
 		return []AgentConfig{
-				{ID: "participant-a", Provider: providerID, Model: modelID, Role: "participant"},
-				{ID: "participant-b", Provider: providerID, Model: modelID, Role: "participant"},
-				{ID: "participant-c", Provider: providerID, Model: modelID, Role: "participant"},
-				{ID: "facilitator-a", Provider: providerID, Model: modelID, Role: "facilitator"},
-				{ID: "reporter-a", Provider: providerID, Model: modelID, Role: "reporter"},
-			}, RolesConfig{
-				Participants: []string{"participant-a", "participant-b", "participant-c"},
-				Facilitator:  "facilitator-a",
-				Reporter:     "reporter-a",
-			}
+			{ID: "participant-a", Provider: providerID, Model: modelID, Role: "participant"},
+			{ID: "participant-b", Provider: providerID, Model: modelID, Role: "participant"},
+			{ID: "participant-c", Provider: providerID, Model: modelID, Role: "participant"},
+			{ID: "facilitator-a", Provider: providerID, Model: modelID, Role: "facilitator"},
+			{ID: "reporter-a", Provider: providerID, Model: modelID, Role: "reporter"},
+		}, RolesConfig{
+			Participants: []string{"participant-a", "participant-b", "participant-c"},
+			Facilitator:  "facilitator-a",
+			Reporter:     "reporter-a",
+		}
 	default:
 		return []AgentConfig{
-				{ID: "proposer-a", Provider: providerID, Model: modelID, Role: "proposer"},
-				{ID: "challenger-a", Provider: providerID, Model: modelID, Role: "challenger"},
-				{ID: "arbiter-a", Provider: providerID, Model: modelID, Role: "arbiter"},
-				{ID: "verifier-a", Provider: providerID, Model: modelID, Role: "semantic-verifier"},
-				{ID: "reporter-a", Provider: providerID, Model: modelID, Role: "reporter"},
-				{ID: "actor-a", Provider: providerID, Model: modelID, Role: "actor"},
-			}, RolesConfig{
-				Proposers:        []string{"proposer-a"},
-				Challengers:      []string{"challenger-a"},
-				Arbiter:          "arbiter-a",
-				SemanticVerifier: "verifier-a",
-				Reporter:         "reporter-a",
-				Actor:            "actor-a",
-			}
+			{ID: "proposer-a", Provider: providerID, Model: modelID, Role: "proposer"},
+			{ID: "challenger-a", Provider: providerID, Model: modelID, Role: "challenger"},
+			{ID: "arbiter-a", Provider: providerID, Model: modelID, Role: "arbiter"},
+			{ID: "verifier-a", Provider: providerID, Model: modelID, Role: "semantic-verifier"},
+			{ID: "reporter-a", Provider: providerID, Model: modelID, Role: "reporter"},
+			{ID: "actor-a", Provider: providerID, Model: modelID, Role: "actor"},
+		}, RolesConfig{
+			Proposers:        []string{"proposer-a"},
+			Challengers:      []string{"challenger-a"},
+			Arbiter:          "arbiter-a",
+			SemanticVerifier: "verifier-a",
+			Reporter:         "reporter-a",
+			Actor:            "actor-a",
+		}
 	}
 }
 
@@ -514,6 +527,13 @@ func resolvePresetAlias(preset string) (TemplateSelection, error) {
 			TaskProfile:     TemplateTaskProfileGeneral,
 			Alias:           TemplatePresetClaude,
 		}, nil
+	case TemplatePresetGrok:
+		return TemplateSelection{
+			Mode:            consensus.WorkflowModeAdjudication,
+			ProviderProfile: TemplateProviderProfileGrok,
+			TaskProfile:     TemplateTaskProfileGeneral,
+			Alias:           TemplatePresetGrok,
+		}, nil
 	case TemplatePresetGemini:
 		return TemplateSelection{
 			Mode:            consensus.WorkflowModeAdjudication,
@@ -558,6 +578,8 @@ func canonicalTemplateAlias(selection TemplateSelection) string {
 		return TemplatePresetCodex
 	case selection.Mode == consensus.WorkflowModeAdjudication && selection.ProviderProfile == TemplateProviderProfileClaude && selection.TaskProfile == TemplateTaskProfileGeneral:
 		return TemplatePresetClaude
+	case selection.Mode == consensus.WorkflowModeAdjudication && selection.ProviderProfile == TemplateProviderProfileGrok && selection.TaskProfile == TemplateTaskProfileGeneral:
+		return TemplatePresetGrok
 	case selection.Mode == consensus.WorkflowModeAdjudication && selection.ProviderProfile == TemplateProviderProfileGemini && selection.TaskProfile == TemplateTaskProfileGeneral:
 		return TemplatePresetGemini
 	case selection.Mode == consensus.WorkflowModeAdjudication && selection.ProviderProfile == TemplateProviderProfileAntigravity && selection.TaskProfile == TemplateTaskProfileGeneral:
@@ -596,6 +618,7 @@ func normalizeProviderProfile(profile string) (string, error) {
 		TemplateProviderProfileGeneric,
 		TemplateProviderProfileCodex,
 		TemplateProviderProfileClaude,
+		TemplateProviderProfileGrok,
 		TemplateProviderProfileGemini,
 		TemplateProviderProfileAntigravity,
 		TemplateProviderProfilePi:

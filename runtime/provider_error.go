@@ -106,6 +106,7 @@ func classifyCLICommandStderr(cliType string, stderr string) ProviderErrorClass 
 	switch cliType {
 	case config.CLITypeCodex,
 		config.CLITypeClaude,
+		config.CLITypeGrok,
 		config.CLITypeGemini,
 		config.CLITypeAntigravity,
 		config.CLITypeOpenCode,
@@ -120,7 +121,7 @@ func classifyCLICommandStderr(cliType string, stderr string) ProviderErrorClass 
 	switch {
 	case containsAny(message, "rate limit", "rate-limit", "too many requests", "resource_exhausted", "quota exceeded", "status 429", "status=429", "http 429"):
 		return ProviderErrorRateLimited
-	case containsAny(message, "unauthorized", "authentication failed", "invalid api key", "invalid_api_key", "forbidden", "status 401", "status=401", "http 401", "status 403", "status=403", "http 403"):
+	case containsAny(message, "unauthorized", "authentication failed", "invalid api key", "invalid_api_key", "not signed in", "forbidden", "status 401", "status=401", "http 401", "status 403", "status=403", "http 403"):
 		return ProviderErrorAuth
 	case containsAny(message, "service unavailable", "connection refused", "bad gateway", "gateway timeout", "status 502", "status=502", "http 502", "status 503", "status=503", "http 503", "status 504", "status=504", "http 504"):
 		return ProviderErrorUnavailable

@@ -131,6 +131,9 @@ func mergeProvider(base ProviderConfig, overlay ProviderConfig) ProviderConfig {
 	out.Model = pickString(out.Model, overlay.Model)
 	out.Models = mergeProviderModels(out.Models, overlay.Models)
 	out.Command = pickString(out.Command, overlay.Command)
+	out.Workdir = pickString(out.Workdir, overlay.Workdir)
+	out.PermissionMode = pickString(out.PermissionMode, overlay.PermissionMode)
+	out.OutputFormat = pickString(out.OutputFormat, overlay.OutputFormat)
 	if len(overlay.Args) > 0 {
 		out.Args = cloneStrings(overlay.Args)
 	}

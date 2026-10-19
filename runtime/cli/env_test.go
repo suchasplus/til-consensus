@@ -116,6 +116,25 @@ func TestKnownEnvironmentKeysDistinguishesPiGoogleProviders(t *testing.T) {
 	}
 }
 
+func TestGrokEnvironmentOnlyRequiresXAIAPIKeyPassthrough(t *testing.T) {
+	host := snapshotHostEnvironment([]string{"PATH=/usr/bin", "XAI_API_KEY=secret", "OPENAI_API_KEY=unrelated", "XAI_BASE_URL=https://example.invalid"}, false)
+	provider := config.ProviderConfig{CLIType: config.CLITypeGrok}
+	built := BuildEnvironment(host, provider, environmentTestTask{}, "agent", "participant", "grok-4.7-build")
+	if strings.Join(built.MissingKnownKeys, ",") != "XAI_API_KEY" {
+		t.Fatalf("unexpected Grok required passthrough: %v", built.MissingKnownKeys)
+	}
+	provider.EnvPassthrough = &[]string{"XAI_API_KEY"}
+	built = BuildEnvironment(host, provider, environmentTestTask{}, "agent", "participant", "grok-4.7-build")
+	if len(built.MissingKnownKeys) != 0 || environmentValuesMap(built.Values)["XAI_API_KEY"] != "secret" {
+		t.Fatal("explicit Grok credential passthrough was not applied")
+	}
+	for _, unrelated := range []string{"OPENAI_API_KEY", "XAI_BASE_URL"} {
+		if _, exists := environmentValuesMap(built.Values)[unrelated]; exists {
+			t.Fatalf("undeclared %s leaked into Grok environment", unrelated)
+		}
+	}
+}
+
 func environmentValuesMap(values []string) map[string]string {
 	out := make(map[string]string, len(values))
 	for _, value := range values {

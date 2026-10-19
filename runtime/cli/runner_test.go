@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"strings"
@@ -52,9 +53,129 @@ func TestGenericCLIRunnerPassesPromptViaStdin(t *testing.T) {
 
 func TestBuildBaseArgsClaudeMapsReasoningToEffort(t *testing.T) {
 	args := buildBaseArgs("claude", "claude-opus-4-6", "max")
-	want := []string{"--print", "--model", "claude-opus-4-6", "--effort", "max"}
+	want := []string{"--print", "--output-format", "json", "--model", "claude-opus-4-6", "--effort", "max"}
 	if strings.Join(args, "\x00") != strings.Join(want, "\x00") {
 		t.Fatalf("unexpected claude args: %#v", args)
+	}
+}
+
+func TestBuildBaseArgsInheritsDefaultModelWithoutEmptyOverride(t *testing.T) {
+	for _, cliType := range []string{config.CLITypeCodex, config.CLITypeClaude, config.CLITypeGrok, config.CLITypeAntigravity} {
+		t.Run(cliType, func(t *testing.T) {
+			args := buildBaseArgs(cliType, "", "")
+			for _, arg := range args {
+				if arg == "--model" || arg == "-m" || arg == "" {
+					t.Fatalf("空模型应继承 CLI 原配置，不能传空覆盖参数: %#v", args)
+				}
+			}
+		})
+	}
+}
+
+func TestExecutionProfileMapsReadOnlyAndStreamingContracts(t *testing.T) {
+	count := func(args []string, target string) int {
+		result := 0
+		for _, arg := range args {
+			if arg == target {
+				result++
+			}
+		}
+		return result
+	}
+	for _, cliType := range []string{config.CLITypeCodex, config.CLITypeClaude, config.CLITypeGrok, config.CLITypeAntigravity} {
+		t.Run(cliType, func(t *testing.T) {
+			base := buildBaseArgs(cliType, "", "")
+			original := strings.Join(base, "\x00")
+			args := applyExecutionProfile(config.ProviderConfig{
+				CLIType: cliType, PermissionMode: "read-only", OutputFormat: "stream-json",
+			}, base)
+			if strings.Join(base, "\x00") != original {
+				t.Fatal("执行 profile 不应污染默认 argv")
+			}
+			for _, forbidden := range []string{"--dangerously-skip-permissions", "--disable-slash-commands", "--full-auto"} {
+				if count(args, forbidden) != 0 {
+					t.Fatalf("只读 profile 出现不允许的参数 %q: %#v", forbidden, args)
+				}
+			}
+			switch cliType {
+			case config.CLITypeCodex:
+				if argumentAfter(base, "--sandbox") != "workspace-write" || argumentAfter(args, "--sandbox") != "read-only" || count(args, "--sandbox") != 1 || count(args, "--json") != 1 {
+					t.Fatalf("Codex 默认 workspace-write 或只读覆盖错误: base=%#v profile=%#v", base, args)
+				}
+			case config.CLITypeClaude:
+				if argumentAfter(args, "--output-format") != "stream-json" || count(args, "--output-format") != 1 || count(args, "--verbose") != 1 || count(args, "--include-partial-messages") != 1 {
+					t.Fatalf("Claude 流式参数错误: %#v", args)
+				}
+				if count(args, "--tools") != 1 || argumentAfter(args, "--tools") != "" || count(args, "--safe-mode") != 1 || count(args, "--strict-mcp-config") != 1 || argumentAfter(args, "--mcp-config") != `{"mcpServers":{}}` || argumentAfter(args, "--permission-mode") != "dontAsk" || argumentAfter(args, "--permission-prompts") != "none" {
+					t.Fatalf("Claude 只读工具限制错误: %#v", args)
+				}
+			case config.CLITypeGrok:
+				if argumentAfter(args, "--output-format") != "streaming-json" || count(args, "--output-format") != 1 || argumentAfter(args, "--permission-mode") != "plan" {
+					t.Fatalf("Grok 公共 stream-json 应映射到原生 streaming-json: %#v", args)
+				}
+				if count(args, "--tools") != 1 || argumentAfter(args, "--tools") != "" || argumentAfter(args, "--deny") != "MCPTool(*)" || count(args, "--disable-web-search") != 1 || count(args, "--no-subagents") != 1 {
+					t.Fatalf("Grok 只读工具限制错误: %#v", args)
+				}
+			case config.CLITypeAntigravity:
+				if argumentAfter(args, "--mode") != "plan" || argumentAfter(args, "--input-format") != "stream-json" || argumentAfter(args, "--output-format") != "stream-json" || count(args, "--sandbox") != 1 {
+					t.Fatalf("agy 应保留经实测的 plan/sandbox 原生双向流协议: %#v", args)
+				}
+			}
+		})
+	}
+}
+
+func TestExecutionProfileWorkspaceWriteUsesProviderNativeModes(t *testing.T) {
+	for _, test := range []struct {
+		cliType string
+		flag    string
+		want    string
+	}{
+		{config.CLITypeClaude, "--permission-mode", "acceptEdits"},
+		{config.CLITypeAntigravity, "--mode", "accept-edits"},
+		{config.CLITypeGrok, "--permission-mode", "default"},
+	} {
+		t.Run(test.cliType, func(t *testing.T) {
+			args := applyExecutionProfile(config.ProviderConfig{CLIType: test.cliType, PermissionMode: "workspace-write"}, buildBaseArgs(test.cliType, "", ""))
+			if got := argumentAfter(args, test.flag); got != test.want {
+				t.Fatalf("%s = %q，期望 %q: %#v", test.flag, got, test.want, args)
+			}
+		})
+	}
+}
+
+func TestPreviewNativeSchemaHasOneOutputFormat(t *testing.T) {
+	for _, cliType := range []string{config.CLITypeClaude, config.CLITypeGrok, config.CLITypeAntigravity} {
+		t.Run(cliType, func(t *testing.T) {
+			for _, outputFormat := range []string{"json", "stream-json"} {
+				command, err := PreviewCommand(config.ProviderConfig{
+					Type: config.ProviderTypeCLI, CLIType: cliType, Command: "preview-only", OutputFormat: outputFormat,
+				}, realPromptTransportTestTask{}, "private prompt", "agent", "role", "", "", nil, map[string]any{"type": "object"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				formatCount, schemaCount := 0, 0
+				for _, arg := range command {
+					if arg == "--output-format" {
+						formatCount++
+					}
+					if arg == "--json-schema" {
+						schemaCount++
+					}
+				}
+				if formatCount != 1 {
+					t.Fatalf("schema 不能追加第二个 output-format: %#v", command)
+				}
+				wantSchemaCount := 1
+				if cliType == config.CLITypeGrok && outputFormat == "stream-json" {
+					// Grok 的 native schema 会强制 JSON 模式，流模式应把 schema 放到上下文。
+					wantSchemaCount = 0
+				}
+				if schemaCount != wantSchemaCount {
+					t.Fatalf("native schema 参数错误: %#v", command)
+				}
+			}
+		})
 	}
 }
 
@@ -66,12 +187,12 @@ func TestBuildBaseArgsCodexUsesCanonicalSandboxFlags(t *testing.T) {
 	}{
 		{
 			name: "without reasoning",
-			want: []string{"exec", "-m", "gpt-5", "--sandbox", "workspace-write", "-c", `approval_policy="never"`, "--color", "never", "--skip-git-repo-check"},
+			want: []string{"exec", "-m", "gpt-5", "--sandbox", "workspace-write", "-c", `approval_policy="never"`, "--color", "never", "--skip-git-repo-check", "--json"},
 		},
 		{
 			name:      "with reasoning",
 			reasoning: "xhigh",
-			want:      []string{"exec", "-m", "gpt-5", "-c", "model_reasoning_effort=xhigh", "--sandbox", "workspace-write", "-c", `approval_policy="never"`, "--color", "never", "--skip-git-repo-check"},
+			want:      []string{"exec", "-m", "gpt-5", "-c", "model_reasoning_effort=xhigh", "--sandbox", "workspace-write", "-c", `approval_policy="never"`, "--color", "never", "--skip-git-repo-check", "--json"},
 		},
 	}
 	for _, tt := range tests {
@@ -97,8 +218,8 @@ func TestPromptTransportKeepsPromptOutOfArgv(t *testing.T) {
 		want    []string
 	}{
 		{name: "generic", cliType: config.CLITypeGeneric, model: "local", want: nil},
-		{name: "claude", cliType: "claude", model: "claude-opus-4-6", want: []string{"--print", "--model", "claude-opus-4-6", "--effort", "medium"}},
-		{name: "codex", cliType: "codex", model: "gpt-5", want: []string{"exec", "-m", "gpt-5", "-c", "model_reasoning_effort=medium", "--sandbox", "workspace-write", "-c", `approval_policy="never"`, "--color", "never", "--skip-git-repo-check"}},
+		{name: "claude", cliType: "claude", model: "claude-opus-4-6", want: []string{"--print", "--output-format", "json", "--model", "claude-opus-4-6", "--effort", "medium"}},
+		{name: "codex", cliType: "codex", model: "gpt-5", want: []string{"exec", "-m", "gpt-5", "-c", "model_reasoning_effort=medium", "--sandbox", "workspace-write", "-c", `approval_policy="never"`, "--color", "never", "--skip-git-repo-check", "--json"}},
 		{name: "gemini", cliType: "gemini", model: "gemini-3.1-pro-preview", want: []string{"--approval-mode", "yolo", "-m", "gemini-3.1-pro-preview"}},
 		{name: "opencode", cliType: "opencode", model: "google/gemini", want: []string{"run", "--yolo", "-m", "google/gemini"}},
 		{name: "pi", cliType: config.CLITypePi, model: "gemini-3.6-flash", want: []string{"--mode", "json", "--print", "--no-session", "--model", "gemini-3.6-flash", "--thinking", "medium"}},
@@ -153,7 +274,7 @@ func TestBuildStructuredOutputArgsClaudeInlinesSchema(t *testing.T) {
 		t.Fatalf("buildStructuredOutputArgs failed: %v", err)
 	}
 	defer cleanup()
-	if len(args) != 4 || args[0] != "--json-schema" || args[2] != "--output-format" || args[3] != "json" {
+	if len(args) != 2 || args[0] != "--json-schema" {
 		t.Fatalf("unexpected claude schema args: %#v", args)
 	}
 	if !strings.Contains(args[1], `"ok"`) {
@@ -162,12 +283,28 @@ func TestBuildStructuredOutputArgsClaudeInlinesSchema(t *testing.T) {
 }
 
 func TestNormalizeStructuredCLIOutputExtractsClaudeStructuredOutput(t *testing.T) {
-	out, err := normalizeStructuredCLIOutput("claude", map[string]any{"type": "object"}, `{"type":"result","structured_output":{"ok":true}}`)
+	// 复用真实成功 envelope，包含 subtype/is_error/terminal_reason。
+	out, err := normalizeStructuredCLIOutput("claude", map[string]any{"type": "object"}, realClaudeNativeSuccess)
 	if err != nil {
 		t.Fatalf("normalizeStructuredCLIOutput failed: %v", err)
 	}
-	if out != `{"ok":true}` {
-		t.Fatalf("unexpected normalized output: %s", out)
+	var envelope struct {
+		StructuredOutput json.RawMessage `json:"structured_output"`
+	}
+	if err := json.Unmarshal([]byte(realClaudeNativeSuccess), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	var got, want any
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(envelope.StructuredOutput, &want); err != nil {
+		t.Fatal(err)
+	}
+	gotJSON, _ := json.Marshal(got)
+	wantJSON, _ := json.Marshal(want)
+	if string(gotJSON) != string(wantJSON) {
+		t.Fatalf("unexpected normalized output: %s, want %s", out, wantJSON)
 	}
 }
 

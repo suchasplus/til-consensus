@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -42,31 +43,29 @@ func buildPromptTransport(cliType string, providerModel string, prompt string, r
 	if err := validatePromptSize(prompt); err != nil {
 		return promptTransport{}, err
 	}
-	if cliType != config.CLITypeAntigravity {
+	if cliType == config.CLITypeAntigravity {
+		body, err := json.Marshal(map[string]any{"event": "user", "message": map[string]any{"content": prompt}})
+		if err != nil {
+			return promptTransport{}, err
+		}
+		return promptTransport{Args: buildBaseArgs(cliType, providerModel, reasoning), Stdin: string(body) + "\n", Cleanup: noopPromptCleanup}, nil
+	}
+	if cliType != config.CLITypeGrok {
 		return promptTransport{
 			Args:    buildBaseArgs(cliType, providerModel, reasoning),
 			Stdin:   prompt,
 			Cleanup: noopPromptCleanup,
 		}, nil
 	}
-	dir, path, cleanup, err := provision(prompt)
+	_, path, cleanup, err := provision(prompt)
 	if err != nil {
 		return promptTransport{}, err
 	}
+	args := append(buildBaseArgs(cliType, providerModel, reasoning), "--prompt-file", path)
 	return promptTransport{
-		Args:    agyPromptArgs(providerModel, dir, path),
+		Args:    args,
 		Cleanup: cleanup,
 	}, nil
-}
-
-// agyPromptArgs is the single source of truth for antigravity's argv shape.
-func agyPromptArgs(providerModel string, dir string, path string) []string {
-	return []string{
-		"--add-dir", dir,
-		"--dangerously-skip-permissions",
-		"--model", providerModel,
-		"-p", agyPromptBootstrap(path),
-	}
 }
 
 func placeholderPromptFile(string) (string, string, func() error, error) {
@@ -86,7 +85,7 @@ func validatePromptSize(prompt string) error {
 }
 
 func writePrivatePromptFile(prompt string) (dir string, path string, cleanup func() error, err error) {
-	dir, err = os.MkdirTemp("", "til-consensus-agy-prompt-*")
+	dir, err = os.MkdirTemp("", "til-consensus-cli-prompt-*")
 	if err != nil {
 		return "", "", nil, fmt.Errorf("create agy prompt directory: %w", err)
 	}
@@ -117,8 +116,4 @@ func writePrivatePromptFile(prompt string) (dir string, path string, cleanup fun
 	}
 	failed = false
 	return dir, path, cleanup, nil
-}
-
-func agyPromptBootstrap(path string) string {
-	return fmt.Sprintf("Read the complete task instructions from the absolute file %q. Treat the entire file contents as the full task instruction, follow them exactly, and return only the requested final output.", path)
 }

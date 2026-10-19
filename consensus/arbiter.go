@@ -231,20 +231,20 @@ func adjudicateClaim(manifest CaseManifest, claim ClaimNode, tickets []Challenge
 		}
 	}
 	return ArbiterDecision{
-			ClaimID:      claim.ClaimID,
-			Verdict:      decisionVerdict,
-			Confidence:   confidence,
-			Rationale:    rationale,
-			EvidenceRefs: dedupeStrings(evidenceRefs),
-		}, AdjudicationRecord{
-			TargetClaimID:   claim.ClaimID,
-			Disposition:     disposition,
-			Rationale:       rationale,
-			FinalConfidence: confidence,
-			BlockingRisks:   dedupeStrings(blockingRisks),
-			Actionability:   actionability,
-			EvidenceRefs:    dedupeStrings(evidenceRefs),
-		}
+		ClaimID:      claim.ClaimID,
+		Verdict:      decisionVerdict,
+		Confidence:   confidence,
+		Rationale:    rationale,
+		EvidenceRefs: dedupeStrings(evidenceRefs),
+	}, AdjudicationRecord{
+		TargetClaimID:   claim.ClaimID,
+		Disposition:     disposition,
+		Rationale:       rationale,
+		FinalConfidence: confidence,
+		BlockingRisks:   dedupeStrings(blockingRisks),
+		Actionability:   actionability,
+		EvidenceRefs:    dedupeStrings(evidenceRefs),
+	}
 }
 
 func deriveRecordsFromDecisions(request StartRequest, claims []ClaimNode, decisions []ArbiterDecision) []AdjudicationRecord {

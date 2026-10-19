@@ -1,0 +1,7 @@
+{
+  "source": "grok 1.0.34 native headless invocation",
+  "exitCode": 1,
+  "elapsedMs": 249,
+  "authenticated": false,
+  "inferenceCompleted": false
+}

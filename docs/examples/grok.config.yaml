@@ -1,0 +1,66 @@
+# 使用本机 Grok Build 登录，或显式透传 XAI_API_KEY。
+# 模型 selector 来自 grok models；modelUsage 中的 canonical 名称不一定可用于 --model。
+# workdir 省略时继承调用进程目录；设置时应指向讨论项目的工作目录。
+schema_version: 1
+
+defaults:
+  success_criteria:
+    - 给出 claim 级裁决
+    - 输出关键 caveat 与 unresolved
+  per_task_timeout: 20m
+  task_retry_attempts: 1
+  proposal_policy:
+    max_passes: 1
+    max_claims_per_worker: 4
+    dedupe_strategy: normalized-statement
+  verification_policy:
+    allow_semantic_verifier: true
+    max_parallel_checks: 2
+  arbiter_policy:
+    allow_undetermined: true
+    blind_review: true
+
+output:
+  directory: ./out/{requestId}
+
+providers:
+  grok-cli:
+    type: cli
+    cli_type: grok
+    command: grok
+    permission_mode: read-only
+    output_format: json
+    env_passthrough: [XAI_API_KEY]
+    models:
+      default:
+        provider_model: grok-4.7
+
+agents:
+  - id: proposer-grok
+    provider: grok-cli
+    model: default
+    role: proposer
+  - id: challenger-grok
+    provider: grok-cli
+    model: default
+    role: challenger
+  - id: verifier-grok
+    provider: grok-cli
+    model: default
+    role: semantic-verifier
+  - id: arbiter-grok
+    provider: grok-cli
+    model: default
+    role: arbiter
+  - id: reporter-grok
+    provider: grok-cli
+    model: default
+    role: reporter
+
+roles:
+  adjudication:
+    proposers: [proposer-grok]
+    challengers: [challenger-grok]
+    semantic_verifier: verifier-grok
+    arbiter: arbiter-grok
+    reporter: reporter-grok
