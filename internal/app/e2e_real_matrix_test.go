@@ -892,44 +892,50 @@ func writeE2EProviderConfig(t *testing.T, params e2eConfigParams) {
 func defaultCLIE2EAgents(mode consensus.WorkflowMode) ([]config.AgentConfig, config.RolesConfig) {
 	switch mode {
 	case consensus.WorkflowModeFreeDebate:
-		return []config.AgentConfig{
+		agents := []config.AgentConfig{
 			{ID: "participant-claude", Provider: "claude-cli", Model: "default", Role: "participant"},
 			{ID: "participant-gemini", Provider: "gemini-cli", Model: "default", Role: "participant"},
 			{ID: "participant-antigravity", Provider: "antigravity-cli", Model: "default", Role: "participant"},
 			{ID: "participant-codex", Provider: "codex-cli", Model: "default", Role: "participant"},
 			{ID: "reporter-claude", Provider: "claude-cli", Model: "default", Role: "reporter"},
-		}, config.RolesConfig{
+		}
+		roles := config.RolesConfig{
 			Participants: []string{"participant-claude", "participant-gemini", "participant-antigravity", "participant-codex"},
 			Reporter:     "reporter-claude",
 		}
+		return agents, roles
 	case consensus.WorkflowModeDelphi:
-		return []config.AgentConfig{
+		agents := []config.AgentConfig{
 			{ID: "participant-claude", Provider: "claude-cli", Model: "default", Role: "participant"},
 			{ID: "participant-gemini", Provider: "gemini-cli", Model: "default", Role: "participant"},
 			{ID: "participant-antigravity", Provider: "antigravity-cli", Model: "default", Role: "participant"},
 			{ID: "participant-codex", Provider: "codex-cli", Model: "default", Role: "participant"},
 			{ID: "facilitator-claude", Provider: "claude-cli", Model: "default", Role: "facilitator"},
 			{ID: "reporter-codex", Provider: "codex-cli", Model: "default", Role: "reporter"},
-		}, config.RolesConfig{
+		}
+		roles := config.RolesConfig{
 			Participants: []string{"participant-claude", "participant-gemini", "participant-antigravity", "participant-codex"},
 			Facilitator:  "facilitator-claude",
 			Reporter:     "reporter-codex",
 		}
+		return agents, roles
 	default:
-		return []config.AgentConfig{
+		agents := []config.AgentConfig{
 			{ID: "proposer-claude", Provider: "claude-cli", Model: "default", Role: "proposer"},
 			{ID: "challenger-gemini", Provider: "gemini-cli", Model: "default", Role: "challenger"},
 			{ID: "challenger-antigravity", Provider: "antigravity-cli", Model: "default", Role: "challenger"},
 			{ID: "verifier-codex", Provider: "codex-cli", Model: "default", Role: "semantic-verifier"},
 			{ID: "arbiter-claude", Provider: "claude-cli", Model: "default", Role: "arbiter"},
 			{ID: "reporter-gemini", Provider: "gemini-cli", Model: "default", Role: "reporter"},
-		}, config.RolesConfig{
+		}
+		roles := config.RolesConfig{
 			Proposers:        []string{"proposer-claude"},
 			Challengers:      []string{"challenger-gemini", "challenger-antigravity"},
 			SemanticVerifier: "verifier-codex",
 			Arbiter:          "arbiter-claude",
 			Reporter:         "reporter-gemini",
 		}
+		return agents, roles
 	}
 }
 
@@ -1116,41 +1122,47 @@ func cliReadinessProviderID(provider string) (string, bool) {
 func buildAPIE2EAgents(mode consensus.WorkflowMode) ([]config.AgentConfig, config.RolesConfig) {
 	switch mode {
 	case consensus.WorkflowModeFreeDebate:
-		return []config.AgentConfig{
+		agents := []config.AgentConfig{
 			{ID: "participant-openai-a", Provider: "openai-test", Model: "default", Role: "participant"},
 			{ID: "participant-anthropic", Provider: "anthropic-test", Model: "default", Role: "participant"},
 			{ID: "participant-gemini", Provider: "gemini-test", Model: "default", Role: "participant"},
 			{ID: "reporter-openai", Provider: "openai-test", Model: "default", Role: "reporter"},
-		}, config.RolesConfig{
+		}
+		roles := config.RolesConfig{
 			Participants: []string{"participant-openai-a", "participant-anthropic", "participant-gemini"},
 			Reporter:     "reporter-openai",
 		}
+		return agents, roles
 	case consensus.WorkflowModeDelphi:
-		return []config.AgentConfig{
+		agents := []config.AgentConfig{
 			{ID: "participant-openai-a", Provider: "openai-test", Model: "default", Role: "participant"},
 			{ID: "participant-anthropic", Provider: "anthropic-test", Model: "default", Role: "participant"},
 			{ID: "participant-gemini", Provider: "gemini-test", Model: "default", Role: "participant"},
 			{ID: "facilitator-anthropic", Provider: "anthropic-test", Model: "default", Role: "facilitator"},
 			{ID: "reporter-openai", Provider: "openai-test", Model: "default", Role: "reporter"},
-		}, config.RolesConfig{
+		}
+		roles := config.RolesConfig{
 			Participants: []string{"participant-openai-a", "participant-anthropic", "participant-gemini"},
 			Facilitator:  "facilitator-anthropic",
 			Reporter:     "reporter-openai",
 		}
+		return agents, roles
 	default:
-		return []config.AgentConfig{
+		agents := []config.AgentConfig{
 			{ID: "proposer-openai", Provider: "openai-test", Model: "default", Role: "proposer"},
 			{ID: "challenger-anthropic", Provider: "anthropic-test", Model: "default", Role: "challenger"},
 			{ID: "verifier-gemini", Provider: "gemini-test", Model: "default", Role: "semantic-verifier"},
 			{ID: "arbiter-anthropic", Provider: "anthropic-test", Model: "default", Role: "arbiter"},
 			{ID: "reporter-openai", Provider: "openai-test", Model: "default", Role: "reporter"},
-		}, config.RolesConfig{
+		}
+		roles := config.RolesConfig{
 			Proposers:        []string{"proposer-openai"},
 			Challengers:      []string{"challenger-anthropic"},
 			SemanticVerifier: "verifier-gemini",
 			Arbiter:          "arbiter-anthropic",
 			Reporter:         "reporter-openai",
 		}
+		return agents, roles
 	}
 }
 
