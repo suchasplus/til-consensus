@@ -2,6 +2,12 @@
 
 这篇覆盖本地质量门禁、E2E、真实 provider 验证、coverage treemap 和发布流程。
 
+## 工具版本
+
+最低 Go 版本为 `1.27.1`，与 `go.mod` 一致；本地和 CI 的质量检查使用 `golangci-lint v2.13.2`。可先运行 `go version` 与 `golangci-lint version` 核对工具。
+
+Linux 质量检查、macOS 构建、Windows 进程测试及 release 矩阵均通过 `actions/setup-go` 的 `go-version-file: go.mod` 选择同一 Go 版本。工作流设置 `GOTOOLCHAIN=local`，避免测试或构建期间自动切换工具链，运行日志会输出实际 Go 版本。
+
 ## 本地质量门禁
 
 日常提交前运行：
@@ -168,6 +174,8 @@ go test ./...
 - daily run 关注 provider/schema 漂移、unresolved 比例和 strict compliance。
 
 ## 发布
+
+发布矩阵构建 Linux 与 macOS 的 amd64、arm64 归档。每个归档都会解包，并通过 `go version -m` 核对编译器版本、GOOS 和 GOARCH；只有目标系统及架构与 runner 一致时才直接执行 `--version`，交叉构建产物不在异构 runner 上运行。
 
 本地构建：
 

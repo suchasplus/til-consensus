@@ -1,6 +1,6 @@
 module github.com/suchasplus/til-consensus
 
-go 1.26.1
+go 1.27.1
 
 require (
 	github.com/openai/openai-go/v3 v3.41.0

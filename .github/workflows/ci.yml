@@ -9,6 +9,9 @@ on:
 permissions:
   contents: read
 
+env:
+  GOTOOLCHAIN: local
+
 jobs:
   quality-linux:
     name: quality-linux
@@ -22,6 +25,9 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+
+      - name: Show Go toolchain
+        run: go version
 
       - name: Check formatting
         run: make fmt-check
@@ -38,7 +44,7 @@ jobs:
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.11.4
+          version: v2.13.2
 
       - name: Build CLI
         run: make build
@@ -63,6 +69,9 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Show Go toolchain
+        run: go version
+
       - name: Build CLI
         run: make build
 
@@ -81,6 +90,9 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+
+      - name: Show Go toolchain
+        run: go version
 
       - name: Run Windows process-control tests
         run: go test runtime/cli/proc_windows.go runtime/cli/proc_windows_test.go
