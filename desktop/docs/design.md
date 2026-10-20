@@ -2,10 +2,10 @@
 
 版本：设计草案 v0.1  
 日期：2026 年 10 月 20 日  
-项目目录：`/Users/suchasplus/devs/agentic/newtc`  
+当前源码目录：仓库内 `desktop/`（本文保留独立项目阶段的初始设计）
 参考内核：`til-consensus`，提交 `b505773800a46c54d4e32a2c0f79f13b1b416087`
 
-实现更新：本文保留最初设计。`0.4.0` 新讨论默认先自动检查话题再选择三种模式，并支持文本材料分析；当前行为以[话题准备说明](/Users/suchasplus/devs/agentic/newtc/docs/topic-preparation.md)和[实现与验收说明](/Users/suchasplus/devs/agentic/newtc/docs/implementation.md)为准。
+实现更新：本文保留最初设计。`0.4.0` 新讨论默认先自动检查话题再选择三种模式，并支持文本材料分析；当前行为以[话题准备说明](topic-preparation.md)和[实现与验收说明](implementation.md)为准。
 
 建议将应用设计为一个由确定性程序主持的方案讨论室：用户提出问题，Codex 生成初稿，Claude Code、Grok Build 和 agy 独立评审并交叉讨论，Codex 综合修订，三位评审对同一版本表态，应用依据规则给出结论。聊天展示发言过程，方案、争议和投票则作为独立对象保存。
 
@@ -121,7 +121,7 @@ flowchart TD
 
 提前停止沿用参考规则：达到最少轮数后，本轮没有新主张，所有意见都是同意或无需修改，且没有缺席，才结束讨论进入综合和最终投票。提前停止讨论不等于最终通过。
 
-参考内核已有 `domain/process/synthesis` 分类、语义去重、来源保留、综合与修正机制。桌面应保留这些语义，避免把“请减少重复发言”一类过程意见放进最终投票。[参考模式说明](/Users/suchasplus/agentic/til-consensus/docs/modes.md:68)
+参考内核已有 `domain/process/synthesis` 分类、语义去重、来源保留、综合与修正机制。桌面应保留这些语义，避免把“请减少重复发言”一类过程意见放进最终投票。[参考模式说明](../../docs/modes.md)
 
 ### 5.2 裁决
 
@@ -133,7 +133,7 @@ flowchart TD
 
 每项主张保留 `keep / keep_with_caveat / unresolved / reject`、证据引用和适用条件。缺少证据的事实判断不得因为多位模型重复认可就标记为已验证。模型的语义验证意见也必须标明来源类型。
 
-建议验证和修订各最多两轮，仲裁回退目标显式设为 `stop`，达到上限或无实质变化后保留未解决问题。若以后启用仲裁回退，全部回退调用纳入同一 run 总预算，不能只依赖可能重置的阶段计数。指定仲裁者执行失败时展示“仲裁失败”，不能静默改成另一种已完成裁决。[裁决实现](/Users/suchasplus/agentic/til-consensus/consensus/workflow_adjudication.go:68)、[仲裁入口](/Users/suchasplus/agentic/til-consensus/consensus/arbiter.go:31)
+建议验证和修订各最多两轮，仲裁回退目标显式设为 `stop`，达到上限或无实质变化后保留未解决问题。若以后启用仲裁回退，全部回退调用纳入同一 run 总预算，不能只依赖可能重置的阶段计数。指定仲裁者执行失败时展示“仲裁失败”，不能静默改成另一种已完成裁决。[裁决实现](../../consensus/workflow_adjudication.go)、[仲裁入口](../../consensus/arbiter.go)
 
 ### 5.3 德尔菲
 
@@ -145,7 +145,7 @@ flowchart TD
 
 建议使用 1 至 5 分量表、至少两轮、最多四轮、三位有效响应者，并要求同一最高候选连续两轮达到共识阈值 0.8。每条候选至少有两份独立评分。
 
-参考内核的共识度为 `1 - (最高评分 - 最低评分) / 量表跨度`；候选按均分优先排序。因此大家连续给同一候选 1 分，也可能达到 `converged`。桌面策略另设最低均分 4 分和硬约束检查：低分一致表示“一致不推荐”，不展示为方案通过。[德尔菲统计实现](/Users/suchasplus/agentic/til-consensus/consensus/workflow_delphi.go:401)
+参考内核的共识度为 `1 - (最高评分 - 最低评分) / 量表跨度`；候选按均分优先排序。因此大家连续给同一候选 1 分，也可能达到 `converged`。桌面策略另设最低均分 4 分和硬约束检查：低分一致表示“一致不推荐”，不展示为方案通过。[德尔菲统计实现](../../consensus/workflow_delphi.go)
 
 ### 5.4 模式之间的衔接
 
@@ -180,7 +180,7 @@ flowchart TD
 
 如果用户在启动前选择允许一名缺席，可以使用单独的降级配置：至少两份有效完整票，两位有效评审都明确支持，并显示缺席者和覆盖不足。默认运行中不自动降低门槛。人数门槛优先用整数表达，再映射到内核 quorum；三人要求两票不能直接配置为 `0.67`，因为 `ceil(3 × 0.67)` 是三票。
 
-互斥方案通过 `decisionGroup`、`exclusiveWith` 和依赖关系建模。规则只能发现已声明的冲突；语义上潜在的矛盾还需要专门的整体一致性检查。参考内核逐条接受 claim 的结果，仍要经过这层桌面检查。[参考投票与法定人数规则](/Users/suchasplus/agentic/til-consensus/docs/modes.md:131)
+互斥方案通过 `decisionGroup`、`exclusiveWith` 和依赖关系建模。规则只能发现已声明的冲突；语义上潜在的矛盾还需要专门的整体一致性检查。参考内核逐条接受 claim 的结果，仍要经过这层桌面检查。[参考投票与法定人数规则](../../docs/modes.md)
 
 达到轮数、时间或调用上限时，输出当前最佳方案、未解决争议和下一步建议，状态为 `no_consensus` 或 `needs_human`。最终投票后不回跳同一个内核 run；用户选择继续时创建关联 run，继承材料并重新投票。关联 run 独立归档，界面同时累计整条讨论链的调用数，并沿用用户为讨论链设定的预算。用户直接选定方案时记录 `decisionSource = human_override`，不会改写模型投票。
 
@@ -259,17 +259,17 @@ Tauri 本身支持捆绑 sidecar，属于可行替代路线；本选择主要取
 
 ### 8.2 与参考仓库的复用边界
 
-可直接使用公开的 `consensus`、`config`、`runtime`、`store`、`observer` 等包。三种 workflow 保持在 Go 内核，桌面层只增加前置初稿、版本关联和最终通过条件。`internal/app`、`internal/artifact`、`internal/viewer` 不作为外部依赖。[Go 嵌入说明](/Users/suchasplus/agentic/til-consensus/docs/library.md:7)
+可直接使用公开的 `consensus`、`config`、`runtime`、`store`、`observer` 等包。三种 workflow 保持在 Go 内核，桌面层只增加前置初稿、版本关联和最终通过条件。`internal/app`、`internal/artifact`、`internal/viewer` 不作为外部依赖。[Go 嵌入说明](../../docs/library.md)
 
 无执行层定制的验证原型可以使用 `runner.Executor.RunRequest`。正式接入四个 CLI 时，采用 `consensus.NewEngine(EngineDeps{TaskDelegate: desktopDelegate, ...})`，因为当前 Executor 没有 delegate 注入字段，runtime 的 runner 注册表也不是公开扩展点。
 
-DesktopDelegate 实现公开的 `Dispatch / Await / Cancel`，复用公开 prompt、schema、严格解码和规范化函数，并管理四个 adapter。格式修复行为需要显式实现或通过兼容的上游扩展复用，不能调用私有 repair 方法。后续可向 til-consensus 增加可选 DelegateFactory 和 runner options，保持现有 CLI 行为兼容。[Executor 边界](/Users/suchasplus/agentic/til-consensus/runner/runner.go:205)、[公开执行接口](/Users/suchasplus/agentic/til-consensus/consensus/interfaces.go:24)
+DesktopDelegate 实现公开的 `Dispatch / Await / Cancel`，复用公开 prompt、schema、严格解码和规范化函数，并管理四个 adapter。格式修复行为需要显式实现或通过兼容的上游扩展复用，不能调用私有 repair 方法。后续可向 til-consensus 增加可选 DelegateFactory 和 runner options，保持现有 CLI 行为兼容。[Executor 边界](../../runner/runner.go)、[公开执行接口](../../consensus/interfaces.go)
 
 桌面新增字段通过扩展 envelope 获取，不能只靠 DTO mapper 推导。评审任务的输出分为 `coreOutput` 和 `desktopReview`：前者嵌入参考任务的 JSON Schema，后者按独立 schema 包含问题严重程度、解决依据、冲突关系和条件。DesktopDelegate 的提示明确该包装格式，分别校验并持久化两部分，再只将 `coreOutput` 交给内核 decoder。纯格式修复不得更改已提交的评审意见。
 
 已有主张使用内核 claim ID；尚未分配 ID 的初始草稿使用 `invocationId + claimDraftIndex` 关联扩展字段，再在内核分配或合并 ID 后建立可追踪映射。下一轮的桌面问题摘要在轮次开始时冻结，通过 delegate 附加到 prompt，避免同轮不同参与者获得不同状态。方案 hash 和 ballot manifest 由宿主计算，任务返回时绑定，不依赖模型自行生成正确摘要。M0 必须验证包装 schema、ID 映射和两层校验后才能进入真实评审。
 
-开发环境可通过 Go workspace 关联本地仓库；发布构建锁定提交或版本并打包后台二进制，不要求用户保留参考仓库的绝对路径。参考模块声明 Go 1.26.1，构建工具链也要固定。
+初始设计允许通过 Go workspace 关联参考仓库。当前已经合仓，统一使用根 `go.work` 与 Go 1.27.1，不再依赖另一个源码目录；构建身份和发布来源以 [同仓说明](monorepo.md) 为准。
 
 ### 8.3 已有能力和需要补齐的能力
 
@@ -285,7 +285,7 @@ DesktopDelegate 实现公开的 `Dispatch / Await / Cancel`，复用公开 promp
 | 桌面事件恢复游标 | 原 Observer 的 seq 新建时从零开始 | 使用持久化桌面 eventId |
 | Windows | 参考持久化代码依赖 Unix | 首版 macOS，Windows 单列兼容任务 |
 
-不能把接上 Observer 描述成已获得逐字流式输出。[现有 CLI 执行器](/Users/suchasplus/agentic/til-consensus/runtime/cli/runner.go:506)
+不能把接上 Observer 描述成已获得逐字流式输出。[现有 CLI 执行器](../../runtime/cli/runner.go)
 
 ## 9 四个 CLI 的接入设计
 
@@ -341,7 +341,7 @@ TaskResult
 
 所有 CLI 使用可执行文件绝对路径和参数数组启动，长提示通过 stdin 或权限为 0600 的私有文件传递。启动时检查版本及能力，将路径、版本、有效参数摘要和模型标识存入 run 快照。模型默认值由用户设置或 CLI 可查询能力提供，不硬编码“最新模型”。
 
-DesktopDelegate 使用基础环境白名单，只按 provider 显式传递所需的代理、endpoint 和凭据环境变量；原生登录继续由 CLI 读取。移除 `CLAUDECODE` 等无关宿主或嵌套会话标记，不完整继承桌面宿主环境。日志只记录允许的变量名，不记录凭据值。[参考环境构造](/Users/suchasplus/agentic/til-consensus/runtime/cli/env.go:95)
+DesktopDelegate 使用基础环境白名单，只按 provider 显式传递所需的代理、endpoint 和凭据环境变量；原生登录继续由 CLI 读取。移除 `CLAUDECODE` 等无关宿主或嵌套会话标记，不完整继承桌面宿主环境。日志只记录允许的变量名，不记录凭据值。[参考环境构造](../../runtime/cli/env.go)
 
 agy 的独立 streaming stdin 任务收到当前轮 `result` 后关闭 stdin，并等待进程正常退出。保持 stdin 打开会继续等待下一轮；关闭 stdin 也不能充当正在执行任务的取消。agy 不接受 Claude 式 `control_request/control_response`，中断必须使用单独验证的方式。
 
@@ -424,7 +424,7 @@ Codex P0 和桌面最终判定发生在 Engine 外，因此另有宿主事务进
 
 桌面事件先落盘再推送，窗口关闭或 IPC 断开不能使 Observer 返回传输错误并终止 engine；磁盘写入失败则停止派发，提示可恢复错误。内核 checkpoint 与桌面事件不是同一事务，因此恢复需要核对和补发 `state.reconciled`，不能承诺跨文件与 SQLite 的原子提交。
 
-订阅使用持久化的 `eventId`。原 JSONL observer 的 seq 在新建实例时会归零，不直接用作重连游标。重复事件按稳定事件 ID 去重，历史 attempt 的部分文本保留为未完成记录。[参考恢复语义](/Users/suchasplus/agentic/til-consensus/docs/library.md:80)
+订阅使用持久化的 `eventId`。原 JSONL observer 的 seq 在新建实例时会归零，不直接用作重连游标。重复事件按稳定事件 ID 去重，历史 attempt 的部分文本保留为未完成记录。[参考恢复语义](../../docs/library.md)
 
 ## 13 桌面协议和事件
 

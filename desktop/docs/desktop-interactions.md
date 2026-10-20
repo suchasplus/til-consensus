@@ -2,11 +2,11 @@
 
 更新日期：2026 年 10 月 20 日。TCView `0.6.0`，协议 `1.4`，SQLite 数据版本 `6`。桌面原名 NewTC，当前品牌统一为 TCView，内核名称为 til-consensus。
 
-当前使用 macOS 用户数据目录 `~/Library/Application Support/TCView`，环境变量前缀为 `TCVIEW_*`，布局和折叠键前缀为 `tcview.*`。不读取或自动迁移旧 NewTC 数据和偏好，首次启动使用默认设置；旧目录保持原样。下文历史验收数值、截图与 `.newtc` 证据链接保留执行时的记录。
+当前使用 macOS 用户数据目录 `~/Library/Application Support/TCView`，环境变量前缀为 `TCVIEW_*`，布局和折叠键前缀为 `tcview.*`。不读取或自动迁移旧 NewTC 数据和偏好，首次启动使用默认设置；旧目录保持原样。下文历史验收数值与私有 `.newtc` 证据索引保留执行时的记录；私有截图未随合仓导入。
 
 ## 选择参与者
 
-在“CLI 与连接检查”逐家修改“参与新讨论”开关，然后保存。四家默认启用；旧设置没有 `enabled` 字段时也视为启用。模型与推理参数的原有配置方式不变，详见 [CLI 设置说明](/Users/suchasplus/devs/agentic/newtc/docs/cli-settings.md)。
+在“CLI 与连接检查”逐家修改“参与新讨论”开关，然后保存。四家默认启用；旧设置没有 `enabled` 字段时也视为启用。模型与推理参数的原有配置方式不变，详见 [CLI 设置说明](cli-settings.md)。
 
 新讨论至少需要三家启用的 CLI：一位提案者、至少两位独立评审。可以保存少于三家或全部停用，但此时不能发起讨论；自动模式也会在花费话题分析额度前阻止发送。单独“检查话题与材料”只需要选定的分析 CLI 启用。
 
@@ -58,9 +58,9 @@
 
 讨论开始后只自动收起一次，流式消息到来不会反复覆盖用户手动展开的选择。折叠不更改模型、参与者、模式、预算和冻结配置，也不会停止讨论或发起新请求。顶部和底部支持独立展开，保留键盘操作和焦点；展开区域限高并可滚动。“回到最新”按钮按输入区实测高度定位，不再使用固定底部偏移。
 
-`1440×920` 窗口的显式 Mock 讨论测得：两块展开时聊天区高度 `307px`，自动收起后为 `788px`，增加 `481px`。[布局实测](/Users/suchasplus/devs/agentic/newtc/.newtc/discussion-panels-validation/2026-10-20T06-02-06.270Z/layout-metrics.json)。完整 30 项 Electron 回归和类型检查通过，覆盖自动收起、停止恢复、草稿与材料保留、失败重开、历史、新讨论和窄窗；没有新增真实模型调用。
+`1440×920` 窗口的显式 Mock 讨论测得：两块展开时聊天区高度 `307px`，自动收起后为 `788px`，增加 `481px`。布局实测（原本地私有记录 `.newtc/discussion-panels-validation/2026-10-20T06-02-06.270Z/layout-metrics.json`，未导入）。完整 30 项 Electron 回归和类型检查通过，覆盖自动收起、停止恢复、草稿与材料保留、失败重开、历史、新讨论和窄窗；没有新增真实模型调用。
 
-当时开发包已通过无本地内核覆盖的 `NEWTC_RELEASE=1` 构建、ad-hoc 签名及精简 PATH 的 CLI 探测／重连检查。原用户窗口已打开新版，并实际检查上下展开／收起；当前留在上下收起状态，Codex 话题分析选择与分栏宽度保持原值。[本轮汇总](/Users/suchasplus/devs/agentic/newtc/.newtc/discussion-panels-validation/2026-10-20T06-02-06.270Z/summary.json)。
+当时开发包已通过无本地内核覆盖的 `NEWTC_RELEASE=1` 构建、ad-hoc 签名及精简 PATH 的 CLI 探测／重连检查。原用户窗口已打开新版，并实际检查上下展开／收起；当前留在上下收起状态，Codex 话题分析选择与分栏宽度保持原值。本轮汇总（原本地私有记录 `.newtc/discussion-panels-validation/2026-10-20T06-02-06.270Z/summary.json`，未导入）。
 
 ## 调整三栏宽度
 
@@ -72,7 +72,7 @@
 
 本次完整 35 项 Electron 回归、类型检查和默认远端依赖构建通过。`1440×920` 窗口实测，左右栏展开时主区宽 `790px`，同时收起后为 `1440px`，增加 `650px`。回归覆盖独立折叠、退出重开、旧宽度恢复、坏数据回退、草稿与材料保留、当前讨论与产物标签保留，以及窄窗切换和键盘焦点。
 
-当时无本地内核覆盖的 `NEWTC_RELEASE=1` macOS 开发包已重建并通过签名及精简 PATH 的 CLI 版本探测／后台重连检查。原生窗口实际收起两栏、退出重开后，两栏仍保持收起；未发送草稿随后恢复，AGY 检查提供方保持原值，没有发送模型请求。[本次验收记录与截图](/Users/suchasplus/devs/agentic/newtc/.newtc/side-panels-validation/2026-10-20T06-51-22.224Z/summary.json)。
+当时无本地内核覆盖的 `NEWTC_RELEASE=1` macOS 开发包已重建并通过签名及精简 PATH 的 CLI 版本探测／后台重连检查。原生窗口实际收起两栏、退出重开后，两栏仍保持收起；未发送草稿随后恢复，AGY 检查提供方保持原值，没有发送模型请求。本次验收记录与截图（原本地私有记录 `.newtc/side-panels-validation/2026-10-20T06-51-22.224Z/summary.json`，未导入）。
 
 拖动历史栏和详情栏旁的分隔条调整宽度，中间聊天区占剩余空间。历史栏默认 218px、可选 174–360px；详情栏默认 310px、可选 260–560px。实际最大值还会为聊天区预留宽度。
 
@@ -86,10 +86,10 @@
 
 自动化用明确标注的 Mock 或回放验证参与选择、三种模式、严格票校验、冻结恢复、删除恢复和宽度持久化。真实 CLI 参数与模型调用继续沿用 `0.5.0` 已验证路径；本轮未修改四家原生参数或默认模型，也未重新消耗一整场真实讨论额度。
 
-til-consensus 现有公开 `RoleAssignments`、逐模式 quorum 和 CLI 配置接口已满足本轮需要，继续固定 `e9121310e9971179d3d902ee5b2a36bd61eb1553`，无需新增库 API、提交或 PR。默认构建仍使用可下载的远端固定模块；显式本地开发覆盖规则不变。
+当时的 til-consensus 公开 `RoleAssignments`、逐模式 quorum 和 CLI 配置接口已满足此轮交互需要，使用固定提交 `e9121310e9971179d3d902ee5b2a36bd61eb1553`，没有新增库 API。合仓后的默认构建改用当前 checkout，见 [同仓说明](monorepo.md)；下列测试与签名结果属于合仓前的历史验收。
 
 本轮已通过：全包 Go race、TypeScript、7 项构建环境测试、8 项 stdio RPC、完整 21 项 Electron 测试，以及最后增强后的 5 项定向复验和最终删除交互复验。后端覆盖四种单家停用各跑三种模式；另用明确标注的原生 Claude 协议脚本替身，验证停用 Codex 后 P0 进入 Claude 进程并传入冻结模型与 `--effort`，没有调用真实模型。
 
-当时的 macOS 开发包以 `NEWTC_RELEASE=1`、无本地 til-consensus 覆盖重建并校验本机 ad-hoc 签名。独立空模块缓存的[发布来源构建](/Users/suchasplus/devs/agentic/newtc/.newtc/dependency-upgrade/2026-10-19T20-19-26.125Z/summary.json)通过；[精简 PATH 包验收](/Users/suchasplus/devs/agentic/newtc/.newtc/package-validation/2026-10-19T20-20-50.826Z/summary.json)通过四家真实可执行文件、版本探测及后台重连，未发送模型请求。
+当时的 macOS 开发包以 `NEWTC_RELEASE=1`、无本地 til-consensus 覆盖重建并校验本机 ad-hoc 签名。独立空模块缓存的发布来源构建（原本地私有记录 `.newtc/dependency-upgrade/2026-10-19T20-19-26.125Z/summary.json`，未导入）通过；精简 PATH 包验收（原本地私有记录 `.newtc/package-validation/2026-10-19T20-20-50.826Z/summary.json`，未导入）通过四家真实可执行文件、版本探测及后台重连，未发送模型请求。
 
-原生窗口以真实 CLI 模式运行，在真实历史数据库副本上验证停用 Codex、保存、退出重启、三家角色显示、左右宽度 `258px / 350px` 重启保留、最近删除和恢复。恢复后原方案、决策、有效票、冻结哈希、模型绑定和 24 次请求计数保持一致。旧空材料字段从 `null` 归一化为 `[]`，未改变非空材料或冻结内容。原始历史随后在新版窗口重新打开，未删除原始记录或更改其模型设置。本轮新增真实模型推理请求为 **0**；三家多轮讨论采用显式 Mock 回归，未声称完成新的真实三方整场验收。[验收汇总与原生截图](/Users/suchasplus/devs/agentic/newtc/.newtc/desktop-interactions-validation/2026-10-19T20-17-04.316Z/summary.json)。
+原生窗口以真实 CLI 模式运行，在真实历史数据库副本上验证停用 Codex、保存、退出重启、三家角色显示、左右宽度 `258px / 350px` 重启保留、最近删除和恢复。恢复后原方案、决策、有效票、冻结哈希、模型绑定和 24 次请求计数保持一致。旧空材料字段从 `null` 归一化为 `[]`，未改变非空材料或冻结内容。原始历史随后在新版窗口重新打开，未删除原始记录或更改其模型设置。本轮新增真实模型推理请求为 **0**；三家多轮讨论采用显式 Mock 回归，未声称完成新的真实三方整场验收。验收汇总与原生截图（原本地私有记录 `.newtc/desktop-interactions-validation/2026-10-19T20-17-04.316Z/summary.json`，未导入）。

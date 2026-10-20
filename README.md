@@ -1,8 +1,24 @@
 # til-consensus
 
-`til-consensus` 是一个面向一次性论证、架构选择、代码裁决和多模型讨论的 CLI + Go library。它用确定性的 coordinator 编排多种 workflow，把过程和结论落成可审计的结构化结果。
+`til-consensus` 是一个面向一次性论证、架构选择、代码裁决和多模型讨论的 CLI + Go library，并包含桌面客户端 [TCView](desktop/README.md)。它用确定性的 coordinator 编排多种 workflow，把过程和结论落成可审计的结构化结果。
 
 默认 mode 是 `adjudication`：系统不会只选“哪篇完整答案看起来更像对的”，而是围绕 claim 做 challenge、verification、revision 和 adjudication。
+
+## 桌面客户端 TCView
+
+TCView 在同一个桌面聊天窗口内编排 Codex、Claude Code、Grok Build 和 AGY。支持三种讨论模式、话题自动选择、文本材料、模型与推理配置、停止恢复和可审计结果。界面与 CLI 共用本仓库的公开 Go 内核，详细操作见 [桌面说明](desktop/README.md)。
+
+macOS 开发需要 Go 1.27.1，以及 [desktop/.nvmrc](desktop/.nvmrc) 固定的 Node.js 版本：
+
+```bash
+cd desktop
+npm ci
+npm start
+```
+
+真实讨论还需要至少三家已安装、已登录并启用的 CLI，会使用对应服务额度；CI 和默认自动化使用明确的 Mock，不调用真实模型。
+
+根 `go.mod` 继续提供 `github.com/suchasplus/til-consensus` SDK 与 CLI。`desktop/` 保留独立 npm 项目和 Go host 子模块，由根 `go.work` 连接当前 checkout；克隆这一个仓库即可构建，无需兄弟目录或全局 Go workspace。[同仓开发、构建来源与发布边界](desktop/docs/monorepo.md)。
 
 ## 什么时候使用哪种模式
 
@@ -210,7 +226,7 @@ til-consensus view --config ./til-consensus.yaml
 
 ## 开发与质量门禁
 
-源码开发需要 Go `1.27.1` 或更高版本；质量门禁使用 `golangci-lint v2.13.2`。CI 的 Linux、macOS、Windows 和发布构建统一从 `go.mod` 读取 Go 版本。
+源码开发需要 Go `1.27.1` 或更高版本；质量门禁使用 `golangci-lint v2.13.2`。CI 的 Linux、macOS、Windows 和发布构建统一从 `go.mod` 读取 Go 版本。根 SDK／CLI 的 CI 显式使用 `GOWORK=off` 验证独立模块；桌面 CI 使用本仓库 workspace 验证同一 checkout 的集成。
 
 本地提交前：
 
@@ -224,6 +240,8 @@ make pre-push
 tmp/coverage/coverage.svg
 ```
 
+桌面入口为 `make desktop-install`、`make desktop-start`、`make desktop-check`、`make desktop-test` 和 `make desktop-package`；完整 Electron 回归与 macOS 开发包检查见 [同仓开发说明](desktop/docs/monorepo.md)。
+
 更多见 [测试、CI 与发布](docs/testing.md)。
 
 发布包示例：
@@ -234,6 +252,9 @@ make release-archive VERSION=v0.1.0 TARGET_GOOS=darwin TARGET_GOARCH=arm64 DIRTY
 ```
 
 ## 文档入口
+
+- [TCView 桌面客户端](desktop/README.md)
+- [同仓开发与桌面 CI](desktop/docs/monorepo.md)
 
 - [快速开始](docs/quickstart.md)
 - [三种讨论模式](docs/modes.md)

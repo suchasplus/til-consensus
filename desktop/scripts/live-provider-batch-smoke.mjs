@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import { _electron as electron } from '@playwright/test'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { root } from './go-env.mjs'
+import { root, engineBuildVersion } from './go-env.mjs'
 
 const ids = ['codex', 'claude', 'grok', 'agy']
 const metadata = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'))
@@ -12,7 +12,7 @@ const productName = metadata.productName
 const binary = join(root, 'release', `${productName}-darwin-${process.arch}`, `${productName}.app/Contents/MacOS/${productName}`)
 const directory = join(root, '.tcview', 'provider-batch-validation', new Date().toISOString().replaceAll(':', '-'))
 await mkdir(directory, {recursive: true, mode: 0o700})
-const lock = JSON.parse(await readFile(join(root, 'scripts/engine-lock.json'), 'utf8'))
+const expectedEngineVersion = engineBuildVersion()
 const env = {...process.env, TCVIEW_DATA_DIR: join(directory, 'host'), TCVIEW_USER_DATA_DIR: join(directory, 'electron'), TCVIEW_PROVIDER_MODE: 'cli'}
 // 只清理本验收子进程的应用配置覆盖，认证继续由各家 CLI 管理。
 for (const id of ids) for (const field of ['MODEL', 'REASONING', 'EFFORT', 'ENABLED']) delete env[`TCVIEW_${id.toUpperCase()}_${field}`]
@@ -68,7 +68,7 @@ try {
   summary.hello = await page.evaluate(() => window.tcview.hello())
   assert.equal(summary.hello.providerMode, 'cli')
   assert.equal(summary.hello.protocolVersion, '1.4')
-  assert.equal(summary.hello.engineVersion, lock.commit)
+  assert.equal(summary.hello.engineVersion, expectedEngineVersion)
   // Codex 显式 effort 的保存校验需要 app-server 实际能力目录；此步骤不发模型消息。
   const codexCatalog = await page.evaluate(() => window.tcview.reloadProviderModels('codex'))
   const model = codexCatalog.models.find(item => item.id === 'gpt-6.1-sol')

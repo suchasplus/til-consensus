@@ -1,0 +1,130 @@
+name: desktop
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GOTOOLCHAIN: local
+
+# 不使用 paths 过滤：公共内核和 CLI 的修改也必须通过桌面集成检查。
+jobs:
+  host-linux:
+    name: desktop-host-linux
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            desktop/services/host/go.sum
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: desktop/.nvmrc
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install locked desktop dependencies
+        run: npm ci
+
+      - name: Check TypeScript and workspace contracts
+        run: |
+          npm run check
+          npm run test:build-env
+
+      - name: Test Go host with race detector
+        run: npm run test:host
+
+      - name: Vet Go host in the repository workspace
+        run: GOWORK="$GITHUB_WORKSPACE/go.work" go vet ./services/host/...
+
+      - name: Build the same-checkout host and desktop
+        run: TCVIEW_RELEASE=1 npm run build
+
+      - name: Exercise stdio RPC with explicit Mock providers
+        run: npm run test:rpc
+
+  desktop-macos:
+    name: desktop-macos
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            desktop/services/host/go.sum
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: desktop/.nvmrc
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install locked desktop dependencies
+        run: npm ci
+
+      - name: Build with release source checks
+        run: TCVIEW_RELEASE=1 npm run build
+
+      - name: Prefetch the locked Electron runtime
+        run: node -e "console.log(require('electron'))"
+
+      - name: Exercise Electron UI with explicit Mock providers
+        run: npm run test:e2e
+
+      - name: Package and verify ad-hoc signature
+        run: TCVIEW_RELEASE=1 npm run package:mac
+
+      - name: Smoke packaged Electron and Go host with explicit Mock providers
+        run: node scripts/verify-package-offline.mjs
+
+      - name: Upload failure traces and package smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: desktop-validation-${{ runner.arch }}
+          path: |
+            desktop/test-results/
+            desktop/.tcview/package-offline-validation/*/summary.json
+            desktop/.tcview/package-offline-validation/*/desktop.png
+          if-no-files-found: ignore
+          retention-days: 7
+
+      # 手工构建只保存安装包 artifact，不创建 tag 或正式 GitHub Release。
+      - name: Archive ad-hoc development package
+        if: github.event_name == 'workflow_dispatch'
+        run: ditto -c -k --sequesterRsrc --keepParent "release/TCView-darwin-$(node -p 'process.arch')/TCView.app" release/TCView-macos-development.zip
+
+      - name: Upload development package
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v7
+        with:
+          name: TCView-macos-development-${{ runner.arch }}
+          path: desktop/release/TCView-macos-development.zip
+          if-no-files-found: error
+          retention-days: 7

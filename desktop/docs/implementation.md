@@ -2,15 +2,15 @@
 
 更新日期：2026 年 10 月 20 日，Asia/Kuala_Lumpur。TCView 应用版本 `0.6.0`，桌面协议 `1.4`，SQLite 数据版本 `6`。
 
-桌面应用现名 TCView，共识内核为 til-consensus。应用标识使用 `TCVIEW_*`、`window.tcview`、`tcview.*`、`tcview-host` 和 `local.tcview.desktop`，默认用户数据目录为 `~/Library/Application Support/TCView`。不读取或自动迁移旧 NewTC 目录、设置和偏好，也不删除旧数据。当前桌面项目继续通过固定远程 Go 模块引用内核，仓库结构与依赖来源保持现状。
+桌面应用现名 TCView，共识内核为 til-consensus。应用标识使用 `TCVIEW_*`、`window.tcview`、`tcview.*`、`tcview-host` 和 `local.tcview.desktop`，默认用户数据目录为 `~/Library/Application Support/TCView`。不读取或自动迁移旧 NewTC 目录、设置和偏好，也不删除旧数据。桌面现已放入本仓库 `desktop/`，通过根 `go.work` 使用同一 checkout 的公开 Go 内核；模块、构建身份及 CI 边界见 [同仓说明](monorepo.md)。
 
-本文说明当前代码已实现的功能及其验证边界。产品目标和原始里程碑保留在 [设计文档](/Users/suchasplus/devs/agentic/newtc/docs/design.md)；M0 的历史原型记录见 [M0 开发说明](/Users/suchasplus/devs/agentic/newtc/docs/m0.md)。
+本文说明当前代码已实现的功能及其验证边界。产品目标和原始里程碑保留在 [设计文档](design.md)；M0 的历史原型记录见 [M0 开发说明](m0.md)。
 
 **当前状态：M1–M3 功能已接入，真实四方自由辩论及停止恢复验收通过。** 本次流程产出三张有效完整票，桌面判定为 `no_consensus`，没有将流程完成冒充意见一致。此前真实运行暴露的 schema、Grok 模型选择、本地校验及恢复问题已修复，失败记录保留。
 
-本次另接入[话题自动选择与补充材料分析](/Users/suchasplus/devs/agentic/newtc/docs/topic-preparation.md)：默认通过 agy / Gemini CLI 检查后选择三种模式，支持文本材料摘要、逐字引文、信息缺口及完整原文冻结。
+本次另接入[话题自动选择与补充材料分析](topic-preparation.md)：默认通过 agy / Gemini CLI 检查后选择三种模式，支持文本材料摘要、逐字引文、信息缺口及完整原文冻结。
 
-本轮增加 CLI 启用选择与动态角色、可恢复删除、历史搜索及三栏宽度保存，详见 [桌面交互说明](/Users/suchasplus/devs/agentic/newtc/docs/desktop-interactions.md)。下文真实四方运行及 0.5.0 的实测证据保持原版本、请求次数及 `.newtc` 历史路径；当前操作示例已同步 TCView 标识。
+本轮增加 CLI 启用选择与动态角色、可恢复删除、历史搜索及三栏宽度保存，详见 [桌面交互说明](desktop-interactions.md)。下文真实四方运行及 0.5.0 的实测证据保持原版本、请求次数及 `.newtc` 历史路径；当前操作示例已同步 TCView 标识。
 
 ## 已实现范围
 
@@ -36,7 +36,7 @@ P0 流式摘要和最终正文关联同一 invocation，在提交方案时更新
 
 ## CLI、模型与权限
 
-设置页已支持四家模型与适用推理档位、保存／恢复默认、目录刷新和编辑配置真实检查。环境覆盖优先于保存设置，保存设置优先于默认值；新讨论使用当前有效配置，恢复使用冻结配置。请求与实际报告分开记录，详细界面、变量和限制见 [CLI 设置说明](/Users/suchasplus/devs/agentic/newtc/docs/cli-settings.md)。
+设置页已支持四家模型与适用推理档位、保存／恢复默认、目录刷新和编辑配置真实检查。环境覆盖优先于保存设置，保存设置优先于默认值；新讨论使用当前有效配置，恢复使用冻结配置。请求与实际报告分开记录，详细界面、变量和限制见 [CLI 设置说明](cli-settings.md)。
 
 正常启动的 `providerMode` 为 `cli`。版本探测只检查可执行文件和 `--version`，不能证明已经登录或某模型可用；连通检查由用户点击触发，会发出真实模型请求。认证继续由各 CLI 管理，应用不读取并导出认证文件。
 
@@ -104,50 +104,29 @@ renderer 只通过受限 preload API 调用 Electron 主进程，主进程通过
 
 ## 运行与构建
 
-需要 macOS、Node.js 24 或更高版本和 Go 1.27.1。当前依赖锁定 Electron 44.9.0、React 19.3.1；开发机 Node.js 为 26.8.2。四家 CLI 及登录状态需要在本机提前准备。
+需要 macOS、Node.js 24 或更高版本和 Go 1.27.1。当前依赖锁定 Electron 44.9.0、React 19.3.1；开发机 Node.js 为 26.8.2。真实讨论需要至少三家已安装、已登录并启用的 CLI。
 
 ```bash
-npm install
+cd desktop
+npm ci
 npm start
 ```
 
 开发窗口使用 `npm run dev`；`npm run build` 只构建，产物包括 `dist/bin/tcview-host`、Electron 主进程/preload 和 renderer。
 
-默认构建从已固定升级提交的远程 `til-consensus` Go 模块解析依赖。桌面后台 module 为 `github.com/suchasplus/til-consensus/desktop/services/host`，二进制入口为 `services/host/cmd/tcview-host`。构建和 Go 测试脚本使用 `GOWORK=off`，不自动查找 `~/agentic/til-consensus`，也不会使用机器上遗留的 `go.work`。首次构建需要可用的 Go 模块下载源或已有模块缓存；不需要另行准备参考仓库或手动应用历史补丁。
+默认构建显式使用仓库根 [go.work](../../go.work)，核对内核来自本 checkout；桌面后台 module 为 `github.com/suchasplus/til-consensus/desktop/services/host`。根 SDK 与桌面 host 分别维护依赖，公共模块路径保持不变，不需要兄弟目录或本机全局 workspace。
 
-[版本锁](/Users/suchasplus/devs/agentic/newtc/scripts/engine-lock.json) 包含 `module`、`moduleVersion`、`commit`，其中模块版本必须与 [services/host/go.mod](/Users/suchasplus/devs/agentic/newtc/services/host/go.mod) 一致；构建脚本同时核对伪版本提交后缀，拒绝不一致的锁定或依赖覆盖。
-
-| 锁定字段 | 当前值 |
-| --- | --- |
-| `module` | `github.com/suchasplus/til-consensus` |
-| `moduleVersion` | `v0.0.0-20261019194904-e9121310e997` |
-| `commit` | [`e9121310e9971179d3d902ee5b2a36bd61eb1553`](https://github.com/suchasplus/til-consensus/commit/e9121310e9971179d3d902ee5b2a36bd61eb1553) |
-
-该提交已推送，Go 已实际解析出上述伪版本，模块声明 Go `1.27.1`。默认构建通过 Go 模块机制下载固定提交。[核心升级 PR #1](https://github.com/suchasplus/til-consensus/pull/1) 与[跟进 PR #2](https://github.com/suchasplus/til-consensus/pull/2) 均已合并；后者包含 Go 1.27、四家 CLI 模型／推理参数契约文档与回归，以及旧诊断产物测试的等待修复。现有生产参数接口已足够，未为桌面设置新增一套不兼容接口。当前提交的四项远端 CI 全部通过。固定版本不是正式 tag 或 release。
-
-`TIL_CONSENSUS_DIR` 仅用于显式本地开发。该路径必须是模块名称正确、HEAD 等于锁定提交且具备所需升级接口的 Git checkout。设置后才在 `.tcview/local-engine/go.work` 中连接源码；干净 checkout 使用锁定 commit 标识，开发修改记录为 `+local.<hash>`。这不会修改远程依赖或自动更新本地仓库。
-
-默认远程模块路径支持发布检查构建：
+[构建脚本](../scripts/go-env.mjs) 分别记录仓库源码提交与内核兼容身份。界面改动不会单独改变讨论的内核兼容身份；内核／host 行为变化仍受冻结恢复检查保护。`TCVIEW_RELEASE=1` 要求干净且可追踪的 Git checkout，不执行发布、签名或公证。
 
 ```bash
-env -u TIL_CONSENSUS_DIR TCVIEW_RELEASE=1 npm run build
+TCVIEW_RELEASE=1 npm run build
+TCVIEW_RELEASE=1 npm run verify:dependency
 ```
 
-`TCVIEW_RELEASE=1` 不再要求机器必须存在本地参考目录；显式本地覆盖仍必须位于固定提交且工作区干净，脏覆盖会被拒绝。它只约束构建来源，不代替发行签名、公证或发布。
-
-可单独执行固定依赖的冷缓存验收；它会下载真实远程 Go 模块，不调用模型：
-
-```bash
-npm run verify:dependency
-```
-
-脚本复制独立项目，使用隔离 HOME、空 `GOMODCACHE`、`TCVIEW_RELEASE=1` 和故意无效的旧 workspace，验证正常构建仍走 `GOWORK=off`；随后核对模块目录及版本、执行 `go mod verify`，并只通过后台 `hello` 检查固定 commit 与默认 CLI 模式。已安装的 Node 依赖和 Go 编译缓存会复用，因此这里的冷缓存特指 Go 模块缓存。
-
-先前提交 `cb9149af032e723e12b972d8790c5a97de2c0511` 的独立冷缓存发布来源构建已经通过，记录见 [依赖隔离验收 summary](/Users/suchasplus/devs/agentic/newtc/.newtc/dependency-upgrade/2026-10-19T18-38-17.496Z/summary.json)：无本地 checkout 覆盖、旧 workspace 被忽略，模型请求为 0。当时 pin `f4e2dbad63e409ef8dcf490125f06e522ba886b9` 的同项复验也已通过，独立记录见 [最终模块冷缓存验收](/Users/suchasplus/devs/agentic/newtc/.newtc/dependency-upgrade/2026-10-19T18-44-54.800Z/summary.json)：使用真实远端下载的模块、保留 Go 校验和、发布检查构建成功，后台 `hello.engineVersion` 与锁定提交一致。复验没有调用模型；此前记录和下文真实模型讨论证据分别保留。
+`verify:dependency` 在独立完整 checkout、隔离 HOME、空 Go 模块缓存及空 Go 编译缓存中验收同仓构建、workspace 解析及后台版本；不会调用模型，仅复用已安装的 Node 依赖。显式 `TCVIEW_RELEASE=1` 时要求干净源码，普通命令也可验证未提交的开发源码镜像，详情见 [同仓构建与 CI](monorepo.md)。独立项目阶段的远端 pin、`TIL_CONSENSUS_DIR` 与 `+local.<hash>` 记录保留其历史含义，不代表当前构建来源。
 
 | 环境变量 | 用途 |
 | --- | --- |
-| `TIL_CONSENSUS_DIR` | 仅用于显式本地开发覆盖；未设置时使用固定远程模块及 `GOWORK=off` |
 | `TCVIEW_DATA_DIR` | Go 后台数据目录 |
 | `TCVIEW_USER_DATA_DIR` | Electron 用户数据目录 |
 | `TCVIEW_PROVIDER_MODE` | 默认 `cli`；仅测试显式设为 `mock` |
@@ -155,9 +134,9 @@ npm run verify:dependency
 | `TCVIEW_CODEX_MODEL` 等四个模型变量 | 新 run 使用的模型选择 ID |
 | `TCVIEW_GROK_REASONING` | Grok 新 run 推理强度，默认 `low`，空值使用 CLI 默认 |
 | `TCVIEW_MOCK_DELAY_MS` | 显式 Mock 模式的新 run 延迟 |
-| `TCVIEW_RELEASE=1` | 默认固定模块可用；显式本地覆盖须为干净固定提交，不会自动签名、公证或发布 |
+| `TCVIEW_RELEASE=1` | 构建来源检查，要求同仓 Git checkout 干净，不代表正式发行 |
 
-改名前 `e9121310e997` 的独立空模块缓存、无本地覆盖、`NEWTC_RELEASE=1` 构建已通过，保留执行时记录：[0.5.0 来源验收](/Users/suchasplus/devs/agentic/newtc/.newtc/dependency-upgrade/2026-10-19T19-53-11.804Z/summary.json)。
+独立项目阶段曾通过 `cb9149af032e`、`f4e2dbad63e4` 和 `e9121310e997` 的远端固定模块冷缓存构建；当时使用的旧环境标识及 Go 校验和留在原独立项目的私有验收目录，未随合仓导入。历史结果不能代替当前同仓构建验收。
 
 ## macOS 本机开发包
 
@@ -166,9 +145,11 @@ npm run package:mac
 npm run verify:package
 ```
 
+没有四家 CLI 的 CI 可运行 `node scripts/verify-package-offline.mjs`，仅以显式 Mock 验证实际安装包、Go 内核、重连和持久化，不发模型请求。
+
 打包脚本先构建应用，将 Electron 和 Go sidecar 打入 `release/TCView-darwin-<当前架构>/TCView.app`，写入构建信息，并执行本机 ad-hoc 签名及签名校验。`verify:package` 在独立数据目录及精简 PATH 下启动开发包，验证四家 CLI 的版本探测、设置窗口和后台重连，不发起模型推理。包内不包含四家 CLI、它们的运行环境或认证数据；目标机器仍需自行准备。
 
-当前只生成运行构建命令的 macOS 架构。本机开发包没有 Developer ID 签名、公证、DMG、跨架构构建或自动更新能力，不能作为已完成正式分发的安装包。内核接口升级现已通过模块版本及完整提交锁定；正式分发仍需完成发行签名和公证。
+当前只生成运行构建命令的 macOS 架构。本机开发包没有 Developer ID 签名、公证、DMG、跨架构构建或自动更新能力，不能作为已完成正式分发的安装包。当前构建来源由同仓 checkout 与内核源码身份共同记录；正式分发仍需完成发行签名和公证。
 
 ## 验证方式与当前结论
 
@@ -207,15 +188,15 @@ TCVIEW_LIVE_STOP_RESUME=1 node scripts/live-desktop-smoke.mjs
 - 实际模型来源均为 CLI 报告：Codex `gpt-6.1-sol`、Claude `claude-opus-5-5`、Grok `grok-4.7-build`、agy `gemini-3.8-flash-medium`。
 - 内核结论 `partial_consensus`，桌面严格判定 `no_consensus`；保留分歧、假设和未解决问题，没有改成自动通过。
 
-[离线验收结果](/Users/suchasplus/devs/agentic/newtc/.newtc/live-validation/discussion-2026-10-19T18-15-50-851Z/validation.json)、[停止恢复记录](/Users/suchasplus/devs/agentic/newtc/.newtc/live-validation/discussion-2026-10-19T18-15-50-851Z/stop-resume.json)、[Markdown 报告](/Users/suchasplus/devs/agentic/newtc/.newtc/live-validation/discussion-2026-10-19T18-15-50-851Z/discussion.md)、[完整 JSON 导出](/Users/suchasplus/devs/agentic/newtc/.newtc/live-validation/discussion-2026-10-19T18-15-50-851Z/discussion.json)、[真实桌面截图](/Users/suchasplus/devs/agentic/newtc/.newtc/live-validation/discussion-2026-10-19T18-15-50-851Z/desktop.png)。
+离线验收结果（原本地私有记录 `.newtc/live-validation/discussion-2026-10-19T18-15-50-851Z/validation.json`，未导入）、停止恢复记录（原本地私有记录 `.newtc/live-validation/discussion-2026-10-19T18-15-50-851Z/stop-resume.json`，未导入）、Markdown 报告（原本地私有记录 `.newtc/live-validation/discussion-2026-10-19T18-15-50-851Z/discussion.md`，未导入）、完整 JSON 导出（原本地私有记录 `.newtc/live-validation/discussion-2026-10-19T18-15-50-851Z/discussion.json`，未导入）、真实桌面截图（原本地私有记录 `.newtc/live-validation/discussion-2026-10-19T18-15-50-851Z/desktop.png`，未导入）。
 
 复核保存证据不会再次调用模型：
 
 ```bash
-node scripts/validate-live-run.mjs .newtc/live-validation/discussion-2026-10-19T18-15-50-851Z
+node scripts/validate-live-run.mjs /path/to/original-private-validation-directory
 ```
 
-[开发包启动验证](/Users/suchasplus/devs/agentic/newtc/.newtc/package-validation/2026-10-19T18-21-21.175Z/summary.json) 与 [交付日志和构建指纹](/Users/suchasplus/devs/agentic/newtc/.newtc/delivery-validation/summary.json) 单独保存。当时本地开发阶段的补丁及干净基线应用检查保留在 [历史补丁说明](/Users/suchasplus/devs/agentic/newtc/patches/README.md)。这些真实验收记录及其构建指纹维持原样；当前正常构建已改用固定远程模块，不再手动应用该补丁。
+开发包启动验证（原本地私有记录 `.newtc/package-validation/2026-10-19T18-21-21.175Z/summary.json`，未导入） 与 交付日志和构建指纹（原本地私有记录 `.newtc/delivery-validation/summary.json`，未导入） 单独保存。当时本地开发阶段的补丁及干净基线应用检查保留在 [历史补丁说明](../patches/README.md)。这些真实验收记录及其构建指纹维持原样；当前正常构建使用同仓源码，不再手动应用该补丁。
 
 
 本次已打开的验收窗口使用上述独立目录中的 `host/` 与 `electron/`。常规 `npm start` 使用默认用户数据目录；原 M0 历史继续保留。

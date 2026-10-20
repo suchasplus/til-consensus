@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { createInterface } from 'node:readline'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { resolve, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -74,6 +74,11 @@ test('真实 stdio RPC 完成三模式、幂等创建和持久化事件', { time
     const hello = await client.call('hello')
     assert.equal(hello.protocolVersion, '1.4')
     assert.equal(hello.providerMode, 'mock')
+    const buildInfo = JSON.parse(await readFile(resolve('dist/host-build-info.json'), 'utf8'))
+    assert.match(buildInfo.repositoryRevision, /^[a-f0-9]{40}$/)
+    assert.match(buildInfo.sourceHash, /^[a-f0-9]{64}$/)
+    assert.equal(typeof buildInfo.dirty, 'boolean')
+    assert.equal(hello.engineVersion, buildInfo.engineVersion, '实际后台 RPC 必须报告当前 checkout 构建清单中的执行身份')
     await assert.rejects(client.call('unknown.method'))
     const ids = []
     for (const mode of ['free_debate', 'adjudication', 'delphi']) {

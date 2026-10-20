@@ -19,7 +19,7 @@
 
 “使用 CLI 默认”保存为空字符串，表示不传对应覆盖参数，不把它当成实际报告值。模型未知或选择 CLI 默认模型时，应用不能确认其独立推理档位，因此只允许默认推理；可改选目录里的具体模型后配置档位。CLI 本身的既有配置仍可能影响默认值。
 
-四家默认均启用，可以逐家停用不可用的 CLI，再保存。停用项不参加新讨论，不自动读取模型目录，其缺失不会阻止新讨论；仍可手动重载目录或执行有额度提示的真实检查，以便修复后启用。可以保存少于三家、甚至全部停用，但新讨论须至少三家。角色分配与冻结规则见 [桌面交互说明](/Users/suchasplus/devs/agentic/newtc/docs/desktop-interactions.md)。
+四家默认均启用，可以逐家停用不可用的 CLI，再保存。停用项不参加新讨论，不自动读取模型目录，其缺失不会阻止新讨论；仍可手动重载目录或执行有额度提示的真实检查，以便修复后启用。可以保存少于三家、甚至全部停用，但新讨论须至少三家。角色分配与冻结规则见 [桌面交互说明](desktop-interactions.md)。
 
 `0.6.0` 的启用状态、环境覆盖、动态角色、旧冻结兼容、删除和分栏验证已通过；当前验收结果在上述桌面交互说明末尾。下文保留此前四家原生参数和真实请求的完整证据，没有将先前测试改标为本轮三家真实讨论。
 
@@ -100,7 +100,7 @@ npm test
 npm run verify:dependency
 ```
 
-`verify:dependency` 使用独立空模块缓存、隔离 HOME、无本地覆盖和 `TCVIEW_RELEASE=1` 验证可下载的固定远端模块，不发模型请求。
+`verify:dependency` 使用隔离 HOME、空 Go 模块缓存／编译缓存与独立完整 checkout 验证当前源码的同仓来源，不发模型请求。需要干净源码发布检查时显式使用 `TCVIEW_RELEASE=1 npm run verify:dependency`；普通命令保留开发镜像的实际 dirty 身份。详见 [同仓说明](monorepo.md)。
 
 手动真实验收：
 
@@ -124,11 +124,11 @@ npm run verify:cli-settings:live
 | Grok 1.0.62 | `grok-4.7` / `low` | `grok-4.7-build` | 未报告 | 6.373 秒 |
 | AGY 1.4.2 | `gemini-3.8-flash-low` / 无额外参数 | `gemini-3.8-flash-low` | 未报告 | 20.767 秒 |
 
-这些是本次实测，不是稳定时延或所有目录模型的可用性承诺。最初 AGY 目录读取曾失败，手工模型检查仍成功；补充具体错误处理后人工重读目录成功，未再发起模型推理。最终真实目录计数为 Codex 7、Claude 5、Grok 4、AGY 13。目录、失败、四家原始请求报告、构建和原生界面证据见[汇总索引](/Users/suchasplus/devs/agentic/newtc/.newtc/cli-settings-validation/validation.json)。
+这些是本次实测，不是稳定时延或所有目录模型的可用性承诺。最初 AGY 目录读取曾失败，手工模型检查仍成功；补充具体错误处理后人工重读目录成功，未再发起模型推理。最终真实目录计数为 Codex 7、Claude 5、Grok 4、AGY 13。目录、失败、四家原始请求报告、构建和原生界面证据见汇总索引（原本地私有记录 `.newtc/cli-settings-validation/validation.json`，未导入）。
 
-四次推理的构建使用 `ede1067`，原记录保持该标识；随后上游只修复测试等待，最终锁定 `e9121310e9971179d3d902ee5b2a36bd61eb1553`，模块版本为 `v0.0.0-20261019194904-e9121310e997`。til-consensus 的生产参数 API 已满足需求，本轮增加契约文档和有效回归，没有增加不必要的另一套配置 API。[PR #2](https://github.com/suchasplus/til-consensus/pull/2) 已更新并推送，最终四项远端 CI 全绿，未合并。
+四次推理的构建使用 `ede1067`，原记录保持该标识；随后上游只修复测试等待，最终锁定 `e9121310e9971179d3d902ee5b2a36bd61eb1553`，模块版本为 `v0.0.0-20261019194904-e9121310e997`。til-consensus 的生产参数 API 已满足需求，本轮增加契约文档和有效回归，没有增加不必要的另一套配置 API。[PR #2](https://github.com/suchasplus/til-consensus/pull/2) 已更新并推送，当时四项远端 CI 全绿，尚未合并；之后该 PR 已合并。当前桌面构建改为使用同仓源码。
 
-NewTC 全包 Go race、类型、7 项构建环境、7 项 stdio RPC 和最终 17 项 Electron 回归通过；最后的目录错误／版本缓存改动另有定向 race。固定远端提交的[空模块缓存发布构建](/Users/suchasplus/devs/agentic/newtc/.newtc/dependency-upgrade/2026-10-19T19-53-11.804Z/summary.json)通过，无本地源码覆盖、保留校验和，模型请求为零。macOS 开发包已重建，精简 PATH 的四家探测与重连通过；原生真实 CLI 模式也完成选择、保存、退出重启持久化及非法输入错误展示，未增加推理请求。此开发包仍为本机 ad-hoc 签名，未发布正式 release。
+NewTC 全包 Go race、类型、7 项构建环境、7 项 stdio RPC 和最终 17 项 Electron 回归通过；最后的目录错误／版本缓存改动另有定向 race。固定远端提交的空模块缓存发布构建（原本地私有记录 `.newtc/dependency-upgrade/2026-10-19T19-53-11.804Z/summary.json`，未导入）通过，无本地源码覆盖、保留校验和，模型请求为零。macOS 开发包已重建，精简 PATH 的四家探测与重连通过；原生真实 CLI 模式也完成选择、保存、退出重启持久化及非法输入错误展示，未增加推理请求。此开发包仍为本机 ad-hoc 签名，未发布正式 release。
 
 ## 一键检查验收（2026 年 10 月 20 日）
 
@@ -143,4 +143,4 @@ NewTC 全包 Go race、类型、7 项构建环境、7 项 stdio RPC 和最终 17
 | Grok 1.0.62 | `grok-4.7` / `low` | `grok-4.7-build` | 未报告 | 11.32 秒 |
 | AGY 1.4.2 | `gemini-3.8-flash-low` / 无额外参数 | `gemini-3.8-flash-low` | 未报告 | 14.40 秒 |
 
-[真实验收汇总](/Users/suchasplus/devs/agentic/newtc/.newtc/provider-batch-validation/2026-10-20T04-06-44.078Z/summary.json)与[打包窗口截图](/Users/suchasplus/devs/agentic/newtc/.newtc/provider-batch-validation/2026-10-20T04-06-44.078Z/desktop-final.png)保留本轮实际结果。用户默认数据目录的窗口已重新打开并显示新按钮，没有在该目录发起测试调用。
+真实验收汇总（原本地私有记录 `.newtc/provider-batch-validation/2026-10-20T04-06-44.078Z/summary.json`，未导入）与打包窗口截图（原本地私有记录 `.newtc/provider-batch-validation/2026-10-20T04-06-44.078Z/desktop-final.png`，未导入）保留本轮实际结果。用户默认数据目录的窗口已重新打开并显示新按钮，没有在该目录发起测试调用。

@@ -17,14 +17,15 @@ async function material(path, id) {
 const project = await material('package.json', 'package')
 const module = await material('services/host/go.mod', 'go-module')
 const lock = await material('scripts/engine-lock.json', 'engine-lock')
+const workspace = await material('../go.work', 'go-workspace')
 const cases = [
   {
     name: '开放取舍与真实项目材料', expected: 'free_debate', materials: [project],
     goal: '为附件中的本地单用户 macOS 桌面应用比较两种会话持久化设计：SQLite 与一个追加写 JSON 日志。目标是在断电恢复、开发复杂度和部署成本之间取舍；不需要代码实施。硬约束为离线可读、完整保留方案版本与投票、恢复不重复已提交阶段，不引入外部服务。请让多个参与者提出不同立场并投票选择方案。附件是实际项目清单，仅代表当前依赖，未证明任何方案性能。',
   },
   {
-    name: '可核查主张与真实模块材料', expected: 'adjudication', materials: [module, lock],
-    goal: '请对这个具体主张做逐项裁决：“所附 go.mod 的 til-consensus require 版本与 engine-lock.json 的 moduleVersion 一致，因此默认依赖声明固定同一模块版本。”双方应从附件原文提出支持与反驳，由裁决者判断该主张是否成立。判断范围只限这两份文件的声明一致性；不能据此声称代码已编译、远端可下载或运行正确，不需要讨论其他存储方案，也不执行命令。成功标准是明确裁决、逐字证据和边界。',
+    name: '可核查主张与真实模块材料', expected: 'adjudication', materials: [module, lock, workspace],
+    goal: '请对这个具体主张做逐项裁决：“所附 go.work 将根内核和 desktop/services/host 声明为同一工作区的两个本地模块；host go.mod 保留的 require 版本与身份清单中的历史基线一致，不能单凭 require 声称当前构建采用远端旧内核。”双方应从附件原文提出支持与反驳，由裁决者判断该主张是否成立。判断范围只限这些文件的声明；不能据此声称代码已编译、模型调用成功或运行正确，不执行命令。成功标准是明确裁决、逐字证据和边界。',
   },
   {
     name: '匿名评分与优先级', expected: 'delphi', materials: [project],

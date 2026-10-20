@@ -10,6 +10,8 @@ permissions:
 
 env:
   GOTOOLCHAIN: local
+  # 根 SDK／CLI 独立构建，不受桌面 host 子模块或 workspace 影响。
+  GOWORK: "off"
 
 jobs:
   build-release:

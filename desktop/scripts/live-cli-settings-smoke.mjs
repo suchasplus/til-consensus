@@ -1,10 +1,10 @@
 // 显式运行才使用真实 CLI 额度：每个指定 provider 最多一个请求，无重试。
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { createInterface } from 'node:readline'
 import { join } from 'node:path'
-import { root } from './go-env.mjs'
+import { root, engineBuildVersion } from './go-env.mjs'
 
 const allProviders = ['codex', 'claude', 'grok', 'agy']
 const option = process.argv.slice(2).find(value => value.startsWith('--providers='))
@@ -13,7 +13,7 @@ const catalogsOnly = process.argv.includes('--catalogs-only')
 assert.ok(selected.length && selected.every(id => allProviders.includes(id)) && new Set(selected).size === selected.length)
 const directory = join(root, '.tcview', 'cli-settings-validation', new Date().toISOString().replaceAll(':', '-'))
 await mkdir(directory, {recursive: true, mode: 0o700})
-const lock = JSON.parse(await readFile(join(root, 'scripts/engine-lock.json'), 'utf8'))
+const expectedEngineVersion = engineBuildVersion()
 const environment = {...process.env}
 // 此验收仅覆盖独立数据目录里的保存设置，不继承公共模型覆盖；认证仍由 CLI 管理。
 for (const id of allProviders) for (const field of ['MODEL','REASONING']) delete environment[`TCVIEW_${id.toUpperCase()}_${field}`]
@@ -57,7 +57,7 @@ try {
   summary.hello = await client.call('hello')
   assert.equal(summary.hello.protocolVersion,'1.4')
   assert.equal(summary.hello.providerMode,'cli')
-  assert.equal(summary.hello.engineVersion,lock.commit)
+  assert.equal(summary.hello.engineVersion, expectedEngineVersion)
   summary.defaults = await client.call('provider.settings.get')
   assert.equal(summary.defaults.length,4)
   const catalogs = await Promise.all(selected.map(async providerId => {

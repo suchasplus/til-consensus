@@ -2,7 +2,7 @@
 
 更新日期：2026 年 10 月 20 日。应用版本 `0.4.0`，桌面协议 `1.2`，数据版本 `4`。
 
-本文保留 `0.4.0` 的设计与真实分析记录。当前 `0.6.0` 加入启用选择：分析只可选择启用的 CLI，AGY 停用时界面明确改用下一家；发送前先检查至少三家参与者，避免分析后才发现人数不足。详见 [当前桌面操作](/Users/suchasplus/devs/agentic/newtc/docs/desktop-interactions.md)。
+本文保留 `0.4.0` 的设计与真实分析记录。当前 `0.6.0` 加入启用选择：分析只可选择启用的 CLI，AGY 停用时界面明确改用下一家；发送前先检查至少三家参与者，避免分析后才发现人数不足。详见 [当前桌面操作](desktop-interactions.md)。
 
 桌面现在把“准备话题”放在讨论前：读用户提供的材料，判断是否适合多方讨论，并在三种模式中选择。检查只做一次模型任务，生成结构化建议；调度和是否允许开跑仍由 Go 后台判断。
 
@@ -67,7 +67,7 @@ Go 后台持久化独立 `preparations` 记录。相同 ID 和相同请求幂等
 
 `npm test` 的准备流程使用显式 Mock 或固定响应回放，覆盖结构校验、逐字引用、输入变更、取消、消费原子性、预算、期限、材料恢复、匿名投影与桌面交互。Mock 有明确来源标记，不能代表真实分类准确率。
 
-运行 `npm run verify:preparation:live` 会单独启动真实 CLI 后台，依次发出五次 AGY 分析请求，以本项目的 package.json、go.mod、engine-lock.json 验证三种模式及不能直接开跑的两类任务。脚本保存真实返回值、模型来源、usage 和材料 hash，不启动完整讨论，也不修改模型答案来满足预期。证据位于 `.tcview/preparation-validation/<时间>/`；首次或有源码改动时需先 `npm run build:host`。
+运行 `npm run verify:preparation:live` 会单独启动真实 CLI 后台，依次发出五次 AGY 分析请求，以本项目的 package.json、host go.mod、身份基线清单和根 go.work 验证三种模式及不能直接开跑的两类任务。脚本保存真实返回值、模型来源、usage 和材料 hash，不启动完整讨论，也不修改模型答案来满足预期。证据位于 `.tcview/preparation-validation/<时间>/`；首次或有源码改动时需先 `npm run build:host`。
 
 可用 `npm run verify:preparation:live -- --cases=2,3,4,5` 人工指定本次待验证案例。脚本遇到模型或协议失败立即停止，不自动重试；更改提示词或接口后需人工重跑，旧失败证据不覆盖。
 
@@ -83,8 +83,8 @@ Go 后台持久化独立 `preparations` 记录。相同 ID 和相同请求幂等
 | 未说明目标与约束的系统设计 | `needs_clarification` | 0.95 | 0 |
 | 简单加法 | `not_suitable` | 0.95 | 0 |
 
-最后两项尝试自动开始均被 Go 后台拒绝，验收没有创建任何完整讨论。材料全文指纹和引文精确子串另经离线核对。[汇总及逐项原始证据索引](/Users/suchasplus/devs/agentic/newtc/.newtc/preparation-validation/validation.json)保留全部来源。
+最后两项尝试自动开始均被 Go 后台拒绝，验收没有创建任何完整讨论。材料全文指纹和引文精确子串另经离线核对。汇总及逐项原始证据索引（原本地私有记录 `.newtc/preparation-validation/validation.json`，未导入）保留全部来源。
 
 五个成功案例来自两批证据，共发出 7 次外部 CLI 任务；另外两次失败分别为 AGY 原生 schema 空字符串枚举不兼容，以及 AGY 在被拒绝 RunCommand 后返回空结果。前者修正传输 schema，后者补强“只分类、不执行 goal”的提示词后，人工继续验证未完成案例，既有失败未覆盖。成功请求实测约 40–95 秒；这五例只验证功能链路，不代表分类准确率或稳定时延指标。没有自动重试或 Mock 回退。
 
-Go 全包 race 及准备清理定向回归、7 项构建环境测试、7 项 stdio RPC 和 12 项 Electron 回归均通过。Electron/Go 自动化使用显式 Mock 或协议 fixture，与上述真实请求分别记录。macOS `0.4.0` 开发包已通过[精简 PATH 启动与后台重连验证](/Users/suchasplus/devs/agentic/newtc/.newtc/package-validation/2026-10-19T19-18-11.020Z/summary.json)。
+Go 全包 race 及准备清理定向回归、7 项构建环境测试、7 项 stdio RPC 和 12 项 Electron 回归均通过。Electron/Go 自动化使用显式 Mock 或协议 fixture，与上述真实请求分别记录。macOS `0.4.0` 开发包已通过精简 PATH 启动与后台重连验证（原本地私有记录 `.newtc/package-validation/2026-10-19T19-18-11.020Z/summary.json`，未导入）。

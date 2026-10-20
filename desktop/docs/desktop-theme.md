@@ -20,7 +20,7 @@
 
 菜单独立浮在内容上方，按可用空间向上或向下展开，长目录在菜单内滚动，长模型 ID 可换行。折叠对应区域或控件变为禁用时会关闭展开菜单。编辑目录外的手工模型时，即使清空原 ID，输入框也保持打开，保存前仍校验非空与格式。配置保存、环境覆盖、运行冻结和真实检查仍沿用既有行为。
 
-下拉改造完成后，类型检查、默认远端依赖构建、全部 38 项 Electron 回归及 8 项 stdio RPC 检查通过。无本地源码覆盖的 `NEWTC_RELEASE=1` 开发包已重建、签名并通过精简 PATH 版本探测／重连验收。原生窗口实际检查模式菜单、Codex 真实模型目录、推理档位和底部提供方向上展开；键盘浏览后取消，没有保存配置或发送模型请求。原未发送草稿、AGY 检查提供方与左右折叠偏好均保持。[下拉验收与实际截图](/Users/suchasplus/devs/agentic/newtc/.newtc/dropdown-validation/2026-10-20T07-04-07.756Z/summary.json)。
+下拉改造完成后，类型检查、默认远端依赖构建、全部 38 项 Electron 回归及 8 项 stdio RPC 检查通过。无本地源码覆盖的 `NEWTC_RELEASE=1` 开发包已重建、签名并通过精简 PATH 版本探测／重连验收。原生窗口实际检查模式菜单、Codex 真实模型目录、推理档位和底部提供方向上展开；键盘浏览后取消，没有保存配置或发送模型请求。原未发送草稿、AGY 检查提供方与左右折叠偏好均保持。下拉验收与实际截图（原本地私有记录 `.newtc/dropdown-validation/2026-10-20T07-04-07.756Z/summary.json`，未导入）。
 
 ## 文件和字体
 
@@ -42,8 +42,8 @@
 
 macOS 开发包以 `NEWTC_RELEASE=1`、无本地内核覆盖重建，ad-hoc 签名及四个字体／OFL 许可均验证通过。精简 PATH 下 CLI 版本探测、设置页和后台重连通过，没有渲染错误。原用户数据目录已用新主题重新打开，三栏首选宽度及更新前的 Codex 分析选择已保留。本轮新增真实模型请求为 **0**。
 
-- [主题验收汇总](/Users/suchasplus/devs/agentic/newtc/.newtc/theme-validation/2026-10-20T05-50-04.342Z/summary.json)
-- [真实桌面窗口](/Users/suchasplus/devs/agentic/newtc/.newtc/theme-validation/2026-10-20T05-50-04.342Z/native-carbon-workspace.png)
-- [配置页与讨论截图](/Users/suchasplus/devs/agentic/newtc/.newtc/theme-validation/2026-10-20T05-50-04.342Z)
-- [最终文字对比度采样](/Users/suchasplus/devs/agentic/newtc/.newtc/theme-validation/2026-10-20T05-46-58.363Z/contrast-audit-final.json)
-- [开发包验收](/Users/suchasplus/devs/agentic/newtc/.newtc/package-validation/2026-10-20T05-51-25.729Z/summary.json)
+- 主题验收汇总（原本地私有记录 `.newtc/theme-validation/2026-10-20T05-50-04.342Z/summary.json`，未导入）
+- 真实桌面窗口（原本地私有记录 `.newtc/theme-validation/2026-10-20T05-50-04.342Z/native-carbon-workspace.png`，未导入）
+- 配置页与讨论截图（原本地私有记录 `.newtc/theme-validation/2026-10-20T05-50-04.342Z`，未导入）
+- 最终文字对比度采样（原本地私有记录 `.newtc/theme-validation/2026-10-20T05-46-58.363Z/contrast-audit-final.json`，未导入）
+- 开发包验收（原本地私有记录 `.newtc/package-validation/2026-10-20T05-51-25.729Z/summary.json`，未导入）

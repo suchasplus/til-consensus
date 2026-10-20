@@ -3,18 +3,18 @@
 审计日期：2026-10-20，Asia/Kuala_Lumpur（UTC+8）。
 
 四家 CLI 均已完成真实模型推理，升级后的 Go Runner 也已分别通过真实项目事实核对。本地 `til-consensus` 接口已据此升级。
-初始验证针对独立 CLI 请求及独立 Runner 任务，当时桌面应用处于 M0；后续产品完整运行暴露了更多接口差异，均保留原始失败。修复后已完成真实四方自由辩论、停止恢复及三张有效完整票验收，见 [实现与验收说明](/Users/suchasplus/devs/agentic/newtc/docs/implementation.md)。本次最终判定为 `no_consensus`，不能将流程通过当作意见一致。
+初始验证针对独立 CLI 请求及独立 Runner 任务，当时桌面应用处于 M0；后续产品完整运行暴露了更多接口差异，均保留原始失败。修复后已完成真实四方自由辩论、停止恢复及三张有效完整票验收，见 [实现与验收说明](implementation.md)。本次最终判定为 `no_consensus`，不能将流程通过当作意见一致。
 
-当前 `0.5.0` 的模型／推理设置、目录读取和请求／报告边界另见 [CLI 设置说明](/Users/suchasplus/devs/agentic/newtc/docs/cli-settings.md)。下文保留早期审计输入快照，不改写历史版本。
+当前 `0.5.0` 的模型／推理设置、目录读取和请求／报告边界另见 [CLI 设置说明](cli-settings.md)。下文保留早期审计输入快照，不改写历史版本。
 
 ## 证据与核对范围
 
-原始输入取自 [package.json](/Users/suchasplus/devs/agentic/newtc/package.json) 和 [services/host/go.mod](/Users/suchasplus/devs/agentic/newtc/services/host/go.mod)，没有让模型自行猜测项目依赖。
-输入内容、SHA-256、期望值和 schema 见 [input-manifest.json](/Users/suchasplus/devs/agentic/newtc/.newtc/cli-audit/2026-10-20/input-manifest.json) 与 [schema.json](/Users/suchasplus/devs/agentic/newtc/.newtc/cli-audit/2026-10-20/schema.json)。
+原始输入取自 [package.json](../package.json) 和 [services/host/go.mod](../services/host/go.mod)，没有让模型自行猜测项目依赖。
+输入内容、SHA-256、期望值和 schema 见 input-manifest.json（原本地私有记录 `.newtc/cli-audit/2026-10-20/input-manifest.json`，未导入） 与 schema.json（原本地私有记录 `.newtc/cli-audit/2026-10-20/schema.json`，未导入）。
 
-- 初次 Runner 审计：[til-runner-live-summary.json](/Users/suchasplus/devs/agentic/newtc/.newtc/cli-audit/2026-10-20/til-runner-live-summary.json)。
-- 修复后的补验：[til-runner-repaired-summary.json](/Users/suchasplus/devs/agentic/newtc/.newtc/cli-audit/2026-10-20/til-runner-repaired-summary.json)。
-- CLI 原生审计：[Codex](/Users/suchasplus/devs/agentic/newtc/.newtc/cli-audit/2026-10-20/codex/summary.json)、[Claude](/Users/suchasplus/devs/agentic/newtc/.newtc/cli-audit/2026-10-20/claude/summary.json)、[已登录 Grok](/Users/suchasplus/devs/agentic/newtc/.newtc/cli-audit/2026-10-20/grok/summary.logged-in.json)、[AGY](/Users/suchasplus/devs/agentic/newtc/.newtc/cli-audit/2026-10-20/agy/summary.json)。
+- 初次 Runner 审计：til-runner-live-summary.json（原本地私有记录 `.newtc/cli-audit/2026-10-20/til-runner-live-summary.json`，未导入）。
+- 修复后的补验：til-runner-repaired-summary.json（原本地私有记录 `.newtc/cli-audit/2026-10-20/til-runner-repaired-summary.json`，未导入）。
+- CLI 原生审计：Codex（原本地私有记录 `.newtc/cli-audit/2026-10-20/codex/summary.json`，未导入）、Claude（原本地私有记录 `.newtc/cli-audit/2026-10-20/claude/summary.json`，未导入）、已登录 Grok（原本地私有记录 `.newtc/cli-audit/2026-10-20/grok/summary.logged-in.json`，未导入）、AGY（原本地私有记录 `.newtc/cli-audit/2026-10-20/agy/summary.json`，未导入）。
 
 核对六组字段：项目名、Electron 版本、React 版本、Go 声明版本、共识库版本及完整脚本集合；审计输入快照中的脚本共 9 项。后续实现新增的打包依赖和脚本不属于这份历史快照。
 
@@ -53,7 +53,7 @@ Grok 早期 `1.0.34` 请求因未登录失败；该失败记录仍保留，不�
 
 另行实测了 app-server：收到首个公开正文片段后，通过 `turn/interrupt` 取消，6 毫秒后收到 `turn/completed`，状态为 `interrupted`，进程退出码为 0。
 初始审计只验证了该协议；后续 M1 已将桌面 Codex 主通道接为 app-server，并使用每任务独立的临时 thread/turn。模型、schema、公开增量和中断均经过该通道；并未复用含历史任务的长期 thread。
-证据见 [app-server-summary.json](/Users/suchasplus/devs/agentic/newtc/.newtc/cli-audit/2026-10-20/codex/app-server-summary.json)，协议参考 [Codex App Server 文档](https://developers.openai.com/codex/app-server)。
+证据见 app-server-summary.json（原本地私有记录 `.newtc/cli-audit/2026-10-20/codex/app-server-summary.json`，未导入），协议参考 [Codex App Server 文档](https://developers.openai.com/codex/app-server)。
 
 ### Claude Code
 
@@ -76,7 +76,7 @@ Grok 早期 `1.0.34` 请求因未登录失败；该失败记录仍保留，不�
 首个正文后 SIGINT 的真实结果为退出码 **130**，只留下部分 `text`，没有 `end`；不能用部分正文推定完成，也不能要求取消时一定有终态事件。
 初次 Runner 的 OnEvent 把缩进 JSON 当 JSONL，实际失败；修复后真实 Runner 42.348 秒完成，全部事实通过，原失败产物未删除。
 随后真实产品完整运行把返回 canonical `grok-4.7-build` 当作 `--model` selector，CLI 明确报 `unknown model id`；这是独立接口审计未覆盖显式模型选择暴露的真实失败。
-原失败见 [Grok 显式模型选择产物](/Users/suchasplus/devs/agentic/newtc/.newtc/live-validation/discussion-2026-10-19T17-54-07-835Z/host/runs/run-5797a4e6b58d3329e2d6feae/artifacts/attempt-8d2e9cbcaf07945ef05ec8e9/attempt-8d2e9cbcaf07945ef05ec8e9/attempt-8d2e9cbcaf07945ef05ec8e9-inv-0004.output.json)。
+原失败见 Grok 显式模型选择产物（原本地私有记录 `.newtc/live-validation/discussion-2026-10-19T17-54-07-835Z/host/runs/run-5797a4e6b58d3329e2d6feae/artifacts/attempt-8d2e9cbcaf07945ef05ec8e9/attempt-8d2e9cbcaf07945ef05ec8e9/attempt-8d2e9cbcaf07945ef05ec8e9-inv-0004.output.json`，未导入）。
 后续只读 `grok models` 确认默认 selector 为 `grok-4.7`，另有 `grok-4.7-build-fast` 等选项。本地 profile、示例和配置测试已改为 `grok-4.7`；正确 selector 的完整全场验证由后续运行单独记录，不能沿用此前默认请求的成功结论。
 
 第三轮产品运行已使用正确 selector，返回 canonical `grok-4.7-build`，但流式 Runner 的本地 schema 编译器不接受 Go 构造的嵌套 `[]string`。修复将 schema 先序列化、再解码为标准 JSON 类型，并保留数值精度；没有放宽 schema。保存的同一真实输出离线通过原 schema、invocationId 与 contextHash 校验，证实该次故障位于本地校验器。新增回归覆盖嵌套 enum/required、组合约束和无效输出。
@@ -96,11 +96,11 @@ schema 通过 `--json-schema` 提供，答案优先取唯一最终 `result.struc
 
 ## 本地内核改动与配置
 
-升级位置：[til-consensus/runtime/cli](/Users/suchasplus/agentic/til-consensus/runtime/cli)。新增 Grok profile，修正 AGY 原生传输，并统一各 CLI 的 envelope、错误、取消和公开进度解析。
+升级位置：[til-consensus/runtime/cli](../../runtime/cli)。新增 Grok profile，修正 AGY 原生传输，并统一各 CLI 的 envelope、错误、取消和公开进度解析。
 公开事件过滤 thinking/reasoning，正文增量与最终快照分开；usage 表示快照，不代表可累加的增量。失败与取消保留原始输出，不能仅靠进程退出码判定业务成功。
 新增 `workdir`、`permission_mode`、`output_format`；后两者仅支持 Codex、Claude、Grok、AGY，未实现的 CLI 显式配置会校验失败。
 
-下面保留审计时的 provider 片段及历史工作目录；当前应用的临时产物写入 `.tcview/`，目录须提前创建；完整示例见 [grok.config.yaml](/Users/suchasplus/agentic/til-consensus/docs/examples/grok.config.yaml)。
+下面保留审计时的 provider 片段及历史工作目录；当前应用的临时产物写入 `.tcview/`，目录须提前创建；完整示例见 [grok.config.yaml](../../docs/examples/grok.config.yaml)。
 
 ```yaml
 providers:
@@ -108,7 +108,7 @@ providers:
     type: cli
     cli_type: grok
     command: grok
-    workdir: /Users/suchasplus/devs/agentic/newtc/.newtc/sessions/manual
+    workdir: ./.tcview/sessions/manual
     permission_mode: read-only
     output_format: json
     env_passthrough: [XAI_API_KEY]
@@ -119,17 +119,17 @@ providers:
 
 另补齐裁决从 created/frame 检查点恢复时遗漏的前奏，并以 7 个持久化阶段检查点及实际 SIGKILL RPC 回归验证已提交任务不重做。
 
-审计阶段以 `commit+local.<hash>` 记录未提交源码，保留了本轮真实运行的原始构建指纹。后续修复已固化为 [cb9149af032e723e12b972d8790c5a97de2c0511](https://github.com/suchasplus/til-consensus/commit/cb9149af032e723e12b972d8790c5a97de2c0511)，其 [核心升级 PR #1](https://github.com/suchasplus/til-consensus/pull/1) 已合并。后续 [格式兼容 PR #2](https://github.com/suchasplus/til-consensus/pull/2) 通过等价局部返回值写法兼容 Go 1.26.1／1.27.1，桌面当前锁定可直接下载的远端模块版本 `v0.0.0-20261019184227-f4e2dbad63e4`，完整提交为 `f4e2dbad63e409ef8dcf490125f06e522ba886b9`。
-构建逻辑见 [go-env.mjs](/Users/suchasplus/devs/agentic/newtc/scripts/go-env.mjs)：默认使用模块版本锁并强制 `GOWORK=off`；显式本地开发覆盖继续记录源码指纹，`TCVIEW_RELEASE=1` 拒绝 dirty 覆盖。原始验收记录中的旧指纹保持不变。
+审计阶段以 `commit+local.<hash>` 记录未提交源码，保留了本轮真实运行的原始构建指纹。后续修复已固化为 [cb9149af032e723e12b972d8790c5a97de2c0511](https://github.com/suchasplus/til-consensus/commit/cb9149af032e723e12b972d8790c5a97de2c0511)，其 [核心升级 PR #1](https://github.com/suchasplus/til-consensus/pull/1) 已合并。后续 [格式兼容 PR #2](https://github.com/suchasplus/til-consensus/pull/2) 通过等价局部返回值写法兼容 Go 1.26.1／1.27.1，当时桌面锁定可直接下载的远端模块版本 `v0.0.0-20261019184227-f4e2dbad63e4`，完整提交为 `f4e2dbad63e409ef8dcf490125f06e522ba886b9`。
+上述独立项目审计阶段使用远端固定模块与显式本地覆盖，原始验收记录中的旧指纹保持不变。当前 [go-env.mjs](../scripts/go-env.mjs) 已改为同仓 workspace 与独立构建身份，见 [同仓说明](monorepo.md)。
 
 ## 保留证据与复验
 
-私有历史完整记录保存在 [.newtc/cli-audit/2026-10-20](/Users/suchasplus/devs/agentic/newtc/.newtc/cli-audit/2026-10-20)，包括认证失败、解析失败、取消和修复后的成功，不能只保留成功样本。
-脱敏真实 fixture 位于 [fixtures/cli](/Users/suchasplus/devs/agentic/newtc/fixtures/cli)，来源、删改范围和摘要见各目录的 provenance/metadata；已删除会话标识、路径与推理内容等不必要字段。
+私有历史完整记录保存在 .newtc/cli-audit/2026-10-20（原本地私有记录 `.newtc/cli-audit/2026-10-20`，未导入），包括认证失败、解析失败、取消和修复后的成功，不能只保留成功样本。
+脱敏真实 fixture 位于 [fixtures/cli](../fixtures/cli)，来源、删改范围和摘要见各目录的 provenance/metadata；已删除会话标识、路径与推理内容等不必要字段。
 这些 fixture 用于回放协议回归，不代表测试时重新调用模型，也没有用构造内容冒充真实成功。
 
 ```bash
-cd /Users/suchasplus/devs/agentic/newtc
+cd desktop
 node scripts/cli-audit/verify-til.mjs --providers codex,claude,grok,antigravity --label manual-recheck-1
 ```
 
