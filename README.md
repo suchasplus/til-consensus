@@ -210,6 +210,8 @@ til-consensus view --config ./til-consensus.yaml
 
 ## 开发与质量门禁
 
+源码开发需要 Go `1.27.1` 或更高版本；质量门禁使用 `golangci-lint v2.13.2`。CI 的 Linux、macOS、Windows 和发布构建统一从 `go.mod` 读取 Go 版本。
+
 本地提交前：
 
 ```bash

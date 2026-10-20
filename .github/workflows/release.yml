@@ -8,6 +8,9 @@ on:
 permissions:
   contents: write
 
+env:
+  GOTOOLCHAIN: local
+
 jobs:
   build-release:
     name: build-${{ matrix.goos }}-${{ matrix.goarch }}
@@ -34,6 +37,9 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Show Go toolchain
+        run: go version
+
       - name: Compute build metadata
         id: meta
         shell: bash
@@ -51,7 +57,7 @@ jobs:
             TARGET_GOOS="${{ matrix.goos }}" \
             TARGET_GOARCH="${{ matrix.goarch }}"
 
-      - name: Verify archive version output
+      - name: Verify archive toolchain and target
         shell: bash
         run: |
           archive="dist/til-consensus_${{ github.ref_name }}_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz"
@@ -59,7 +65,14 @@ jobs:
           rm -rf "$target_dir"
           mkdir -p "$target_dir"
           tar -xzf "$archive" -C "$target_dir"
-          "$target_dir/til-consensus_${{ github.ref_name }}_${{ matrix.goos }}_${{ matrix.goarch }}/til-consensus" --version | grep "${{ github.ref_name }}"
+          binary="$target_dir/til-consensus_${{ github.ref_name }}_${{ matrix.goos }}_${{ matrix.goarch }}/til-consensus"
+          go version -m "$binary" | tee "$target_dir/build-info.txt"
+          grep -F "$(go env GOVERSION)" "$target_dir/build-info.txt"
+          grep -F "GOOS=${{ matrix.goos }}" "$target_dir/build-info.txt"
+          grep -F "GOARCH=${{ matrix.goarch }}" "$target_dir/build-info.txt"
+          if [[ "${{ matrix.goos }}" == "$(go env GOHOSTOS)" && "${{ matrix.goarch }}" == "$(go env GOHOSTARCH)" ]]; then
+            "$binary" --version | grep -F -- "${{ github.ref_name }}"
+          fi
 
       - name: Upload release archive
         uses: actions/upload-artifact@v4

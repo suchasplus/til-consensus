@@ -230,13 +230,14 @@ func adjudicateClaim(manifest CaseManifest, claim ClaimNode, tickets []Challenge
 			decisionVerdict = ClaimVerdictInsufficientEvidence
 		}
 	}
-	return ArbiterDecision{
+	decision := ArbiterDecision{
 		ClaimID:      claim.ClaimID,
 		Verdict:      decisionVerdict,
 		Confidence:   confidence,
 		Rationale:    rationale,
 		EvidenceRefs: dedupeStrings(evidenceRefs),
-	}, AdjudicationRecord{
+	}
+	record := AdjudicationRecord{
 		TargetClaimID:   claim.ClaimID,
 		Disposition:     disposition,
 		Rationale:       rationale,
@@ -245,6 +246,7 @@ func adjudicateClaim(manifest CaseManifest, claim ClaimNode, tickets []Challenge
 		Actionability:   actionability,
 		EvidenceRefs:    dedupeStrings(evidenceRefs),
 	}
+	return decision, record
 }
 
 func deriveRecordsFromDecisions(request StartRequest, claims []ClaimNode, decisions []ArbiterDecision) []AdjudicationRecord {

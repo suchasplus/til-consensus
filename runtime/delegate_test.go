@@ -44,18 +44,28 @@ func TestDelegatePersistsParseErrorArtifact(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Dispatch failed: %v", err)
 	}
-	awaited, err := delegate.Await(context.Background(), receipt.TaskID, time.Second)
+	// 此测试验证解析失败材料的完整落盘。一次失败还会执行修复、合规
+	// 记录与多次 fsync；不要把慢 CI 的 1 秒调度/磁盘延迟误判为解析失败。
+	// 超时语义由 TestDelegateTimeoutReturnsTimeoutMarker 独立验证。
+	awaited, err := delegate.Await(context.Background(), receipt.TaskID, 5*time.Second)
 	if err != nil {
 		t.Fatalf("Await failed: %v", err)
+	}
+	if awaited.Error == "__timeout__" {
+		t.Fatalf("parse-error artifact task did not complete within its test allowance: %#v", awaited)
 	}
 	if awaited.OK {
 		t.Fatal("expected malformed output to fail")
 	}
 	if awaited.Artifact == nil {
-		t.Fatal("expected parse error artifact")
+		t.Fatalf("expected parse error artifact, got %#v", awaited)
 	}
-	if _, err := os.Stat(awaited.Artifact.Path); err != nil {
+	body, err := os.ReadFile(awaited.Artifact.Path)
+	if err != nil {
 		t.Fatalf("artifact missing: %v", err)
+	}
+	if !strings.HasPrefix(filepath.Base(awaited.Artifact.Path), "raw-error-") || !strings.Contains(string(body), "# --- raw text ---\nnot json") {
+		t.Fatalf("expected persisted raw parse-error details, got %s: %s", awaited.Artifact.Path, body)
 	}
 }
 

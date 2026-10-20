@@ -427,38 +427,43 @@ func buildTemplateProvider(profile string) (string, string, ProviderConfig, erro
 func buildTemplateAgents(mode consensus.WorkflowMode, providerID string, modelID string) ([]AgentConfig, RolesConfig) {
 	switch mode {
 	case consensus.WorkflowModeFreeDebate:
-		return []AgentConfig{
+		agents := []AgentConfig{
 			{ID: "participant-a", Provider: providerID, Model: modelID, Role: "participant"},
 			{ID: "participant-b", Provider: providerID, Model: modelID, Role: "participant"},
 			{ID: "participant-c", Provider: providerID, Model: modelID, Role: "participant"},
 			{ID: "reporter-a", Provider: providerID, Model: modelID, Role: "reporter"},
 			{ID: "actor-a", Provider: providerID, Model: modelID, Role: "actor"},
-		}, RolesConfig{
+		}
+		roles := RolesConfig{
 			Participants: []string{"participant-a", "participant-b", "participant-c"},
 			Reporter:     "reporter-a",
 			Actor:        "actor-a",
 		}
+		return agents, roles
 	case consensus.WorkflowModeDelphi:
-		return []AgentConfig{
+		agents := []AgentConfig{
 			{ID: "participant-a", Provider: providerID, Model: modelID, Role: "participant"},
 			{ID: "participant-b", Provider: providerID, Model: modelID, Role: "participant"},
 			{ID: "participant-c", Provider: providerID, Model: modelID, Role: "participant"},
 			{ID: "facilitator-a", Provider: providerID, Model: modelID, Role: "facilitator"},
 			{ID: "reporter-a", Provider: providerID, Model: modelID, Role: "reporter"},
-		}, RolesConfig{
+		}
+		roles := RolesConfig{
 			Participants: []string{"participant-a", "participant-b", "participant-c"},
 			Facilitator:  "facilitator-a",
 			Reporter:     "reporter-a",
 		}
+		return agents, roles
 	default:
-		return []AgentConfig{
+		agents := []AgentConfig{
 			{ID: "proposer-a", Provider: providerID, Model: modelID, Role: "proposer"},
 			{ID: "challenger-a", Provider: providerID, Model: modelID, Role: "challenger"},
 			{ID: "arbiter-a", Provider: providerID, Model: modelID, Role: "arbiter"},
 			{ID: "verifier-a", Provider: providerID, Model: modelID, Role: "semantic-verifier"},
 			{ID: "reporter-a", Provider: providerID, Model: modelID, Role: "reporter"},
 			{ID: "actor-a", Provider: providerID, Model: modelID, Role: "actor"},
-		}, RolesConfig{
+		}
+		roles := RolesConfig{
 			Proposers:        []string{"proposer-a"},
 			Challengers:      []string{"challenger-a"},
 			Arbiter:          "arbiter-a",
@@ -466,6 +471,7 @@ func buildTemplateAgents(mode consensus.WorkflowMode, providerID string, modelID
 			Reporter:         "reporter-a",
 			Actor:            "actor-a",
 		}
+		return agents, roles
 	}
 }
 

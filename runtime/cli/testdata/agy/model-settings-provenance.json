@@ -1,0 +1,95 @@
+{
+  "captured_at_local": "2026-10-20 Asia/Kuala_Lumpur",
+  "cli_version": "1.4.2",
+  "description": "模型目录与只读 /effort 检查；未发送模型推理请求。模型/effort 冲突在初始化阶段终止，usage 全零，num_turns=0。",
+  "official_sources": [
+    "https://www.antigravity.google/docs/cli/commands/effort",
+    "https://www.antigravity.google/docs/cli/headless/"
+  ],
+  "fixtures": [
+    {
+      "fixture": "models-1.4.2.txt",
+      "sha256": "b8ef1100468943ec66037166702b013793898730d02bcd3008ec0da5a3a70755",
+      "command": [
+        "agy",
+        "models"
+      ],
+      "exit_code": 0,
+      "transformation": "保留 CLI 原文；无账号、路径、凭据或推理内容。"
+    },
+    {
+      "fixture": "model-effort-conflict.json",
+      "sha256": "3b77d5dafe4842fc345da1cb7837323649d38d11b10c772ab74a77c873c5f4b1",
+      "command": [
+        "agy",
+        "--model",
+        "gemini-3.8-flash-medium",
+        "--effort",
+        "low",
+        "--print",
+        "/effort",
+        "--output-format",
+        "json",
+        "--print-timeout",
+        "85s"
+      ],
+      "exit_code": 1,
+      "transformation": "保留 CLI 原文；无账号、路径、凭据或推理内容。"
+    },
+    {
+      "fixture": "effort-model-medium.json",
+      "sha256": "c0bbc8cbce7ce8390c2b807f4b6e1155417924dec3acf53585b7ee54802a3cbd",
+      "command": [
+        "agy",
+        "--model",
+        "gemini-3.8-flash-medium",
+        "--print",
+        "/effort",
+        "--output-format",
+        "json",
+        "--print-timeout",
+        "65s"
+      ],
+      "exit_code": 0,
+      "transformation": "保留 CLI 原文；只读命令，num_turns=0，usage 全零；不冒充模型推理成功。"
+    },
+    {
+      "fixture": "effort-model-medium-same.json",
+      "sha256": "c0bbc8cbce7ce8390c2b807f4b6e1155417924dec3acf53585b7ee54802a3cbd",
+      "command": [
+        "agy",
+        "--model",
+        "gemini-3.8-flash-medium",
+        "--effort",
+        "medium",
+        "--print",
+        "/effort",
+        "--output-format",
+        "json",
+        "--print-timeout",
+        "65s"
+      ],
+      "exit_code": 0,
+      "transformation": "保留 CLI 原文；只读命令，num_turns=0，usage 全零；不冒充模型推理成功。"
+    },
+    {
+      "fixture": "effort-base-model-low.json",
+      "sha256": "95d1226a49c7800fb9a9a35bd7bb4ba816e007fda3555a07edb307657e4ccbd8",
+      "command": [
+        "agy",
+        "--model",
+        "gemini-3.8-flash",
+        "--effort",
+        "low",
+        "--print",
+        "/effort",
+        "--output-format",
+        "json",
+        "--print-timeout",
+        "65s"
+      ],
+      "exit_code": 0,
+      "transformation": "保留 CLI 原文；只读命令，num_turns=0，usage 全零；不冒充模型推理成功。"
+    }
+  ]
+}
