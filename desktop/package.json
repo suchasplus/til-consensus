@@ -22,10 +22,11 @@
     "test:host": "node scripts/test-host.mjs",
     "test:rpc": "node --test tests/rpc.test.mjs",
     "test:e2e": "playwright test",
-    "test": "npm run test:build-env && npm run test:host && npm run check && npm run build && npm run test:rpc && npm run test:e2e",
+    "test": "npm run test:build-env && npm run test:notifications && npm run test:host && npm run check && npm run build && npm run test:rpc && npm run test:e2e",
     "package:mac": "node scripts/package-mac.mjs",
     "verify:package": "node scripts/verify-package.mjs",
-    "verify:providers:batch:live": "node scripts/live-provider-batch-smoke.mjs"
+    "verify:providers:batch:live": "node scripts/live-provider-batch-smoke.mjs",
+    "test:notifications": "node --test tests/run-completion-monitor.test.mjs tests/native-notifications.test.mjs"
   },
   "dependencies": {
     "react": "19.3.1",
