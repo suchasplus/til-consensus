@@ -1,3 +1,5 @@
+import { prepareTestWindows } from './helpers/windows'
+import { setViewportAndWait } from './helpers/viewport'
 import { selectDropdown } from './helpers/select'
 import { test, expect, _electron as electron, type Page } from '@playwright/test'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -20,7 +22,7 @@ async function launchMock(directory: string, delay = '30') {
   const app = await electron.launch({ args: [resolve('.')], env })
   try {
     const page = await app.firstWindow()
-    await app.evaluate(({ BrowserWindow }) => { for (const window of BrowserWindow.getAllWindows()) window.hide() })
+    await prepareTestWindows(app)
     await expect(page.getByTestId('connection-status')).toContainText('已连接')
     return { app, page }
   } catch (failure) { await app.close(); throw failure }
@@ -43,7 +45,7 @@ test('默认收起讨论介绍，发起后上下自动收起并为消息腾出�
   const directory = await mkdtemp(join(tmpdir(), 'tcview-discussion-panels-run-'))
   const { app, page } = await launchMock(directory, '350')
   try {
-    await page.setViewportSize({ width: 1440, height: 920 })
+    await setViewportAndWait(page, { width: 1440, height: 920 })
     const errors: string[] = []
     page.on('pageerror', failure => errors.push(failure.message))
     await expect(page.getByTestId('toggle-discussion-context')).toHaveAttribute('aria-expanded', 'false')
@@ -144,7 +146,7 @@ test('历史讨论默认收起，新讨论重新展开输入，窄窗可用键�
     await expect(page.getByTestId('goal-input')).toBeEmpty()
     await page.getByTestId(`history-row-${run.id}`).getByRole('button').first().click()
     await expectCollapsed(page)
-    await page.setViewportSize({ width: 820, height: 760 })
+    await setViewportAndWait(page, { width: 820, height: 760 })
     const contextToggle = page.getByTestId('toggle-discussion-context')
     await contextToggle.focus()
     await contextToggle.press('Enter')

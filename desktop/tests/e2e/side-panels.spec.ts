@@ -1,3 +1,5 @@
+import { prepareTestWindows } from './helpers/windows'
+import { setViewportAndWait } from './helpers/viewport'
 import { selectDropdown } from './helpers/select'
 import { test, expect, _electron as electron, type ElectronApplication, type Page } from '@playwright/test'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -22,10 +24,10 @@ async function launchMock(directory: string) {
   const app = await electron.launch({ args: [resolve('.')], env })
   try {
     const page = await app.firstWindow()
-    await app.evaluate(({ BrowserWindow }) => { for (const window of BrowserWindow.getAllWindows()) window.hide() })
+    await prepareTestWindows(app)
     // 状态位于可折叠的历史栏中；检查连接文字，允许栏已从持久设置中收起。
     await expect(page.getByTestId('connection-status')).toContainText('已连接')
-    await page.setViewportSize({ width: 1440, height: 920 })
+    await setViewportAndWait(page, { width: 1440, height: 920 })
     return { app, page }
   } catch (failure) { await app.close(); throw failure }
 }
@@ -212,7 +214,7 @@ test('窄窗自动隐藏右侧不改偏好，抽屉支持键盘开关并记住�
     let page = launched.page
     await expectPanels(page, true, true)
     await expectSaved(page, false, false)
-    await page.setViewportSize({ width: 820, height: 760 })
+    await setViewportAndWait(page, { width: 820, height: 760 })
     await expectPanels(page, true, false)
     await expect(page.getByTestId('resize-right')).not.toBeVisible()
     await expectSaved(page, false, false)
@@ -226,13 +228,13 @@ test('窄窗自动隐藏右侧不改偏好，抽屉支持键盘开关并记住�
     await expectPanels(page, true, false)
     await expect(rightToggle).toBeFocused()
     await expectSaved(page, false, true)
-    await page.setViewportSize({ width: 1440, height: 920 })
+    await setViewportAndWait(page, { width: 1440, height: 920 })
     await expectPanels(page, true, false)
     await rightToggle.focus()
     await rightToggle.press('Space')
     await expectPanels(page, true, true)
     await expectSaved(page, false, false)
-    await page.setViewportSize({ width: 820, height: 760 })
+    await setViewportAndWait(page, { width: 820, height: 760 })
     await expectPanels(page, true, false)
     await expectSaved(page, false, false)
     await page.getByTestId('toggle-history-panel').click()
@@ -246,10 +248,10 @@ test('窄窗自动隐藏右侧不改偏好，抽屉支持键盘开关并记住�
     launched = await launchMock(directory)
     app = launched.app
     page = launched.page
-    await page.setViewportSize({ width: 820, height: 760 })
+    await setViewportAndWait(page, { width: 820, height: 760 })
     await expectPanels(page, false, false)
     await expectSaved(page, true, false)
-    await page.setViewportSize({ width: 1440, height: 920 })
+    await setViewportAndWait(page, { width: 1440, height: 920 })
     await expectPanels(page, false, true)
     expect(await page.evaluate(() => window.tcview.listRuns())).toHaveLength(0)
   } finally { await app?.close(); await rm(directory, { recursive: true, force: true }) }

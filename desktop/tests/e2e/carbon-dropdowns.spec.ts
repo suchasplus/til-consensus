@@ -1,3 +1,5 @@
+import { prepareTestWindows } from './helpers/windows'
+import { setViewportAndWait } from './helpers/viewport'
 import { test, expect, _electron as electron, type Page } from '@playwright/test'
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -21,7 +23,7 @@ async function launchMock(directory: string) {
   const app = await electron.launch({ args: [resolve('.')], env })
   try {
     const page = await app.firstWindow()
-    await app.evaluate(({ BrowserWindow }) => { for (const window of BrowserWindow.getAllWindows()) window.hide() })
+    await prepareTestWindows(app)
     await expect(page.getByTestId('connection-status')).toContainText('已连接')
     return { app, page }
   } catch (error) { await app.close(); throw error }
@@ -48,7 +50,7 @@ test('模式下拉采用 Carbon 菜单，键盘导航与取消不会提前修改
   const directory = await mkdtemp(join(tmpdir(), 'tcview-carbon-dropdown-mode-'))
   const { app, page } = await launchMock(directory)
   try {
-    await page.setViewportSize({ width: 1440, height: 920 })
+    await setViewportAndWait(page, { width: 1440, height: 920 })
     const errors: string[] = []
     page.on('pageerror', error => errors.push(error.message))
     const control = page.getByTestId('mode-select')
@@ -157,7 +159,7 @@ test('长模型目录可滚动与前缀定位，AGY 档位保留实际 ID，Esca
       ipcMain.handle('tcview:provider-models', (_event, id) => views.find(view => view.id === id)?.catalog)
       ipcMain.handle('tcview:provider-check', () => { throw new Error('此下拉样式测试禁止派发模型请求') })
     }, longModel)
-    await page.setViewportSize({ width: 820, height: 760 })
+    await setViewportAndWait(page, { width: 820, height: 760 })
     await page.getByTestId('provider-settings-button').click()
     const settings = page.getByRole('dialog', { name: 'CLI 与连接检查' })
     const control = page.getByTestId('provider-model-codex')
@@ -206,7 +208,7 @@ test('底部下拉自动向上展开，窄窗菜单保持在窗口范围内且�
   const directory = await mkdtemp(join(tmpdir(), 'tcview-carbon-dropdown-bounds-'))
   const { app, page } = await launchMock(directory)
   try {
-    await page.setViewportSize({ width: 820, height: 760 })
+    await setViewportAndWait(page, { width: 820, height: 760 })
     await page.getByTestId('toggle-history-panel').click()
     const draft = '下拉位置验证保留尚未发送的草稿。'
     await page.getByTestId('goal-input').fill(draft)

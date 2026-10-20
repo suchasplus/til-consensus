@@ -1,3 +1,5 @@
+import { prepareTestWindows } from './helpers/windows'
+import { setViewportAndWait } from './helpers/viewport'
 import { selectDropdown } from './helpers/select'
 import { test, expect, _electron as electron, type ElectronApplication } from '@playwright/test'
 import { createHash } from 'node:crypto'
@@ -20,9 +22,9 @@ async function launchIsolated(launcher: string, overrides: Record<string, string
   const app = await electron.launch({ args: [launcher], env })
   try {
     const page = await app.firstWindow()
-    await app.evaluate(({ BrowserWindow }) => { for (const window of BrowserWindow.getAllWindows()) window.hide() })
+    await prepareTestWindows(app)
     await expect(page.getByTestId('connection-status')).toContainText('已连接')
-    await page.setViewportSize({ width: 1440, height: 920 })
+    await setViewportAndWait(page, { width: 1440, height: 920 })
     return { app, page }
   } catch (failure) { await app.close(); throw failure }
 }

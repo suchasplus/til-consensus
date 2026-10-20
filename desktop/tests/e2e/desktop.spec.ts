@@ -1,3 +1,5 @@
+import { prepareTestWindows } from './helpers/windows'
+import { setViewportAndWait } from './helpers/viewport'
 import { selectDropdown } from './helpers/select'
 import { test, expect, _electron as electron, type ElectronApplication, type Page } from '@playwright/test'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -37,9 +39,10 @@ async function launch(directory: string, delay = '80', overrides: Record<string,
   for (const [key, value] of Object.entries(overrides)) { if (value === undefined) delete env[key]; else env[key] = value }
   delete env.ELECTRON_RUN_AS_NODE
   const app = await electron.launch({ args: [resolve('.')], env })
-  await app.firstWindow()
-  // 保留真实 Electron/CDP 渲染，隐藏 OS 窗口避免用户键盘输入混入测试表单。
-  await app.evaluate(({ BrowserWindow }) => { for (const window of BrowserWindow.getAllWindows()) window.hide() })
+  const page = await app.firstWindow()
+  // 保留真实 Electron/CDP 渲染与合成帧，仅隔离原生鼠标和键盘输入。
+  await prepareTestWindows(app)
+  await setViewportAndWait(page)
   return app
 }
 
@@ -92,7 +95,7 @@ test('三种模式经桌面桥接真实 Go 内核，Delphi 使用匿名显示', 
   try {
     const page = await app.firstWindow()
     await expect(page.getByTestId('connection-status')).toContainText('已连接')
-    await page.setViewportSize({ width: 980, height: 720 })
+    await setViewportAndWait(page, { width: 980, height: 720 })
     for (const mode of ['adjudication', 'delphi']) {
       await page.getByTestId('new-chat-button').click()
       await selectDropdown(page, 'mode-select', mode)
@@ -724,25 +727,34 @@ test('三栏拖动与方向键宽度自动保存，窄窗不覆盖首选，重�
     app = await launch(directory)
     let page = await app.firstWindow()
     await expect(page.getByTestId('connection-status')).toContainText('已连接')
-    await page.setViewportSize({ width: 1400, height: 900 })
+    await setViewportAndWait(page, { width: 1400, height: 900 })
     const left = page.getByTestId('resize-left')
     const right = page.getByTestId('resize-right')
+    await expect(left).toBeVisible()
+    await expect(left).toHaveAttribute('aria-valuenow', '218')
+    await expect(right).toBeVisible()
+    await expect(right).toHaveAttribute('aria-valuenow', '310')
     await left.focus()
+    await expect(left).toBeFocused()
     await left.press('ArrowRight')
     await expect(left).toHaveAttribute('aria-valuenow', '226')
     await right.focus()
+    await expect(right).toBeFocused()
     await right.press('Shift+ArrowLeft')
     await expect(right).toHaveAttribute('aria-valuenow', '342')
     const handle = (await left.boundingBox())!
     await page.mouse.move(handle.x + 3, handle.y + 300)
     await page.mouse.down()
+    await expect(left).toHaveClass(/\bdragging\b/)
     await page.mouse.move(handle.x + 67, handle.y + 300, { steps: 8 })
+    await expect(left).toHaveAttribute('aria-valuenow', '290')
     await page.mouse.up()
+    await expect(left).not.toHaveClass(/\bdragging\b/)
     await expect(left).toHaveAttribute('aria-valuenow', '290')
     await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('tcview.layout.v1') ?? '{}'))).toEqual({ left: 290, right: 342 })
-    await page.setViewportSize({ width: 980, height: 760 })
+    await setViewportAndWait(page, { width: 980, height: 760 })
     await expect(right).not.toBeVisible()
-    await page.setViewportSize({ width: 1400, height: 900 })
+    await setViewportAndWait(page, { width: 1400, height: 900 })
     await expect(left).toHaveAttribute('aria-valuenow', '290')
     await expect(right).toHaveAttribute('aria-valuenow', '342')
     expect(await page.locator('.main-panel').evaluate(node => node.clientWidth)).toBeGreaterThanOrEqual(420)
@@ -751,7 +763,7 @@ test('三栏拖动与方向键宽度自动保存，窄窗不覆盖首选，重�
     app = await launch(directory)
     page = await app.firstWindow()
     await expect(page.getByTestId('connection-status')).toContainText('已连接')
-    await page.setViewportSize({ width: 1400, height: 900 })
+    await setViewportAndWait(page, { width: 1400, height: 900 })
     await expect(page.getByTestId('resize-left')).toHaveAttribute('aria-valuenow', '290')
     await expect(page.getByTestId('resize-right')).toHaveAttribute('aria-valuenow', '342')
     await page.getByTestId('resize-left').press('Home')

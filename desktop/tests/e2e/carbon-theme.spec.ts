@@ -1,3 +1,5 @@
+import { prepareTestWindows } from './helpers/windows'
+import { setViewportAndWait } from './helpers/viewport'
 import { selectDropdown } from './helpers/select'
 import { test, expect, _electron as electron, type Page } from '@playwright/test'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -21,7 +23,7 @@ async function launchMock(directory: string) {
   const app = await electron.launch({ args: [resolve('.')], env })
   try {
     const page = await app.firstWindow()
-    await app.evaluate(({ BrowserWindow }) => { for (const window of BrowserWindow.getAllWindows()) window.hide() })
+    await prepareTestWindows(app)
     await expect(page.getByTestId('connection-status')).toContainText('已连接')
     return { app, page }
   } catch (error) { await app.close(); throw error }
@@ -51,7 +53,7 @@ test('Carbon 商务主题使用本地 Plex 字体，欢迎与 CLI 配置清晰�
     })
     await page.reload()
     await expect(page.getByTestId('connection-status')).toContainText('已连接')
-    await page.setViewportSize({ width: 1440, height: 920 })
+    await setViewportAndWait(page, { width: 1440, height: 920 })
     await expect(page.locator('.app-shell')).toHaveAttribute('data-theme', 'carbon')
     await expect(page.locator('.welcome')).toBeVisible()
     await expect(page.getByTestId('new-chat-button')).toHaveCSS('background-color', 'rgb(15, 98, 254)')
@@ -104,7 +106,7 @@ test('Carbon 商务主题使用本地 Plex 字体，欢迎与 CLI 配置清晰�
     await expectNoHorizontalOverflow(page)
     await screenshot(page, 'carbon-cli-settings.png')
 
-    await page.setViewportSize({ width: 820, height: 760 })
+    await setViewportAndWait(page, { width: 820, height: 760 })
     await expect(page.getByTestId('check-all-providers')).toBeInViewport()
     await page.getByTestId('provider-enabled-agy').scrollIntoViewIfNeeded()
     await expect(page.getByTestId('provider-enabled-agy')).toBeVisible()
@@ -127,7 +129,7 @@ test('Carbon 三栏拖动与键盘焦点保持可见，完成的 Mock 讨论与�
   const directory = await mkdtemp(join(tmpdir(), 'tcview-carbon-layout-'))
   const { app, page } = await launchMock(directory)
   try {
-    await page.setViewportSize({ width: 1440, height: 920 })
+    await setViewportAndWait(page, { width: 1440, height: 920 })
     const separator = page.getByTestId('resize-left')
     await separator.focus()
     await separator.press('ArrowRight')
@@ -142,8 +144,11 @@ test('Carbon 三栏拖动与键盘焦点保持可见，完成的 Mock 讨论与�
     const handle = (await separator.boundingBox())!
     await page.mouse.move(handle.x + handle.width / 2, handle.y + 200)
     await page.mouse.down()
+    await expect(separator).toHaveClass(/\bdragging\b/)
     await page.mouse.move(handle.x + handle.width / 2 + 40, handle.y + 200, { steps: 6 })
+    await expect(separator).toHaveAttribute('aria-valuenow', String(previousWidth + 40))
     await page.mouse.up()
+    await expect(separator).not.toHaveClass(/\bdragging\b/)
     await expect(separator).toHaveAttribute('aria-valuenow', String(previousWidth + 40))
     expect(await page.locator('.main-panel').evaluate(node => node.clientWidth)).toBeGreaterThanOrEqual(420)
     await selectDropdown(page, 'mode-select', 'free_debate')
@@ -155,7 +160,7 @@ test('Carbon 三栏拖动与键盘焦点保持可见，完成的 Mock 讨论与�
     await expectNoHorizontalOverflow(page)
     await screenshot(page, 'carbon-discussion.png')
 
-    await page.setViewportSize({ width: 820, height: 760 })
+    await setViewportAndWait(page, { width: 820, height: 760 })
     await expect(page.getByTestId('resize-right')).not.toBeVisible()
     const toggle = page.getByRole('button', { name: '打开方案面板' })
     await toggle.focus()
@@ -179,10 +184,13 @@ test('三栏细分隔线消除浅槽，保留双侧鼠标热区、右侧拖动�
   const { app, page } = await launchMock(directory)
   const seamEvidenceDirectory = resolve('.tcview/panel-seam-validation', new Date().toISOString().replaceAll(':', '-'))
   try {
-    await page.setViewportSize({ width: 1400, height: 900 })
+    await setViewportAndWait(page, { width: 1400, height: 900 })
     const right = page.getByTestId('resize-right')
     const inspector = page.getByRole('complementary', { name: '讨论详情' })
-    // 隐藏的 Electron 窗口可能异步投递指针事件；保留时间线以区分状态提交和额外输入。
+    await expect(right).toBeVisible()
+    await expect(right).toHaveAttribute('aria-valuenow', '310')
+    await expect(inspector).toBeVisible()
+    // 保留真实指针时间线，以区分状态提交和额外输入。
     await page.evaluate(() => {
       const separator = document.querySelector('[data-testid="resize-right"]')!
       const records: Record<string, unknown>[] = []
@@ -243,7 +251,7 @@ test('三栏细分隔线消除浅槽，保留双侧鼠标热区、右侧拖动�
     await mkdir(seamEvidenceDirectory, { recursive: true })
     await page.screenshot({ path: join(seamEvidenceDirectory, 'desktop-thin-divider.png'), fullPage: true })
 
-    await page.setViewportSize({ width: 980, height: 760 })
+    await setViewportAndWait(page, { width: 980, height: 760 })
     await expect(right).not.toBeVisible()
     await page.getByRole('button', { name: '打开方案面板' }).click()
     await expect(inspector).toBeVisible()

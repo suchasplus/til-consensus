@@ -1,3 +1,4 @@
+import { prepareTestWindows } from './helpers/windows'
 import { selectDropdown } from './helpers/select'
 import { test, expect, _electron as electron, type ElectronApplication } from '@playwright/test'
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -37,7 +38,7 @@ async function launchFixture(directory: string, options: FixtureOptions = {}) {
   try {
     const page = await app.firstWindow()
     // 真实 Electron 与 preload，所有 CLI 目录和结果仅使用下面明确标注的 Mock IPC。
-    await app.evaluate(({ BrowserWindow }) => { for (const window of BrowserWindow.getAllWindows()) window.hide() })
+    await prepareTestWindows(app)
     await expect(page.getByTestId('connection-status')).toContainText('已连接')
     await app.evaluate(({ ipcMain }, fixtureOptions) => {
       const ids = ['codex', 'claude', 'grok', 'agy']
