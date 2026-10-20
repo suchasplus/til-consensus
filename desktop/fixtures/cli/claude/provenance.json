@@ -1,0 +1,26 @@
+{
+  "description": "2026-10-20 运行本机 Claude Code 2.1.303 的真实输出脱敏摘录；删除 session/uuid、路径、插件、thinking 和签名，仅保留协议事件与项目事实。用于协议解析回归，不代表重新调用模型。",
+  "fixtures": [
+    {
+      "fixture": "native-schema-success.json",
+      "source": ".newtc/cli-audit/2026-10-20/claude/native-schema/stdout.txt",
+      "source_sha256": "4c76af14be2531d5175155d9de8f109c42da683cc72acea4dc683619c8997659",
+      "fixture_sha256": "9dba683715c96385726ce421a2e726c8054f3eb808ad8aeef8a95a0c15461a57",
+      "source_exit_code": 0
+    },
+    {
+      "fixture": "stream-success.jsonl",
+      "source": ".newtc/cli-audit/2026-10-20/claude/stream-complete/stdout.txt",
+      "source_sha256": "c3650b95d61084a63bb6aa665aed9ca2021a96980fe296dbbf8f303c89875a02",
+      "fixture_sha256": "ef00a649e2286094f9271df30a55f4b270da5356c45dbf88611aa13db477a610",
+      "source_exit_code": 0
+    },
+    {
+      "fixture": "stream-cancel.jsonl",
+      "source": ".newtc/cli-audit/2026-10-20/claude/stream-cancel/stdout.txt",
+      "source_sha256": "400d8cbf1748632a32db3ff48de5b8190a0d21584f768cfab78384ab5cab612a",
+      "fixture_sha256": "0e2eeb3eea236c2b7286a5262b67c4c3f29699fa13691bf81364f7dd60f64cf3",
+      "source_exit_code": 0
+    }
+  ]
+}

@@ -1,0 +1,3 @@
+{"type":"system","subtype":"init","model":"claude-opus-5-5","tools":[],"mcp_servers":[]}
+{"type":"stream_event","event":{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"{"}}}
+{"type":"result","subtype":"success","is_error":false,"terminal_reason":"completed","result":"{\"project_name\":\"newtc\",\"electron_version\":\"44.9.0\",\"react_version\":\"19.3.1\",\"go_version\":\"1.26.1\",\"consensus_version\":\"v0.0.0-20260803125524-b505773800a4\",\"scripts\":[\"dev\",\"start\",\"build\",\"build:host\",\"check\",\"test:host\",\"test:rpc\",\"test:e2e\",\"test\"],\"risk\":\"til-consensus 以未打 tag 的伪版本锁定某个提交，且间接依赖 openai-go 与 genai 等 HTTP SDK，说明共识层可能默认走 API 直连而非子进程 CLI；M0 接入真实 CLI 时，可能需要改动尚不稳定的上游接口，并另行处理 CLI 进程的启动、超时与输出解析。\"}"}

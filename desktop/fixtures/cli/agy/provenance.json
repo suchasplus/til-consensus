@@ -1,0 +1,46 @@
+{
+  "description": "2026-10-20 本机 agy 1.4.2 的真实输出脱敏摘录。模型使用已登录 CLI 的默认配置 gemini-3.8-flash-medium；未使用 mock、未重跑已完成请求。success 为 --mode plan --sandbox 的独立单轮；多轮 fixture 记录已观察到的陈旧 structured_output 缺陷。",
+  "official_docs": "https://www.antigravity.google/docs/cli/headless/",
+  "cli_version": "1.4.2",
+  "resolved_model": "gemini-3.8-flash-medium",
+  "fixtures": [
+    {
+      "fixture": "stream-schema-success.jsonl",
+      "source": ".newtc/cli-audit/2026-10-20/agy/schema-stream-plan-single/stdout.txt",
+      "source_sha256": "468478138d8dc06e6c69fc2622c6af93acfc03c3217a26edf29b8a309ab53684",
+      "fixture_sha256": "b7c56d10289e8da8a7617bcdee79e6ba1c6b942048d024563c9f4048d8c23df0",
+      "source_exit_code": 0,
+      "source_elapsed_ms": 63376,
+      "transformation": "逐行保留真实协议事件；递归删除 conversation_id、cwd、thinking/signature 日志字段；保留 usage token 计数与全部真实 response/structured_output。"
+    },
+    {
+      "fixture": "native-schema-result.json",
+      "source": ".newtc/cli-audit/2026-10-20/agy/schema-stream-plan-single/stdout.txt",
+      "source_sha256": "468478138d8dc06e6c69fc2622c6af93acfc03c3217a26edf29b8a309ab53684",
+      "fixture_sha256": "b211d293e7a25b84c8882d99b5ee61c1c2754daa9817e66743ac18a17f224bad",
+      "source_exit_code": 0,
+      "source_elapsed_ms": 63376,
+      "transformation": "从本次真实 stream-json 的唯一 result 事件中直接提取 result envelope。用于覆盖相同的 native JSON 终态结构；未另发 native JSON 推理请求，未构造成功内容。"
+    },
+    {
+      "fixture": "stream-cancel.jsonl",
+      "source": ".newtc/cli-audit/2026-10-20/agy/stream-cancel/stdout.txt",
+      "source_sha256": "0744f342f57e42300a68a69b0b643eb6df3d08ea2f4d74f285a009173a7158a5",
+      "fixture_sha256": "b120c3b6f7f323885e274e2887e152270aff45c4891265c34a0f37368bee68f6",
+      "source_exit_code": 1,
+      "source_elapsed_ms": 11325,
+      "transformation": "逐行保留真实协议事件；递归删除 conversation_id、cwd、thinking/signature 日志字段；保留 usage token 计数与全部真实 response/structured_output。"
+    },
+    {
+      "fixture": "stream-schema-multiturn-stale.jsonl",
+      "source": ".newtc/cli-audit/2026-10-20/agy/schema-stream-multiturn/stdout.txt",
+      "source_sha256": "b09ea5fba6e3eb2dfbb4ded8e01c1b16accd9289c3cb8e9faf9f2f30bb4818fe",
+      "fixture_sha256": "2782f0516ab0476edf0b6e128c933a59ccbca296d6bd0e1443f48140bbf4101b",
+      "source_exit_code": 0,
+      "source_elapsed_ms": 29277,
+      "transformation": "逐行保留真实协议事件；递归删除 conversation_id、cwd、thinking/signature 日志字段；保留 usage token 计数与全部真实 response/structured_output。"
+    }
+  ],
+  "protocol_constraints": "num_turns 和 step_update.user_input 包含 CLI 内部 schema 修复轮次，不能用 num_turns=1 判断独立任务。调用方须使用全新进程、禁止 --conversation/--continue/-c，只写入单个 user NDJSON 后 EOF；解析器要求唯一最终 result、SUCCESS、正 num_turns，拒绝终态之后活动及真正的多 result 会话。bare JSON 也要求调用方保证相同进程与输入前提。",
+  "internal_turn_regression_source": "stream-schema-multiturn-stale.jsonl 的首个 result 之前片段是同一真实任务的内部 schema 修复记录：num_turns=2 且有两个 user_input step。仅此任务片段可成功归约；完整的两任务捕获必须拒绝，不能从最后 structured_output 猜测对应任务。此说明不改变任何 fixture 内容。"
+}

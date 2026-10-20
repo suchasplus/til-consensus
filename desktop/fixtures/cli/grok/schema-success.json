@@ -1,0 +1,44 @@
+{
+  "text": "{\"project_name\":\"newtc\",\"electron_version\":\"44.9.0\",\"react_version\":\"19.3.1\",\"go_version\":\"1.26.1\",\"consensus_version\":\"v0.0.0-20260803125524-b505773800a4\",\"scripts\":[\"dev\",\"start\",\"build\",\"build:host\",\"check\",\"test:host\",\"test:rpc\",\"test:e2e\",\"test\"],\"risk\":\"M0 接入真实 CLI 时，host 依赖的 til-consensus 仍是未打标签的伪版本，且模块图中间接带有 openai-go 与 genai，真实子进程可能带上本机密钥向外发起不可复现的计费调用。\"}",
+  "stopReason": "end_turn",
+  "usage": {
+    "input_tokens": 12097,
+    "cache_read_input_tokens": 8832,
+    "cache_creation_input_tokens": 0,
+    "output_tokens": 1436,
+    "reasoning_tokens": 1273,
+    "total_tokens": 22365
+  },
+  "num_turns": 1,
+  "total_cost_usd": 0.01265684,
+  "total_cost_usd_ticks": 126568400,
+  "modelUsage": {
+    "grok-4.7-build": {
+      "inputTokens": 12097,
+      "outputTokens": 1436,
+      "cacheReadInputTokens": 8832,
+      "cacheCreationInputTokens": 0,
+      "modelCalls": 1,
+      "costUSD": 0.01265684
+    }
+  },
+  "structuredOutput": {
+    "project_name": "newtc",
+    "electron_version": "44.9.0",
+    "react_version": "19.3.1",
+    "go_version": "1.26.1",
+    "consensus_version": "v0.0.0-20260803125524-b505773800a4",
+    "scripts": [
+      "dev",
+      "start",
+      "build",
+      "build:host",
+      "check",
+      "test:host",
+      "test:rpc",
+      "test:e2e",
+      "test"
+    ],
+    "risk": "M0 接入真实 CLI 时，host 依赖的 til-consensus 仍是未打标签的伪版本，且模块图中间接带有 openai-go 与 genai，真实子进程可能带上本机密钥向外发起不可复现的计费调用。"
+  }
+}
