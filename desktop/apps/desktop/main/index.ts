@@ -6,8 +6,10 @@ import { isUtf8 } from 'node:buffer'
 import { createHash, randomUUID } from 'node:crypto'
 import { pathToFileURL } from 'node:url'
 import { HostClient } from './host-client'
+import { NativeNotifications } from './native-notifications'
+import { RunCompletionMonitor } from './run-completion-monitor'
 import metadata from '../../../package.json'
-import { PROTOCOL_VERSION, type HostHello, type DesktopEvent, type InputMode, type MaterialInput, type ProviderConfig } from '../../../packages/protocol/src/index'
+import { PROTOCOL_VERSION, type HostHello, type DesktopEvent, type InputMode, type MaterialInput, type ProviderConfig, type RunSnapshot, type RunSummary } from '../../../packages/protocol/src/index'
 
 const appName = metadata.productName
 app.setName(appName)
@@ -25,6 +27,43 @@ let window: BrowserWindow | null = null
 let host: HostClient | undefined
 let closing = false
 let reconnecting: Promise<HostHello> | undefined
+let notifications: NativeNotifications | undefined
+let notificationTimer: ReturnType<typeof setInterval> | undefined
+let notificationPolling = false
+let notificationRendererReady = false
+let pendingNotification: { token: string; runId: string } | null = null
+const completionMonitor = new RunCompletionMonitor({ notify: snapshot => { if (!closing) notifications?.showRun(snapshot) } })
+
+async function refreshNotificationRun(runId: string, instance: HostClient, initiated = false) {
+  try {
+    const next = await instance.request<RunSnapshot>('run.get', { runId })
+    if (host === instance && !closing) completionMonitor.observe(next, initiated)
+  } catch { /* 后台暂时不可用时保留观察，重连后用真实快照确认，不伪造失败。 */ }
+}
+
+async function reconcileNotifications() {
+  if (!host || closing || notificationPolling) return
+  const instance = host
+  notificationPolling = true
+  try {
+    const summaries = await instance.request<RunSummary[]>('run.list')
+    if (instance !== host || closing) return
+    for (const summary of summaries) completionMonitor.observeSummary(summary)
+    await Promise.all(completionMonitor.watching().map(runId => refreshNotificationRun(runId, instance)))
+  } catch { /* 已观察的运行继续保留，等待后续事件、轮询或重新连接。 */ }
+  finally { notificationPolling = false }
+}
+
+async function openNotificationRun(runId: string) {
+  if (closing) return
+  pendingNotification = { token: randomUUID(), runId }
+  if (!window || window.isDestroyed()) await createWindow()
+  if (!window) return
+  if (window.isMinimized()) window.restore()
+  window.show()
+  window.focus()
+  if (notificationRendererReady) window.webContents.send('tcview:notification-open', pendingNotification)
+}
 
 function senderAllowed(event: IpcMainInvokeEvent) {
   if (!window || event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) throw new Error('不允许的 IPC 来源')
@@ -93,14 +132,37 @@ async function readSelectedMaterial(path: string): Promise<MaterialInput> {
   } finally { await file.close() }
 }
 function bind(channel: string, method: string, params: (value: unknown) => unknown = () => ({})) {
-  ipcMain.handle(`tcview:${channel}`, (event, value: unknown) => {
+  ipcMain.handle(`tcview:${channel}`, async (event, value: unknown) => {
     senderAllowed(event)
     if (!host) throw new Error('Go 后台尚未启动')
-    return host.request(method, params(value))
+    const instance = host
+    const result = await instance.request(method, params(value))
+    if (host === instance && ['run.start', 'run.resume', 'run.branch'].includes(method)) {
+      const snapshot = result as RunSnapshot
+      completionMonitor.observe(snapshot, true)
+      // start 返回前可能已经结束；补取真实快照也覆盖事件队列丢失与快速运行。
+      void refreshNotificationRun(snapshot.id, instance, true)
+    } else if (host === instance && ['run.get', 'run.stop', 'run.delete', 'run.restore'].includes(method)) {
+      completionMonitor.observe(result as RunSnapshot)
+    }
+    return result
   })
 }
 
 function registerBridge() {
+  ipcMain.handle('tcview:notification-settings-get', event => { senderAllowed(event); return notifications!.getSettings() })
+  ipcMain.handle('tcview:notification-settings-save', (event, value: unknown) => {
+    senderAllowed(event)
+    const input = record(value)
+    if (typeof input.enabled !== 'boolean' || typeof input.soundEnabled !== 'boolean') throw new Error('通知与提示音设置必须是布尔值')
+    return notifications!.save({ enabled: input.enabled, soundEnabled: input.soundEnabled })
+  })
+  ipcMain.handle('tcview:notification-test', event => { senderAllowed(event); return notifications!.test() })
+  ipcMain.handle('tcview:notification-ready', event => { senderAllowed(event); notificationRendererReady = true; return pendingNotification })
+  ipcMain.handle('tcview:notification-ack', (event, value: unknown) => {
+    senderAllowed(event)
+    if (pendingNotification?.token === id(value)) pendingNotification = null
+  })
   bind('hello', 'hello')
   bind('list', 'run.list')
   bind('trash', 'run.trash')
@@ -206,14 +268,20 @@ async function replaceHost():Promise<HostHello> {
   if(previous) await previous.close()
   const instance=new HostClient(join(root,'dist/bin/tcview-host'),process.env.TCVIEW_DATA_DIR??join(app.getPath('userData'),'host'),process.env.TCVIEW_MOCK_DELAY_MS??'500',process.env.TCVIEW_PROVIDER_MODE??'cli')
   host=instance
-  instance.on('event',(event:DesktopEvent)=>{if(host===instance)publish(event)})
+  instance.on('event',(event:DesktopEvent)=>{
+    if (host !== instance) return
+    if (completionMonitor.handleEvent(event)) void refreshNotificationRun(event.runId, instance)
+    publish(event)
+  })
   instance.on('disconnect',(message:string)=>{if(host===instance)publish({eventId:0,runId:'',attemptId:'',type:'host.disconnected',at:new Date().toISOString(),payload:{message}})})
   const hello=await instance.request<HostHello>('hello')
   if(hello.protocolVersion!==PROTOCOL_VERSION)throw new Error(`后台协议版本不兼容：${hello.protocolVersion}`)
+  await reconcileNotifications()
   return hello
 }
 
 async function createWindow() {
+  notificationRendererReady = false
   window = new BrowserWindow({
     title: `${appName} · 共识工作室`, width: 1440, height: 920, minWidth: 980, minHeight: 680,
     backgroundColor: '#161616', show: false,
@@ -224,10 +292,11 @@ async function createWindow() {
     },
   })
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  window.webContents.on('did-start-loading', () => { notificationRendererReady = false })
   window.webContents.on('will-navigate', (event, url) => { if (url !== allowedURL && url !== `${allowedURL}/`) event.preventDefault() })
   window.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false))
   window.once('ready-to-show', () => window?.show())
-  window.on('closed', () => { window = null })
+  window.on('closed', () => { window = null; notificationRendererReady = false })
   if (devURL) await window.loadURL(devURL)
   else await window.loadFile(rendererPath)
 }
@@ -241,8 +310,11 @@ else {
       { label: '编辑', submenu: [{ role: 'undo' }, { role: 'redo' }, { type: 'separator' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
       { label: '视图', submenu: [{ role: 'reload' }, { role: 'toggleDevTools' }, { role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }] },
     ]))
+    notifications = new NativeNotifications(app.getPath('userData'), runId => { void openNotificationRun(runId).catch(() => undefined) })
+    await notifications.initialize()
     registerBridge()
     await replaceHost()
+    notificationTimer = setInterval(() => { void reconcileNotifications() }, 2000)
     await createWindow()
   }).catch(error => { console.error(error); app.quit() })
   app.on('activate', () => { if (!window && host) void createWindow() })
@@ -251,6 +323,7 @@ else {
     if (!host || closing) return
     event.preventDefault()
     closing = true
+    clearInterval(notificationTimer)
     void host.close().finally(() => app.quit())
   })
   process.on('SIGTERM', () => app.quit())

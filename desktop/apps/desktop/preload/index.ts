@@ -26,6 +26,23 @@ const api: DesktopAPI = {
   analyzeTopic: input => ipcRenderer.invoke('tcview:topic-analyze', input),
   getPreparation: id => ipcRenderer.invoke('tcview:topic-get', id),
   cancelPreparation: id => ipcRenderer.invoke('tcview:topic-cancel', id),
+  getNotificationSettings: () => ipcRenderer.invoke('tcview:notification-settings-get'),
+  saveNotificationSettings: preferences => ipcRenderer.invoke('tcview:notification-settings-save', preferences),
+  testNotification: () => ipcRenderer.invoke('tcview:notification-test'),
+  onNotificationOpen: listener => {
+    let active = true
+    let delivered = ''
+    const receive = (value: { token?: string; runId?: string } | null) => {
+      if (!active || !value || typeof value.token !== 'string' || typeof value.runId !== 'string' || delivered === value.token) return
+      delivered = value.token
+      listener(value.runId)
+      void ipcRenderer.invoke('tcview:notification-ack', value.token).catch(() => undefined)
+    }
+    const wrapped = (_event: unknown, value: { token?: string; runId?: string }) => receive(value)
+    ipcRenderer.on('tcview:notification-open', wrapped)
+    void ipcRenderer.invoke('tcview:notification-ready').then(receive).catch(() => undefined)
+    return () => { active = false; ipcRenderer.removeListener('tcview:notification-open', wrapped) }
+  },
   subscribe: listener => {
     const wrapped = (_event: unknown, value: DesktopEvent) => listener(value)
     ipcRenderer.on('tcview:event', wrapped)

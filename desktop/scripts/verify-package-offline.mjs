@@ -46,6 +46,7 @@ try {
   const first = await launch()
   app = first.instance
   const page = first.page
+  await page.evaluate(() => window.tcview.saveNotificationSettings({ enabled: false, soundEnabled: false }))
   const hello = await page.evaluate(() => window.tcview.hello())
   assert.equal(hello.providerMode, 'mock', 'CI 安装包烟测必须显式使用 Mock')
   assert.equal(hello.protocolVersion, '1.4')

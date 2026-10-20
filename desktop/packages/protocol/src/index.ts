@@ -273,6 +273,14 @@ export interface BranchRunInput {
 export type ExportFormat = 'markdown' | 'json'
 export interface ExportResult { saved: boolean; path?: string }
 
+export interface NotificationPreferences { enabled: boolean; soundEnabled: boolean }
+export interface NotificationSettings extends NotificationPreferences {
+  supported: boolean
+  error?: string
+  lastDelivery?: { status: 'shown' | 'failed' | 'timeout'; at: string; error?: string }
+}
+export interface NotificationTestResult { status: 'shown' | 'failed' | 'unsupported' | 'timeout'; error?: string }
+
 export interface DesktopAPI {
   hello(): Promise<HostHello>
   listRuns(): Promise<RunSummary[]>
@@ -298,6 +306,10 @@ export interface DesktopAPI {
   analyzeTopic(input: PreparationInput): Promise<PreparationRecord>
   getPreparation(id: string): Promise<PreparationRecord>
   cancelPreparation(id: string): Promise<PreparationRecord>
+  getNotificationSettings(): Promise<NotificationSettings>
+  saveNotificationSettings(preferences: NotificationPreferences): Promise<NotificationSettings>
+  testNotification(): Promise<NotificationTestResult>
+  onNotificationOpen(listener: (runId: string) => void): () => void
   subscribe(listener: (event: DesktopEvent) => void): () => void
 }
 

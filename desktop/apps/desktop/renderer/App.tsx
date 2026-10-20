@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import type { CSSProperties, FormEvent, KeyboardEvent, ReactNode } from 'react'
 import { usePanelLayout } from './usePanelLayout'
 import { CarbonSelect } from './CarbonSelect'
+import { NotificationSettings } from './NotificationSettings'
 import type {
   ChatMessage,
   DesktopAPI,
@@ -19,7 +20,7 @@ import type {
   RolePlan,
 } from '../../../packages/protocol/src/index'
 
-type IconName = 'plus' | 'arrow' | 'chevron' | 'layers' | 'chat' | 'check' | 'stop' | 'play' | 'close' | 'panel' | 'sidebar' | 'alert' | 'refresh' | 'settings' | 'download' | 'trash' | 'search'
+type IconName = 'plus' | 'arrow' | 'chevron' | 'layers' | 'chat' | 'check' | 'stop' | 'play' | 'close' | 'panel' | 'sidebar' | 'alert' | 'refresh' | 'settings' | 'download' | 'trash' | 'search' | 'bell'
 type DetailTab = 'proposal' | 'issues' | 'votes'
 
 function WorkspaceMark({ large = false }: { large?: boolean }) {
@@ -88,6 +89,7 @@ function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
     download: <><path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5" /></>,
     trash: <><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7" /></>,
     search: <><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" /></>,
+    bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></>,
   }
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>
 }
@@ -282,6 +284,8 @@ function App() {
   const [composerExpanded, setComposerExpanded] = useState(true)
   const [composerDockHeight, setComposerDockHeight] = useState(38)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [notificationsOpen, setNotificationsOpen] = useState(false)
+  const notificationSettingsButton = useRef<HTMLButtonElement>(null)
   const [providers, setProviders] = useState<ProviderInfo[]>([])
   const [providersLoading, setProvidersLoading] = useState(false)
   const [checkingProvider, setCheckingProvider] = useState<string | null>(null)
@@ -477,6 +481,15 @@ function App() {
   }, [api, refreshList, selectRun])
 
   useEffect(() => { void initialize() }, [initialize])
+
+  useEffect(() => {
+    if (!api) return
+    return api.onNotificationOpen((runId) => {
+      setNotificationsOpen(false)
+      setSettingsOpen(false)
+      selectRun(runId)
+    })
+  }, [api, selectRun])
 
   useEffect(() => {
     if (!api) return
@@ -856,6 +869,7 @@ function App() {
 
   const openSettings = async () => {
     if (!api) return
+    setNotificationsOpen(false)
     setSettingsOpen(true)
     setSettingsError(null)
     setSettingsNotice(null)
@@ -1068,7 +1082,7 @@ function App() {
 
     <div {...layout.separator('left')} hidden={layout.leftCollapsed} />
     <main className="main-panel" style={{ '--composer-dock-height': `${composerDockHeight}px` } as CSSProperties}>
-      <header className="topbar"><div className="topbar-navigation"><button ref={historyPanelToggle} type="button" className="icon-button history-panel-toggle" data-testid="toggle-history-panel" aria-label={layout.leftCollapsed ? '展开最近讨论' : '收起最近讨论'} title={layout.leftCollapsed ? '展开最近讨论' : '收起最近讨论'} aria-expanded={!layout.leftCollapsed} aria-controls="history-panel" onClick={toggleHistoryPanel}><Icon name="sidebar" size={17} /></button>{layout.leftCollapsed && <button type="button" className="icon-button" data-testid="new-chat-compact" aria-label="新建讨论" title="新建讨论 · ⌘N / Ctrl+N" disabled={pending === 'start' && !preparing} onClick={newDiscussion}><Icon name="plus" size={17} /></button>}<div className="breadcrumb"><span>工作空间</span><Icon name="chevron" size={12} /><strong>{snapshot?.title || '新建讨论'}</strong></div></div><div className="topbar-actions"><span className={`mock-badge ${mock ? '' : 'cli-badge'}`}><span />{mock ? 'Mock 历史 / 测试' : '真实 CLI'}</span><button className="icon-button" data-testid="provider-settings-button" onClick={() => void openSettings()} aria-label="CLI 设置与连接检查" title="CLI 设置与连接检查"><Icon name="settings" /></button><button ref={artifactsPanelToggle} type="button" className={`icon-button inspector-toggle ${artifactsVisible ? 'active' : ''}`} data-testid="toggle-artifacts-panel" onClick={() => { if (artifactsVisible) closeArtifacts(); else openArtifacts() }} aria-label={layout.narrow ? artifactsVisible ? '收起方案面板' : '打开方案面板' : artifactsVisible ? '收起讨论产物' : '展开讨论产物'} title={artifactsVisible ? '收起讨论产物' : '展开讨论产物'} aria-expanded={artifactsVisible} aria-controls="artifacts-panel"><Icon name="panel" /></button></div></header>
+      <header className="topbar"><div className="topbar-navigation"><button ref={historyPanelToggle} type="button" className="icon-button history-panel-toggle" data-testid="toggle-history-panel" aria-label={layout.leftCollapsed ? '展开最近讨论' : '收起最近讨论'} title={layout.leftCollapsed ? '展开最近讨论' : '收起最近讨论'} aria-expanded={!layout.leftCollapsed} aria-controls="history-panel" onClick={toggleHistoryPanel}><Icon name="sidebar" size={17} /></button>{layout.leftCollapsed && <button type="button" className="icon-button" data-testid="new-chat-compact" aria-label="新建讨论" title="新建讨论 · ⌘N / Ctrl+N" disabled={pending === 'start' && !preparing} onClick={newDiscussion}><Icon name="plus" size={17} /></button>}<div className="breadcrumb"><span>工作空间</span><Icon name="chevron" size={12} /><strong>{snapshot?.title || '新建讨论'}</strong></div></div><div className="topbar-actions"><span className={`mock-badge ${mock ? '' : 'cli-badge'}`}><span />{mock ? 'Mock 历史 / 测试' : '真实 CLI'}</span><button ref={notificationSettingsButton} type="button" className="icon-button" data-testid="notification-settings-button" aria-label="桌面通知设置" title="桌面通知与提示音" onClick={() => { setSettingsOpen(false); setNotificationsOpen(true) }}><Icon name="bell" /></button><button className="icon-button" data-testid="provider-settings-button" onClick={() => void openSettings()} aria-label="CLI 设置与连接检查" title="CLI 设置与连接检查"><Icon name="settings" /></button><button ref={artifactsPanelToggle} type="button" className={`icon-button inspector-toggle ${artifactsVisible ? 'active' : ''}`} data-testid="toggle-artifacts-panel" onClick={() => { if (artifactsVisible) closeArtifacts(); else openArtifacts() }} aria-label={layout.narrow ? artifactsVisible ? '收起方案面板' : '打开方案面板' : artifactsVisible ? '收起讨论产物' : '展开讨论产物'} title={artifactsVisible ? '收起讨论产物' : '展开讨论产物'} aria-expanded={artifactsVisible} aria-controls="artifacts-panel"><Icon name="panel" /></button></div></header>
 
       <section className="discussion-context" aria-label="讨论控制与信息">
       <div className="session-toolbar"><div className="mode-selector"><Icon name="layers" size={15} /><CarbonSelect data-testid="mode-select" aria-label="讨论模式" value={snapshot?.mode ?? mode} disabled={!!snapshot || (pending !== null && !preparing)} onValueChange={(value) => { if (analysisRequest.current) invalidatePreparation(); setMode(value as InputMode) }} options={modes} /></div><span className="toolbar-divider" /><span className="phase-label">{snapshot ? `${snapshot.requestedMode === 'auto' ? '自动选择 · ' : ''}${phaseName(snapshot.phase)}` : selectedMode.description}</span><div className={`run-state ${snapshot?.status ?? 'idle'}`} aria-live="polite" data-testid="run-status"><span className="state-dot" />{snapshot ? statusLabels[snapshot.status] : '准备就绪'}</div><div className="run-controls">{active && <button className="subtle-button" data-testid="stop-button" disabled={pending !== null} onClick={() => void controlRun('stop')}><Icon name="stop" size={13} />{pending === 'stop' ? '正在停止' : '停止讨论'}</button>}{canResume && <button className="subtle-button resume-button" data-testid="resume-button" disabled={pending !== null || !!runningElsewhere || connection !== 'ready' || expired} onClick={() => void controlRun('resume')}><Icon name="play" size={13} />{pending === 'resume' ? '正在恢复' : expired ? '检查点已过期' : '从检查点继续'}</button>}</div><button type="button" className="context-toggle" data-testid="toggle-discussion-context" aria-controls="discussion-context-details" aria-expanded={contextExpanded} onClick={() => setContextExpanded((value) => !value)}><Icon name="settings" size={13} />{contextExpanded ? '收起讨论信息' : '讨论信息'}<span className="panel-chevron"><Icon name="chevron" size={12} /></span></button></div>
@@ -1189,6 +1203,7 @@ function App() {
       <div className="inspector-footer"><Icon name="layers" size={14} /><span title={hello ? `Go 协调流程 · til-consensus 引擎 ${hello.engineVersion}` : 'til-consensus · 等待 Go 后台'}>til-consensus · {hello ? hello.engineVersion.slice(0, 12) : '等待后台'}</span></div>
     </aside>
     {settingsOpen && <ProviderSettings providers={providers} loading={providersLoading} checking={checkingProvider} batch={providerBatch} busy={settingsBusy} error={settingsError} notice={settingsNotice} hasActiveRun={!!runs.find(isActive)} run={snapshot} cleaningLogs={cleaningLogs} onClose={() => setSettingsOpen(false)} onCheck={checkProvider} onCheckAll={checkAllProviders} onStopBatch={stopProviderBatch} onSave={saveProviderSettings} onReset={resetProviderSettings} onReload={reloadProviderModels} onClearLogs={() => void clearDiagnostics()} />}
+    {notificationsOpen && api && <NotificationSettings api={api} onClose={() => { setNotificationsOpen(false); requestAnimationFrame(() => notificationSettingsButton.current?.focus()) }} />}
   </div>
 }
 
