@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "module": "github.com/suchasplus/til-consensus",
+  "algorithm": "tcview-execution-source-sha256-v1",
+  "purpose": "精确执行源码身份迁移基线；默认构建始终使用当前仓库 go.work，此清单不再选择远端内核。",
+  "baseline": {
+    "engineVersion": "e9121310e9971179d3d902ee5b2a36bd61eb1553",
+    "sourceHash": "6b13f2d444d23c53ce64e9ec55ddf82e5593d0d602aba3951e14bd774ca7ad59",
+    "sourceFiles": 171,
+    "provenance": {
+      "engineModuleVersion": "v0.0.0-20261019194904-e9121310e997",
+      "engineTreeCommit": "e9121310e9971179d3d902ee5b2a36bd61eb1553",
+      "importedDesktopVersion": "0.6.0",
+      "verification": "迁移时已确认 origin/main 的完整内核树与 engineTreeCommit 相同；desktop/services/host 的全部生产 Go 文件及 go.mod/go.sum 与 TCView 0.6.0 原始工作目录逐字节相同。",
+      "workspaceNormalization": "仅新增根 go.work：go 1.27.1，use . 与 ./desktop/services/host；保留两个原始 Go module 及 host require 版本。"
+    }
+  },
+  "fingerprint": {
+    "inputs": "根模块及 desktop/services/host 的生产 .go（含未跟踪文件，不含 _test.go）；两个模块的 go.mod/go.sum；根 go.work。",
+    "exclusions": "desktop 中除 services/host 以外的文件，隐藏目录和 Go 忽略的 _ 前缀文件/目录，testdata、vendor、node_modules、dist、release、references、out、tmp、logs、bin，以及其他嵌套 Go module。",
+    "encoding": "先写算法名及 LF；按仓库相对 POSIX 路径排序，每项写 path + NUL + sha256(file bytes) 小写十六进制 + LF；对整份流计算 SHA-256。",
+    "mapping": "仅当 sourceHash 完全等于 baseline.sourceHash 时返回 baseline.engineVersion；其他源码返回 source-sha256:<完整 sourceHash>。Git revision 与 dirty 单独记录，不参与恢复身份。"
+  }
+}

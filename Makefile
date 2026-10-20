@@ -13,7 +13,7 @@ COVERPROFILE ?= $(COVERAGE_DIR)/cover.out
 COVERAGE_SVG ?= $(COVERAGE_DIR)/coverage.svg
 GO_COVER_TREEMAP_PKG ?= github.com/nikolaydubina/go-cover-treemap@latest
 VERSION_PKG ?= github.com/suchasplus/til-consensus/internal/buildinfo
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+VERSION ?= $(shell git describe --tags --match 'v[0-9]*' --always --dirty 2>/dev/null || echo dev)
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 BUILD_TIME ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 BUILD_MACHINE ?= $(shell hostname 2>/dev/null || echo unknown)
@@ -29,7 +29,7 @@ else
 INSTALL_DIR ?= $(HOME)/.local/bin
 endif
 
-.PHONY: fmt fmt-check test test-e2e test-e2e-real test-e2e-real-api vet lint pre-push install-git-hooks ci build build-debug build-release release-archive install run cover coverage-treemap clean
+.PHONY: fmt fmt-check test test-e2e test-e2e-real test-e2e-real-api vet lint pre-push install-git-hooks ci build build-debug build-release release-archive install run cover coverage-treemap clean desktop-install desktop-start desktop-check desktop-test desktop-package
 
 fmt:
 	@bash "$(GOFMT_FILES_SCRIPT)" write
@@ -129,3 +129,19 @@ coverage-treemap:
 
 clean:
 	rm -rf $(BIN_DIR) $(DIST_DIR) $(COVERAGE_DIR) coverage.out cover.out
+
+# TCView 与公共 SDK 共仓；npm／Go host 依赖仍在 desktop 中独立维护。
+desktop-install:
+	cd desktop && npm ci
+
+desktop-start:
+	cd desktop && npm start
+
+desktop-check:
+	cd desktop && npm run check && npm run test:build-env
+
+desktop-test:
+	cd desktop && npm test
+
+desktop-package:
+	cd desktop && TCVIEW_RELEASE=1 npm run package:mac

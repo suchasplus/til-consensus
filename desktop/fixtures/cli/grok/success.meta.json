@@ -1,0 +1,40 @@
+{
+  "source": "Grok Build 1.0.62 (1474f9cbdd91), native CLI, real newtc package.json and services/host/go.mod, 2026-10-20",
+  "redactions": [
+    "thought contents and events",
+    "available_commands events",
+    "cwd",
+    "sessionId",
+    "requestId",
+    "usage.signature"
+  ],
+  "probes": [
+    {
+      "name": "native-schema-json-logged-in",
+      "exitCode": 0,
+      "elapsedMs": 23719,
+      "cancellationRequested": false,
+      "cancellationMs": null,
+      "timedOut": false
+    },
+    {
+      "name": "native-stream-complete-logged-in",
+      "exitCode": 0,
+      "elapsedMs": 27767,
+      "cancellationRequested": false,
+      "cancellationMs": null,
+      "timedOut": false
+    },
+    {
+      "name": "native-stream-cancel-logged-in",
+      "exitCode": 130,
+      "elapsedMs": 53262,
+      "cancellationRequested": true,
+      "cancellationMs": 51155,
+      "timedOut": false
+    }
+  ],
+  "cliVersion": "grok 1.0.62 (1474f9cbdd91)",
+  "versionEvidence": "grok/version-logged-in/stdout.txt (version captured before this logged-in probe batch)",
+  "versionNote": "早期未登录检查记录为 grok 1.0.34 (3736acbc8658)；登录后这一批调用前记录为 grok 1.0.62 (1474f9cbdd91)。只记录观察到的版本变化，不推断变化原因。"
+}

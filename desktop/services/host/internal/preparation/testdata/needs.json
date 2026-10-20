@@ -1,0 +1,18 @@
+{
+  "classification": {
+    "recommendation": "needs_clarification",
+    "confidence": 0.82,
+    "summary": "任务已有预算边界，但尚缺迁移期限。",
+    "why": ["材料明确了预算", "迁移期限会改变方案选择"],
+    "missingInformation": ["最晚需要何时完成迁移？"],
+    "estimatedModeAfterClarification": "free_debate",
+    "estimatedModeReason": "补齐期限后需要比较实施方案。",
+    "suggestedTask": "在预算与迁移期限约束下比较实施方案。"
+  },
+  "materialAnalysis": {
+    "summary": "已读取一份用户提供的预算说明；材料不是已验证事实。",
+    "materials": [{"materialId": "spec", "summary": "材料声明预算上限。", "keyPoints": [{"quote": "预算不得超过 100 万元。", "meaning": "这是用户提供的费用边界。"}]}],
+    "gaps": [{"question": "最晚需要何时完成迁移？", "importance": "required", "materialIds": ["spec"]}],
+    "limitations": ["未独立核验材料真实性，未读取其他文件或执行命令。"]
+  }
+}

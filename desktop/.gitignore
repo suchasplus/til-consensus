@@ -1,0 +1,14 @@
+node_modules
+dist/
+release/
+.package-stage/
+go.work
+go.work.sum
+.tcview/
+# 私有历史验收记录；当前应用不再读取该目录。
+.newtc/
+test-results/
+playwright-report/
+.DS_Store
+*.log
+

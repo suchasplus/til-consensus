@@ -1,0 +1,26 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "terminal_reason": "completed",
+  "result": "{\"project_name\":\"newtc\",\"electron_version\":\"44.9.0\",\"react_version\":\"19.3.1\",\"go_version\":\"1.26.1\",\"consensus_version\":\"v0.0.0-20260803125524-b505773800a4\",\"scripts\":[\"dev\",\"start\",\"build\",\"build:host\",\"check\",\"test:host\",\"test:rpc\",\"test:e2e\",\"test\"],\"risk\":\"til-consensus 锁定的是未打标签的伪版本提交，且间接引入了 openai-go 和 genai 等 HTTP SDK，M0 接入真实 CLI 时可能误走直连 API 路径，或因上游提交变动导致 CLI 适配接口不兼容。\"}",
+  "structured_output": {
+    "project_name": "newtc",
+    "electron_version": "44.9.0",
+    "react_version": "19.3.1",
+    "go_version": "1.26.1",
+    "consensus_version": "v0.0.0-20260803125524-b505773800a4",
+    "scripts": [
+      "dev",
+      "start",
+      "build",
+      "build:host",
+      "check",
+      "test:host",
+      "test:rpc",
+      "test:e2e",
+      "test"
+    ],
+    "risk": "til-consensus 锁定的是未打标签的伪版本提交，且间接引入了 openai-go 和 genai 等 HTTP SDK，M0 接入真实 CLI 时可能误走直连 API 路径，或因上游提交变动导致 CLI 适配接口不兼容。"
+  }
+}
